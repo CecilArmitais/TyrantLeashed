@@ -67,7 +67,7 @@ def api(tmp_path):
                        init={"time": T, "version": "80.560", "daily_bonus_time": str(T + 7200),
                              "guild_donations_enabled": 1, "guild_supplies_enabled": 1,
                              "user_data": {"last_update_time": str(T - 5), "user_id": "1000001"},
-                             "active_brawl_data": {"start_time": str(T - 3600), "end_time": str(T + 86400)}})
+                             "some_event": {"start_time": str(T - 3600), "end_time": str(T + 86400)}})
     return ga.GameApi(fixture_dir=d, clock=lambda: NOW)
 
 
@@ -76,7 +76,7 @@ def test_replay_shifts_to_now_and_echoes_request(api):
     assert r["time"] == NOW
     assert r["daily_bonus_time"] == str(NOW + 7200)
     assert r["user_data"]["last_update_time"] == str(NOW)      # from the player's save, which starts now
-    assert r["active_brawl_data"] == {"start_time": str(NOW - 3600), "end_time": str(NOW + 86400)}
+    assert r["some_event"] == {"start_time": str(NOW - 3600), "end_time": str(NOW + 86400)}
     assert r["request"]["message"] == "init" and r["request"]["password"] == "x"
     assert len(r["request"]["__request_fingerprint"]) == 40
 

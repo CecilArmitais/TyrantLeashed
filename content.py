@@ -25,7 +25,7 @@ TIERED_ITEM_TYPE = 10                           # ...and as a tiered box (a row 
 BOX_BANNER_TEXT = "New Event Box!"              # the banner's ribbon for a box (ours; "" shows "0")
 
 TEMPLATE = '''# What's on offer in this Tyrant Unleashed server: the store, event boxes, the raid,
-# guild wars, guild donations, other players as arena rivals and the daily crate. (Events and guild brawls will go here too once the
+# brawls, guild wars, guild donations, other players as arena rivals and the daily crate. (Events and guild brawls will go here too once the
 # server has them.)
 #
 # Edit this file while the server runs; the game shows the change after a reload.
@@ -73,6 +73,18 @@ days = 3
 # The boss's health as a percentage of the real one, which was made for a whole guild
 # of up to 50 players. Lower it for a server with few players.
 health_percent = 100
+
+[brawls]
+# A brawl to run (battle_events_h52.xml), by id; 0 for none (the default). The last solo
+# brawl the game ran was Winter's Kiss Brawl (344, Nov 13-16, 2026), the last guild one
+# the Whiteout Guild Brawl (343):
+#   brawl = 344
+# It runs for its own length (most ran 78 hours), then three days to claim; after that it
+# starts again. It's on the Battle screen, for players rated above 100: each fight, for
+# 1 of 25 brawl energy (one back every 30 minutes), is against another player near your
+# brawl points, their defense deck played by the AI. A guild brawl needs a guild, and
+# ranks guilds.
+brawl = 0
 
 [wars]
 # A guild war event to run (faction_wars_fp3.xml), by id; 0 for none (the default). The
@@ -150,6 +162,7 @@ class Content:
     raid_health_percent: float = 100.0
     guild_donations: bool = True
     gold_per_point: int = 100
+    brawl_event: int = 0
     war_event: int = 0
     war_days: int = 3
     war_min_members: int = 5
@@ -201,6 +214,11 @@ def parse(text: str) -> Content:
         c.raid_health_percent = float(pct)
     else:
         problems.append("raids.health_percent: needs a number above 0")
+    brawl = (data.get("brawls") or {}).get("brawl", 0)
+    if isinstance(brawl, int) and not isinstance(brawl, bool) and brawl >= 0:
+        c.brawl_event = brawl
+    else:
+        problems.append("brawls.brawl: needs a brawl id (0 for none)")
     wars = data.get("wars") or {}
     whole = lambda v: isinstance(v, int) and not isinstance(v, bool)          # noqa: E731
     number = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool)  # noqa: E731

@@ -1,5 +1,5 @@
 """What's on offer in the game: the store's packs and promos, event boxes, the raid,
-guild donations and the daily crate. Later also events and guild brawls.
+guild donations, other players as arena rivals and the daily crate. Later also events and guild brawls.
 
 Kept in state/content.toml, a file meant to be edited by hand. The first start
 writes it with the defaults (the store as recorded, no boxes) and comments on every
@@ -25,7 +25,7 @@ TIERED_ITEM_TYPE = 10                           # ...and as a tiered box (a row 
 BOX_BANNER_TEXT = "New Event Box!"              # the banner's ribbon for a box (ours; "" shows "0")
 
 TEMPLATE = '''# What's on offer in this Tyrant Unleashed server: the store, event boxes, the raid,
-# guild donations and the daily crate. (Events and guild brawls will go here too once the
+# guild donations, other players as arena rivals and the daily crate. (Events and guild brawls will go here too once the
 # server has them.)
 #
 # Edit this file while the server runs; the game shows the change after a reload.
@@ -82,6 +82,15 @@ health_percent = 100
 donations = true
 gold_per_point = 100
 
+[arena]
+# The Battle button's rivals. Besides the AI rivals, other players of this server can be
+# on your list: those within rank_reach battle ranks of yours (the real game's lists, at
+# rank 5, had players of ranks 4 to 6), each with player_chance of being picked whenever
+# the list changes (after a win, or a refresh). Fighting a player is fighting their
+# defense deck, played by the AI; they get a report of it. 0 for AI rivals only.
+player_chance = 0.5
+rank_reach = 1
+
 [daily_bonus]
 # The crate on the home screen. It's ready again this many hours after it's opened (a
 # new save's first one 30 minutes after it starts, as recorded).
@@ -119,6 +128,8 @@ class Content:
     raid_health_percent: float = 100.0
     guild_donations: bool = True
     gold_per_point: int = 100
+    arena_player_chance: float = 0.5
+    arena_rank_reach: int = 1
     crate_every_hours: int = DEFAULT_EVERY_HOURS
     crate_rewards: tuple[Reward, ...] = DEFAULT_REWARDS
     problems: list[str] = field(default_factory=list)      # what in the file couldn't be used
@@ -173,6 +184,17 @@ def parse(text: str) -> Content:
         c.gold_per_point = gpp
     else:
         problems.append("guilds.gold_per_point: needs a whole number of gold, 1 or more")
+    arena = data.get("arena") or {}
+    chance = arena.get("player_chance", 0.5)
+    if isinstance(chance, (int, float)) and not isinstance(chance, bool) and 0 <= chance <= 1:
+        c.arena_player_chance = float(chance)
+    else:
+        problems.append("arena.player_chance: needs a number from 0 to 1")
+    reach = arena.get("rank_reach", 1)
+    if isinstance(reach, int) and not isinstance(reach, bool) and reach >= 0:
+        c.arena_rank_reach = reach
+    else:
+        problems.append("arena.rank_reach: needs a whole number of ranks, 0 or more")
     crate = data.get("daily_bonus") or {}
     every = crate.get("every_hours", DEFAULT_EVERY_HOURS)
     if isinstance(every, int) and every > 0:

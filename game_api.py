@@ -20,6 +20,9 @@ every account identifier replaced):
   unlockCommander        real logic: Promote, a commander and bonus cards for a
                          promotion point
   getBattleReports       real logic: the Reports tab, the player's recent arena fights
+                         and other players' fights against their defense deck
+  startRevengeBattle     with --engine, real logic: a report's Revenge button, a fight
+                         against the attacker's defense deck (arena.py)
   buyPackGold,           real logic: the Basic Pack, the Epic Pack, the gold Basic Pack
   buyPackTokens,         bundles and base-set faction packs (the Blight Pack), with the
   buyStorePromoGold,     game's published drop rates (packs.py), and event boxes
@@ -159,6 +162,7 @@ NAME_LENGTH = 20                    # ours: the real limit isn't known
 DEFAULT_STAMINA_REFILL_COST = 30    # wb_stamina_cost in the recorded init
 DEFAULT_REFRESH_COST = 50           # gold_rivals_cost in the recorded init
 ARENA_START = "startHuntingBattle"
+REVENGE_START = "startRevengeBattle"    # a report's Revenge button: target_user_id, reported_time
 # An arena fight's battle fields, as recorded (no battleground effect).
 ARENA_FIELDS = {"kv_store": [], "effect_id": 0, "battleground_effect": {"card_uid": 0},
                 "battleground_effects": {"global": [{"card_uid": 0}], "attacker": [], "defender": []}}
@@ -181,7 +185,7 @@ VOLATILE_PARAMS = frozenset({
     "battle_id", "host_id",
 })
 NOT_REPLAYED = frozenset({"getUserAccount", "init", "recordEvent"})  # handled without the replay library
-BATTLE_STARTS = frozenset({"startMission", "startHuntingBattle"})     # replies with a new battle_data
+BATTLE_STARTS = frozenset({"startMission", "startHuntingBattle", "startRevengeBattle"})  # replies with a new battle_data
 BATTLE_TURN = "playCard"
 
 SHIFT_WINDOW_S = 365 * 86400       # timestamps this close to the recorded server time are "live"
@@ -771,6 +775,8 @@ class GameApi:
             return self._start_engine_battle(params)
         if self.battle_engine and message == ARENA_START and self.player() is not None:
             return self._start_arena_battle(params)
+        if self.battle_engine and message == REVENGE_START and self.player() is not None:
+            return self._start_revenge(params)
         key = request_key(message, params)
         name = battle_name(message, params)
         scripts = self.scripts.get(key)
@@ -854,10 +860,17 @@ class GameApi:
         deck = (decks or {}).get(self._active_deck_id())
         if deck is None:
             raise NotSupported("there is no active deck.")
-        ids = [cid for cid, n in deck["cards"].items() for _ in range(n)]
+        return self._deck_cards(deck, cards, "your deck")
+
+    @staticmethod
+    def _deck_cards(deck: dict, cards: CardDB, whose: str):
+        """A saved deck ({"commander_id", "cards": {id: count}}) as (commander, cards)."""
+        if not deck or not deck.get("commander_id"):
+            raise NotSupported(f"{whose} has no commander.")
+        ids = [cid for cid, n in (deck.get("cards") or {}).items() for _ in range(int(n))]
         missing = [i for i in [deck["commander_id"], *ids] if cards.get(i) is None]
         if missing:
-            raise NotSupported(f"cards {', '.join(map(str, missing))} of your deck aren't in the card data.")
+            raise NotSupported(f"cards {', '.join(map(str, missing))} of {whose} aren't in the card data.")
         return cards[deck["commander_id"]], [cards[i] for i in ids]
 
     def _start_engine_battle(self, params: dict) -> tuple[dict, str]:
@@ -906,7 +919,7 @@ class GameApi:
             won = battle.winner == 1
             how += " (you won)" if won else " (you lost)"
             if b.get("rival"):
-                result = self._finish_hunt(b["rival"], won, b["id"], battle)
+                result = self._finish_hunt(b["rival"], won, b["id"], battle, revenge=bool(b.get("revenge")))
                 rewards = result.rewards
             else:
                 result = self._finish_mission(b["mission_id"], won)
@@ -934,7 +947,8 @@ class GameApi:
             raise NotSupported("that isn't the battle in progress.")
         self.battle = None
         if b.get("rival"):
-            result = self._finish_hunt(b["rival"], False, b["id"], b["engine"].battle if "engine" in b else None)
+            result = self._finish_hunt(b["rival"], False, b["id"], b["engine"].battle if "engine" in b else None,
+                                       revenge=bool(b.get("revenge")))
             rewards = result.rewards
         else:
             result = self._finish_mission(b["mission_id"], False) if b.get("mission_id") else None
@@ -969,8 +983,49 @@ class GameApi:
                                **{k: self._start[k] for k in keys if k in self._start}}, params)
         out = {k: parts[k] for k in keys if k in parts}
         out["arena_battle_info"] = self._arena_info()
-        out["hunting_targets"] = arena.targets_json(self.player().arena, self._engine_data()[0], self.settings().arena_gold.effective)
+        out["hunting_targets"] = self._targets(self.player())
         return out
+
+    def _player_rival(self, user_id) -> arena.PlayerRival | None:
+        """Another player as an arena rival; None if they can't be one: no save, not yet
+        past the arena's tutorial fight, or a defense deck the engine can't play."""
+        player = self._player_of(user_id)
+        a = (player.arena if player is not None else None) or {}
+        if player is None or int(a.get("hunting_wins", 0)) < 1:
+            return None
+        try:
+            commander, _ = self._deck_cards(self._defense_deck_of(player), self._engine_data()[0], "the deck")
+        except NotSupported:
+            return None
+        guild = self.guild_store.of_member(int(user_id))
+        return arena.PlayerRival(int(user_id), player.name or f"Player{user_id}", int(a["rating"]),
+                                 int(a["level"]), commander.id, guild["name"] if guild else None)
+
+    def _arena_candidates(self) -> list[arena.PlayerRival]:
+        """Every other player who can be a rival now."""
+        found = (self._player_rival(uid) for uid in self.player_ids() if uid != self.uid)
+        return [p for p in found if p is not None]
+
+    def _player_rivals(self, player: Player) -> list[arena.PlayerRival]:
+        """The other players on the current player's rivals list (picked again when the
+        list changes: arena.matched_players), as they are now. None with one player."""
+        if self.single_player:
+            return []
+        c = self.content()
+        ids, picked = arena.matched_players(player.arena, self._arena_candidates, self.rng_factory(),
+                                            c.arena_player_chance, c.arena_rank_reach)
+        if picked:
+            self.player_store.save(player)
+        found = (self._player_rival(uid) for uid in ids if uid != self.uid)
+        return [p for p in found if p is not None]
+
+    def _rivals(self, player: Player) -> list[dict]:
+        """The current player's rivals list (arena.py): AI rivals, and other players."""
+        return arena.rival_list(player.arena, self._engine_data()[0], self.settings().arena_gold.effective,
+                                self._player_rivals(player))
+
+    def _targets(self, player: Player) -> dict:
+        return {str(r["user_id"]): r for r in self._rivals(player)}
 
     def _hunting_targets(self, params: dict) -> tuple[dict, str]:
         """getHuntingTargets: the rivals from the save (arena.py), in the recorded
@@ -983,20 +1038,56 @@ class GameApi:
             reply["result"] = True
             reply["user_data"] = self.current_user_data(params)
         player = self.player()
-        reply["hunting_targets"] = arena.targets_json(player.arena, self._engine_data()[0], self.settings().arena_gold.effective)
+        reply["hunting_targets"] = self._targets(player)
         reply["arena_battle_info"] = self._arena_info()
         return reply, f"rivals: {len(reply['hunting_targets'])} (rating {player.arena['rating']})"
 
     def _start_arena_battle(self, params: dict) -> tuple[dict, str]:
-        """startHuntingBattle target_user_id: a real fight against an AI rival, for 1
-        stamina."""
+        """startHuntingBattle target_user_id: a real fight, for 1 stamina, against an AI
+        rival or another player's defense deck (played by the AI)."""
         player = self.player()
         tid = str(params.get("target_user_id"))
-        rival = next((r for r in arena.rival_list(player.arena, self._engine_data()[0], self.settings().arena_gold.effective) if str(r["user_id"]) == tid), None)
+        rival = next((r for r in self._rivals(player) if str(r["user_id"]) == tid), None)
         if rival is None:
             raise NotSupported(f"rival {tid} isn't on your rivals list.")
+        return self._fight_rival(params, player, rival)
+
+    def _start_revenge(self, params: dict) -> tuple[dict, str]:
+        """startRevengeBattle target_user_id reported_time: a defence report's Revenge
+        button. A fight against the attacker's defense deck, like fighting them from the
+        rivals list (stamina, gold, rating); each report of a lost defense gives one."""
+        player = self.player()
+        tid, when = str(params.get("target_user_id")), str(params.get("reported_time"))
+        report = arena.defence_report(player.arena, tid, when)
+        if report is None or report.get("revenge", arena.NO_REVENGE) != arena.REVENGE_OPEN:
+            words = ("There's no fight of theirs against you to take revenge for." if report is None
+                     else f"You've already taken revenge on {report['name']} for that fight."
+                     if report.get("revenge") == arena.REVENGE_TAKEN
+                     else f"Your defense held against {report['name']}: there's nothing to avenge."
+                     if report.get("victory")
+                     else f"That was a revenge by {report['name']}: it can't be avenged.")
+            return self._refuse(params, words), f"refused revenge on {tid}: {words}"
+        other = self._player_rival(tid)
+        if other is None:
+            words = f"{report['name']} can't be fought now (no deck to fight)."
+            return self._refuse(params, words), f"refused revenge on {tid}: {words}"
+        rival = arena.player_entry(other, player.arena["rating"], self.settings().arena_gold.effective)
+        return self._fight_rival(params, player, rival, revenge=report)
+
+    def _fight_rival(self, params: dict, player: Player, rival: dict, revenge: dict | None = None):
+        """Starts an arena fight against a rival entry (hunting_targets'), for 1 stamina:
+        an AI rival's generated deck, or a player's defense deck, played by the AI.
+        revenge: the defence report it avenges (closed once the fight starts)."""
+        tid = str(rival["user_id"])
         cards, _ = self._engine_data()
         commander, deck = self._player_deck(cards)
+        if int(rival["user_id"]) > 0:                    # another player: their defense deck
+            enemy_commander, enemy_deck = self._deck_cards(
+                self._defense_deck_of(self._player_of(rival["user_id"])), cards, f"{rival['name']}'s defense deck")
+            whose = f"player {tid}'s defense deck"
+        else:
+            enemy_commander, enemy_deck = arena.rival_deck(rival, cards)
+            whose = tid
         a = player.arena
         if a["stamina"] < arena.STAMINA_COST:
             reply = self._refuse(params, f"Not enough stamina: a fight needs {arena.STAMINA_COST}, and you have "
@@ -1005,8 +1096,9 @@ class GameApi:
             return reply, f"refused arena fight: stamina {a['stamina']}"
         before = a["stamina"]
         a["stamina"] -= arena.STAMINA_COST
+        if revenge is not None:
+            revenge["revenge"] = arena.REVENGE_TAKEN
         self.player_store.save(player)
-        enemy_commander, enemy_deck = arena.rival_deck(rival, cards)
         rng = self.rng_factory()
         battle = Battle(Setup(commander, shuffled_deck(deck, FIRST_UID[ATTACKER], rng), enemy_commander,
                               shuffled_deck(enemy_deck, FIRST_UID[DEFENDER], rng)), cards=cards)
@@ -1014,25 +1106,28 @@ class GameApi:
         session = BattleSession(battle, battle_id, str(self.uid),
                                 extra={**ARENA_FIELDS, "enemy_id": tid, "enemy_name": rival["name"]})
         turns = battle.start()
-        self.battle = {"id": str(battle_id), "name": f"arena {tid} ({rival['name']})", "mission_id": None,
-                       "engine": session, "rival": rival}
+        kind = "revenge on" if revenge is not None else "arena"
+        self.battle = {"id": str(battle_id), "name": f"{kind} {tid} ({rival['name']})", "mission_id": None,
+                       "engine": session, "rival": rival, "revenge": revenge is not None}
         reply = self.envelope(params)
         reply["result"] = True
         reply["user_data"] = self.current_user_data(params)
         reply["battle_data"] = session.start_data(turns)
-        reply["hunting_targets"] = arena.targets_json(player.arena, self._engine_data()[0], self.settings().arena_gold.effective)
-        return reply, (f"engine: started arena fight with {rival['name']} ({tid}, rated {rival['hunting_elo']}): "
+        reply["hunting_targets"] = self._targets(player)
+        what = "revenge on" if revenge is not None else "arena fight with"
+        return reply, (f"engine: started {what} {rival['name']} ({whose}, rated {rival['hunting_elo']}): "
                        f"{len(deck)} cards against {len(enemy_deck)}; stamina {before} -> {a['stamina']}")
 
     def _battle_reports(self, params: dict) -> tuple[dict, str]:
         """getBattleReports (no parameters): the player's recent arena fights, newest
-        first, as recorded (only `battle_reports`, no `result`). Nobody attacks the
-        offline player, so there are no defence reports and nothing to take revenge on."""
+        first, as recorded (only `battle_reports`, no `result`): their own, and other
+        players' fights against their defense deck (with a Revenge button)."""
         reply = self.envelope(params)
         reply["battle_reports"] = arena.reports_json(self.player().arena, self.uid)
         return reply, f"battle reports: {len(reply['battle_reports'])}"
 
-    def _finish_hunt(self, rival: dict, won: bool, battle_id=None, battle=None) -> arena.HuntResult:
+    def _finish_hunt(self, rival: dict, won: bool, battle_id=None, battle=None,
+                     revenge: bool = False) -> arena.HuntResult:
         player = self.player()
         result = arena.finish_hunt(player, rival, won, self.reward_rules.loss_mult, int(self.clock()),
                                    self.uid, battle_id)
@@ -1045,6 +1140,14 @@ class GameApi:
                 self._ach_ready = [a.name for a in ready]
         self._track(player)                      # the rating
         self.player_store.save(player)
+        rid = int(rival["user_id"])
+        if rid > 0 and rid != self.uid:          # another player's defense deck: tell them
+            store = self._store_for(rid)
+            defender = store.load() if store is not None else None
+            if defender is not None and defender.arena is not None:
+                arena.file_defence_report(defender.arena, self.uid, player.name or f"Player{self.uid}", not won,
+                                          int(self.clock()), battle_id, revenge=not revenge)
+                store.save(defender)
         return result
 
     def _finish_mission(self, mission_id, won: bool) -> MissionResult | None:
@@ -1308,6 +1411,12 @@ class GameApi:
         default = str((self._start.get("user_data") or {}).get("active_deck") or next(iter(start), ""))
         return decks.get(default) or {}
 
+    def _defense_deck_of(self, player: Player) -> dict:
+        """A player's defense deck (user_data.defense_deck), or their active deck while
+        that's unset or empty."""
+        defense = (player.decks or {}).get(player.defense_deck or "")
+        return defense if defense and defense.get("commander_id") else self._deck_of(player)
+
     def _last_active(self, user_id) -> int:
         if int(user_id) == self.uid or self.single_player:
             return int(self.clock())
@@ -1471,7 +1580,7 @@ class GameApi:
             return reply, f"profile of {target}: not in your guild"
         player = self._player_of(target)
         deck = self._deck_of(player)
-        defense = (player.decks or {}).get(player.defense_deck or "") or deck
+        defense = self._defense_deck_of(player)
         as_json = lambda d: {"commander_id": d.get("commander_id", 0),                      # noqa: E731
                              "cards": [c for c, n in (d.get("cards") or {}).items() for _ in range(n)]}
         stars = sum(int(bool(m.get("complete"))) + int(bool(m.get("star2"))) + int(bool(m.get("star3")))

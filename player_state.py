@@ -176,9 +176,11 @@ class Player:
 
 
 ARENA_FIELDS = ("stamina", "stamina_updated", "max_stamina", "rating", "hunting_wins", "level",
-                "promotion_points", "hunts_fought", "rival_order", "refreshes", "unlock_rarity", "reports")
-# Arena fields added later, filled in for saves that don't have them.
-ARENA_DEFAULTS = {"refreshes": 0, "unlock_rarity": 2, "reports": []}
+                "promotion_points", "hunts_fought", "rival_order", "refreshes", "unlock_rarity", "reports",
+                "matched", "matched_for")
+# Arena fields added later, filled in for saves that don't have them. matched: the other
+# players on the rivals list, picked when the list was at matched_for (arena.match_key).
+ARENA_DEFAULTS = {"refreshes": 0, "unlock_rarity": 2, "reports": [], "matched": [], "matched_for": []}
 
 
 def arena_from_start(start: dict, now: int) -> dict:
@@ -193,7 +195,7 @@ def arena_from_start(start: dict, now: int) -> dict:
             "level": max(int(ud.get("level") or 1), level_for(rating)),
             "promotion_points": int(ud.get("promotion_points") or 0),
             "hunts_fought": int(((start.get("arena_battle_info") or {}).get("hunts_fought")) or 0),
-            "rival_order": [], "refreshes": 0, "reports": [],
+            "rival_order": [], "refreshes": 0, "reports": [], "matched": [], "matched_for": [],
             "unlock_rarity": int(ud.get("commander_unlock_rarity") or ARENA_DEFAULTS["unlock_rarity"])}
 
 

@@ -107,7 +107,7 @@ def test_the_save_keeps_the_arena_and_refills_stamina(tmp_path):
     p = store.current(start, 60)
     assert p.arena == {"stamina": 15, "stamina_updated": T, "max_stamina": 15, "rating": 0, "hunting_wins": 0,
                        "level": 1, "promotion_points": 0, "hunts_fought": 0, "rival_order": [], "refreshes": 0,
-                       "unlock_rarity": 2, "reports": []}
+                       "unlock_rarity": 2, "reports": [], "matched": [], "matched_for": []}
     p.arena["stamina"], p.arena["stamina_updated"] = 10, T
     store.save(p)
     clock[0] = T + 900 * 3 + 100                                         # 3 points, 100 s towards the 4th

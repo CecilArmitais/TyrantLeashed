@@ -5,7 +5,7 @@ the AI rivals' names and some rules.
 
 From the recordings (a new account's first two arena fights, and the account's own
 rivals lists):
-- The rivals offline are AI players ("NPCs", negative ids). Until the first arena win
+- The new account's rivals were AI players ("NPCs", negative ids). Until the first arena win
   the list is only the tutorial rival, -1 "Riaz" (commander Ascaris, 1 health). After
   it, nine rivals, -2 to -10, rated 0 to 100.
 - Every NPC is worth 75 gold, whatever its rating: the nine above, and four on the
@@ -27,6 +27,28 @@ rivals lists):
 From the wiki: since version 1.37.1 a loss doesn't lower the rating; a win against a
 higher-rated rival gives more, up to +50 "when the opponent is around +1000 rating
 higher"; a loss pays a quarter of a win's gold; you're never demoted.
+
+Other players (a server with several, game_api.py): the account's lists, at rating 735
+(rank 5), had real players of ranks 4 to 6 only (rated 366-1663), highest-rated first,
+some of them mixed with NPCs. A real player rated above you paid 25 gold plus 3% of the
+difference (times the arena gold bonus): 7 of the 8 recorded golds exactly, the eighth
+off by one. Players rated below you paid the NPCs' 75. So, here:
+- Other players within one rank of yours (content.toml: arena.rank_reach) can be on the
+  list, each with a chance (arena.player_chance) whenever the list changes (a win moves
+  your rating, or a refresh). Picked players take the places of the NPCs rated
+  nearest them, and the list is then highest-rated first, as recorded.
+- A player rival plays their defense deck (user_data.defense_deck; their active deck if
+  that's unset), with the AI's moves, as NPCs do. They get a report of the fight: the
+  client shows it like the others (ServiceReportData::Map reads only `data` and
+  `got_revenge`); "victory" is theirs (they held). Being attacked costs and pays them
+  nothing (ours).
+- Revenge: the report's got_revenge 0 shows the client's Revenge button, which sends
+  startRevengeBattle target_user_id reported_time (ReportBox, CombatManager::
+  StartHunting). That's an arena fight against the attacker's defense deck, for the
+  same stamina, gold and rating as fighting them from the list (ours). Only a report
+  of a lost defense offers one (a defense that held has nothing to avenge), once
+  (got_revenge then 1); a revenge fight's own defence report offers none (-1), so it
+  doesn't go back and forth (ours).
 
 Not recorded or documented, so these are ours:
 - Win rating: 30 + (their rating - yours) / 50, rounded, from 0 to 50. That gives the
@@ -91,6 +113,10 @@ NPC_OFFSETS = (-300, -200, -100, -50, 0, 50, 100, 200, 300)
 FIRST_NPC_ID = -11                   # the generated NPCs are -11 to -19 (the account had -13 to -16)
 BASE_SET = 1000
 STAMINA_COST = 1
+LIST_SIZE = 9                        # rivals on a list (the recorded NPC lists; 18 is the wiki's most)
+RANK_REACH = 1                       # other players this many ranks either side of yours (recorded: 4-6 at 5)
+PLAYER_CHANCE = 0.5                  # each such player's chance of being on a list (ours)
+GOLD_PER_POINT_ABOVE = 0.03          # a player rival rated above you pays 3% of the difference more (recorded)
 
 
 def npc_tier_level(rating: int) -> tuple[int, int]:
@@ -162,21 +188,104 @@ def refresh_rivals(arena: dict) -> None:
     arena["rival_order"] = []
 
 
-def rival_list(arena: dict, cards: CardDB | None = None, gold_multiplier: int = DEFAULT_ARENA_GOLD) -> list[dict]:
+@dataclass(frozen=True)
+class PlayerRival:
+    """Another player of this server, as a rival: what the list shows of them."""
+    user_id: int
+    name: str
+    rating: int
+    level: int                       # their rank
+    commander: int                   # their defense deck's commander
+    guild_name: str | None = None
+
+
+def player_gold(mine: int, theirs: int) -> int:
+    """What beating a player rival pays, before the arena gold bonus: NPC_BASE_GOLD, plus
+    3% of how much higher they're rated. Recorded at rating 735, times the bonus of 3:
+    159 (1663), 156 (1624), 129 (1309; this gives 126), 126 (1302), 123 (1259), 102
+    (1024), 87 (865), and 75 for every player rated 705 or below."""
+    return NPC_BASE_GOLD + max(0, round((theirs - mine) * GOLD_PER_POINT_ABOVE))
+
+
+def player_entry(p: PlayerRival, mine: int, gold_multiplier: int) -> dict:
+    """A hunting_targets entry for a player rival, in the recorded shape and key order."""
+    return {"name": p.name, "user_id": p.user_id, "guild_name": p.guild_name, "hunting_elo": str(p.rating),
+            "level": str(p.level), "items": [], "commander": str(p.commander), "sp": 0,
+            "gold": player_gold(mine, p.rating) * gold_multiplier}
+
+
+def in_reach(my_level: int, their_level: int, reach: int = RANK_REACH) -> bool:
+    return abs(int(their_level) - int(my_level)) <= reach
+
+
+def pick_players(candidates, my_level: int, rng: random.Random, chance: float = PLAYER_CHANCE,
+                 reach: int = RANK_REACH) -> list[int]:
+    """Which other players go on a list: each within `reach` ranks of yours, with
+    `chance`, at most LIST_SIZE of them (a random LIST_SIZE when more are picked)."""
+    near = sorted((p for p in candidates if in_reach(my_level, p.level, reach)), key=lambda p: p.user_id)
+    picked = [p.user_id for p in near if rng.random() < chance]
+    if len(picked) > LIST_SIZE:
+        picked = sorted(rng.sample(picked, LIST_SIZE))
+    return picked
+
+
+def match_key(arena: dict) -> list[int]:
+    """When the players on a list are picked again: when the rating moves (a win) or the
+    list is refreshed. The same until then, so the list doesn't change between showing
+    it and starting a fight."""
+    return [int(arena.get("refreshes", 0)), int(arena["rating"])]
+
+
+def matched_players(arena: dict, candidates, rng: random.Random, chance: float = PLAYER_CHANCE,
+                    reach: int = RANK_REACH) -> tuple[list[int], bool]:
+    """The other players picked for the current list ([] during the tutorial), and
+    whether they were picked just now (the caller then saves the player). `candidates`
+    is called only to pick: it returns PlayerRivals, or ids with levels."""
+    if arena["hunting_wins"] == 0:
+        return [], False
+    key = match_key(arena)
+    if list(arena.get("matched_for") or ()) == key:
+        return [int(i) for i in arena.get("matched") or ()], False
+    ids = pick_players(candidates(), arena["level"], rng, chance, reach) if chance > 0 else []
+    arena["matched"], arena["matched_for"] = ids, key
+    return ids, True
+
+
+def _place_players(npcs: list[dict], players, mine: int, gold_multiplier: int) -> list[dict]:
+    """The NPC list with players in: each takes the place of the NPC rated nearest them
+    (the first such, on a tie). Then highest-rated first, as recorded."""
+    out = list(npcs)
+    for p in list(players)[:LIST_SIZE]:
+        npc = [e for e in out if int(e["user_id"]) < 0]
+        if npc and len(out) >= LIST_SIZE:
+            out.remove(min(npc, key=lambda e: abs(int(e["hunting_elo"]) - p.rating)))
+        out.append(player_entry(p, mine, gold_multiplier))
+    return sorted(out, key=lambda e: -int(e["hunting_elo"]))
+
+
+def rival_list(arena: dict, cards: CardDB | None = None, gold_multiplier: int = DEFAULT_ARENA_GOLD,
+               players=()) -> list[dict]:
     """The rivals the player can fight now, in the game's order, as
     `hunting_targets` entries. `rival_order` lists the rivals fought, oldest first:
-    those go last, in that order. Each pays NPC_BASE_GOLD x gold_multiplier."""
+    those go last, in that order. Each NPC pays NPC_BASE_GOLD x gold_multiplier.
+    `players`: other players (PlayerRivals) to put on the list; none during the
+    tutorial."""
     pool = _pool(arena, cards)
-    fought = [i for i in arena.get("rival_order") or () if any(r[0] == i for r in pool)]
-    ordered = [r for r in pool if r[0] not in fought] + [r for i in fought for r in pool if r[0] == i]
-    return [{"commander": str(commander), "name": name, "hunting_elo": str(rating), "level": 1, "sp": "0",
-             "user_id": rid, "items": [], "gold": NPC_BASE_GOLD * gold_multiplier}
-            for rid, name, commander, rating in ordered]
+    entries = [{"commander": str(commander), "name": name, "hunting_elo": str(rating), "level": 1, "sp": "0",
+                "user_id": rid, "items": [], "gold": NPC_BASE_GOLD * gold_multiplier}
+               for rid, name, commander, rating in pool]
+    if players and arena["hunting_wins"] > 0:
+        entries = _place_players(entries, players, arena["rating"], gold_multiplier)
+    ids = [int(e["user_id"]) for e in entries]
+    fought = [i for i in arena.get("rival_order") or () if i in ids]
+    return [e for e in entries if int(e["user_id"]) not in fought] + [e for i in fought for e in entries
+                                                                        if int(e["user_id"]) == i]
 
 
-def targets_json(arena: dict, cards: CardDB | None = None, gold_multiplier: int = DEFAULT_ARENA_GOLD) -> dict:
+def targets_json(arena: dict, cards: CardDB | None = None, gold_multiplier: int = DEFAULT_ARENA_GOLD,
+                 players=()) -> dict:
     """hunting_targets as the game gets it: {id: entry}, in order."""
-    return {str(r["user_id"]): r for r in rival_list(arena, cards, gold_multiplier)}
+    return {str(r["user_id"]): r for r in rival_list(arena, cards, gold_multiplier, players)}
 
 
 def rival_deck(rival: dict, cards: CardDB) -> tuple[Card, list[Card]]:
@@ -328,14 +437,48 @@ def file_report(arena: dict, rival: dict, won: bool, reward: dict, now: int, bat
     arena["reports"] = ([report] + list(arena.get("reports") or []))[:REPORTS_KEPT]
 
 
+DEFENCE_REPORT_TYPE = "1"            # ours: the client doesn't read `type`; the recorded attacks were 2
+
+
+REVENGE_OPEN, REVENGE_TAKEN, NO_REVENGE = 0, 1, -1      # got_revenge: 0 shows the Revenge button
+
+
+def file_defence_report(arena: dict, attacker_id, attacker_name: str, held: bool, now: int,
+                        battle_id=None, revenge: bool = True) -> None:
+    """Keeps a fight against this player's defense deck for their Reports tab: the
+    attacker, and whether the defense held. It costs and pays them nothing (ours).
+    It offers a revenge only when the attacker won, and the fight wasn't itself a
+    revenge (`revenge` False)."""
+    reward = {"user_id": "", "gold": 0, "sp": 0, "rating_change": 0, "item": [], "lp_change": 0}
+    report = {"rival": int(attacker_id), "name": attacker_name, "victory": int(held),
+              "battle_id": str(battle_id if battle_id is not None else now * 1000), "time": now,
+              "rewards": reward, "defence": 1,
+              "revenge": REVENGE_OPEN if revenge and not held else NO_REVENGE}
+    arena["reports"] = ([report] + list(arena.get("reports") or []))[:REPORTS_KEPT]
+
+
+def defence_report(arena: dict, attacker_id, reported_time) -> dict | None:
+    """The defence report a Revenge button belongs to (startRevengeBattle sends the
+    attacker and the report's time), or None."""
+    return next((r for r in arena.get("reports") or [] if r.get("defence") and str(r["rival"]) == str(attacker_id)
+                 and str(r["time"]) == str(reported_time)), None)
+
+
 def reports_json(arena: dict, user_id) -> list[dict]:
     """battle_reports as the game gets it, in the recorded shape: one "type 2" report per
-    fight the player started, `data` being compact JSON."""
+    fight the player started, `data` being compact JSON. A defence report (another
+    player fought this one's defense deck) has the attacker as sender, enemy and host,
+    "victory" 1 when the defense held, and got_revenge 0 while it offers a revenge
+    (a lost defense, not yet avenged)."""
     out = []
     for r in arena.get("reports") or []:
+        defence = bool(r.get("defence"))
+        host = str(r["rival"]) if defence else str(user_id)
+        rewards = {**r["rewards"], "user_id": str(user_id)} if defence else r["rewards"]
         data = {"enemy_id": str(r["rival"]), "enemy_name": r["name"], "victory": r["victory"],
-                "host_id": str(user_id), "battle_id": r["battle_id"], "rewards": r["rewards"]}
-        out.append({"user_id": str(user_id), "sender_id": str(r["rival"]), "type": "2",
+                "host_id": host, "battle_id": r["battle_id"], "rewards": rewards}
+        out.append({"user_id": str(user_id), "sender_id": str(r["rival"]),
+                    "type": DEFENCE_REPORT_TYPE if defence else "2",
                     "data": json.dumps(data, separators=(",", ":")), "time": str(r["time"]), "status": "1",
-                    "got_revenge": "-1"})
+                    "got_revenge": str(r.get("revenge", NO_REVENGE)) if defence else "-1"})
     return out

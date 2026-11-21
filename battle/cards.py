@@ -47,6 +47,8 @@ class Card:
     health: int
     delay: int
     skills: tuple[SkillSpec, ...] = field(default=())
+    fortress_type: int = 0  # a guild fortress card: 1 defense, 2 siege (0: not one)
+    gp_cost: int = 0        # what this level costs a guild, in guild points
 
     def skill(self, skill_id: str) -> SkillSpec | None:
         return next((s for s in self.skills if s.id == skill_id), None)
@@ -92,7 +94,8 @@ def _level(prev: Card | None, node: ET.Element, base_id: int) -> Card:
         if text(tag) is not None:
             changes[key] = text(tag).strip()
     for tag, key in (("attack", "attack"), ("health", "health"), ("cost", "delay"), ("rarity", "rarity"),
-                     ("type", "faction"), ("set", "set"), ("level", "level"), ("fusion_level", "fusion_level")):
+                     ("type", "faction"), ("set", "set"), ("level", "level"), ("fusion_level", "fusion_level"),
+                     ("fortress_type", "fortress_type"), ("gp_cost", "gp_cost")):
         if text(tag) is not None:
             changes[key] = _int(text(tag))
     if skills:

@@ -48,10 +48,16 @@ every account identifier replaced):
   getUserDecks,
   getCardData,
   getVersionNumber
-  getRaidInfo,           real logic: raids (raids.py), set in content.toml: the boss's
-  getCurrentRaids,       levels, raid energy, fights resolved by the battle engine in one
-  fightRaidBattle,       reply, the reward tiers; the player leads a one-player guild
-  claimRaidReward,       while a raid is set
+  createFaction, joinFaction, leaveFaction, acceptFactionInvite, sendFactionInvite,
+  kickFactionMember, setMemberRank, setAllFactionSettings, sendFactionMessage,
+  updateFaction, getRecruitingFactions, getTopFactions, getUsersLFG, getProfileData,
+  donateFactionGold, buyFactionCard, removeFactionCard, updateFactionWar
+                         real logic: guilds (guilds.py), kept by the server in
+                         state/guilds/, apart from the player's save
+  getRaidInfo,           real logic: raids (raids.py), set in content.toml: each guild's
+  getCurrentRaids,       run of the boss (levels, health), each member's raid energy,
+  fightRaidBattle,       fights resolved by the battle engine in one reply, the reward
+  claimRaidReward,       tiers; a guild is needed
   refillEventBattleEnergy,
   getRaidLeaderboard,
   getPreviousRaidTopLeaderboard
@@ -91,6 +97,7 @@ from battle.missions import load_missions
 from battle.protocol import BattleSession
 import achievements
 import arena
+import guilds
 import raids
 from battle import effects as bge
 import boxes
@@ -99,7 +106,7 @@ import daily_crate
 import store_upgrades
 import packs
 import upgrades
-from player_state import Player, PlayerStore, deck_from_json, decks_json
+from player_state import Player, PlayerStore, deck_from_json, decks_json, level_info
 from rewards import DECK_SIZE, MissionResult, RewardRules, finish_mission
 from content import Content, ContentStore
 from settings import Settings, SettingsStore, apply_to_login
@@ -134,6 +141,10 @@ LOCK = "setCardLock"                # the salvage lock on a card
 FUSE = "fuseCard"                   # a fusion recipe's cards into the fused card
 CLAIM = "completeAchievement"       # the Complete button of a finished daily objective
 CRATE = "useDailyBonus"             # the crate on the home screen
+GUILD_MESSAGES = {"createFaction", "joinFaction", "acceptFactionInvite", "leaveFaction", "sendFactionInvite",
+                  "kickFactionMember", "setMemberRank", "setAllFactionSettings", "sendFactionMessage", "updateFaction",
+                  "getFactionNews", "getRecruitingFactions", "getTopFactions", "getUsersLFG", "getProfileData",
+                  "donateFactionGold", "buyFactionCard", "removeFactionCard", "updateFactionWar"}
 RAID_MESSAGES = {"getRaidInfo", "getCurrentRaids", "fightRaidBattle", "claimRaidReward", "refillEventBattleEnergy",
                  "getRaidLeaderboard", "getPreviousRaidTopLeaderboard"}
 BUY_UPGRADE = "buyUpgrade"          # the deck screen's Extra Deck Slot
@@ -329,6 +340,7 @@ class GameApi:
             state = STATE_DIR if fixture_dir.resolve() == FIXTURE_DIR.resolve() else fixture_dir.parent / "state"
         self.settings_store = SettingsStore(state / "settings.json")     # the gold bonuses
         self.content_store = ContentStore(state / "content.toml")        # the store and event boxes
+        self.guild_store = guilds.GuildStore(state / "guilds")            # the server's guilds
         start = self.fixtures.get("init")
         if start is not None:
             body = start["body"]
@@ -458,12 +470,24 @@ class GameApi:
                 + (", ".join(f"{e['name']} ({e['item_id']})" for e in box_entries) or "none"))
         return "\n".join([line] + [f"  {self.content_store.path.name}: {p}" for p in problems])
 
+    def guild_report(self) -> str:
+        """One line on the server's guilds, donations and the raid set."""
+        c, n = self.content(), len(self.guild_store.all())
+        raid = self._set_raid()
+        return (f"Guilds (state/{self.guild_store.root.name}/): {n or 'none yet'}"
+                + ("" if not n else f" guild{'s' * (n != 1)}") + "; donations "
+                + (f"on ({c.gold_per_point} gold a guild point)" if c.guild_donations else "off")
+                + (f"; raid: {raid.name} ({raid.id}), at {c.raid_health_percent:g}% of its health" if raid
+                   else "; raid: none"))
+
     def startup_report(self) -> str | None:
         """Lines for the server's startup: the save, the energy that came back while the
-        server was off (counted from the save's sync point to now), and the gold bonuses."""
+        server was off (counted from the save's sync point to now), the gold bonuses, the
+        store, and the guilds."""
         if self.player_store is None:
             return None
-        bonuses = "\nGold bonuses: " + self.settings().describe() + "\n" + self.store_report()
+        bonuses = ("\nGold bonuses: " + self.settings().describe() + "\n" + self.store_report()
+                   + "\n" + self.guild_report())
         saved = self.player_store.load()
         if saved is None:
             return "Player save: none yet; the first login creates it from the starting data." + bonuses
@@ -543,6 +567,8 @@ class GameApi:
         if message == CLAIM and self.player() is not None:
             return self._claim_achievement(params)
         if self.player() is not None:
+            if message in GUILD_MESSAGES:
+                return self._guild_message(message, params)
             if message in RAID_MESSAGES:
                 return self._raid_message(message, params)
             if message == CRATE:
@@ -1104,7 +1130,217 @@ class GameApi:
         return (f"; {box.name} round {int(state.get('completes', 0)) + 1}{limit}{where}: "
                 f"{boxes.bought(box, state)}/{box.size} bought")
 
-    # ---- raids -------------------------------------------------------------------------------------
+    # ---- guilds -------------------------------------------------------------------------------------
+
+    def _guild_info(self, user_id) -> dict | None:
+        """A player's public details for guild screens: name, level, rating, commander and
+        when they were last active. The offline player is the only player this server has
+        so far; any other id is an unknown player."""
+        if str(user_id) != str(OFFLINE_USER_ID):
+            return None
+        player = self.player()
+        if player is None:
+            return None
+        arena = player.arena or {}
+        deck = (player.decks or {}).get(self._active_deck_id()) or {}
+        return {"name": player.name or OFFLINE_NAME, "level": int(arena.get("level", 1)),
+                "rating": int(arena.get("rating", 0)), "commander_id": int(deck.get("commander_id") or 1000),
+                "last_update_time": int(self.clock())}
+
+    def _name_of(self, user_id) -> str:
+        return (self._guild_info(user_id) or guilds.UNKNOWN)["name"]
+
+    def _my_guild(self) -> dict | None:
+        return self.guild_store.of_member(OFFLINE_USER_ID)
+
+    def _guild_parts(self, guild, params: dict | None = None) -> dict:
+        """What every guild reply carries: the player's guild (`faction`; {"faction_id": 0}
+        without one, and then the invitations), its fortress, and, given the request, the
+        news and chat after its last_activity_id."""
+        if guild is None:
+            invites = guilds.invites_for(self.guild_store, OFFLINE_USER_ID)
+            return {"faction": dict(guilds.NO_GUILD), "fortress_slots": [],
+                    "faction_invites": [guilds.list_json(g, self._guild_info) for g in invites]}
+        out = {"faction": guilds.faction_json(guild, self._guild_info, self.content().gold_per_point),
+               "fortress_slots": guilds.fortress_json(guild)}
+        if params is not None:
+            out["faction_news"] = guilds.news_json(guilds.news_since(guild, params.get("last_activity_id")))
+        return out
+
+    def _guild_reply(self, params: dict, guild, message: str | None = None, ok: bool = True) -> dict:
+        """A guild reply. Any `result_message` shows in a "Guild" dialog, success or not.
+        While a raid is set it also carries the raid, so the Wars tab shows it as soon as
+        the player creates or joins a guild (and stops showing it when they leave)."""
+        reply = self.envelope(params)
+        reply["result"] = ok
+        if message:
+            reply["result_message"] = [message]
+        reply.update(self._guild_parts(guild, params))
+        if self._set_raid() is not None:
+            state = self._raid_state(guild)
+            reply["current_raids"] = raids.current_raids(state[0], state[1], self._mini_packs()) if state else []
+            reply["raid_info"] = self._raid_info(state) if state else None
+        return reply
+
+    def _guild_rows(self, rows: list[dict], ranked: bool = False) -> list[dict]:
+        rows = sorted(rows, key=lambda g: (-guilds.total_rating(g, self._guild_info), g["id"]))
+        return [guilds.list_json(g, self._guild_info, i if ranked else 0) for i, g in enumerate(rows, 1)]
+
+    def _guild_message(self, message: str, params: dict) -> tuple[dict, str]:
+        """The guild calls (guilds.py): creating, joining and leaving, invitations, ranks,
+        settings, chat, the guild lists, donations and the fortress."""
+        store, uid, now = self.guild_store, str(OFFLINE_USER_ID), int(self.clock())
+        me = self._guild_info(uid) or guilds.UNKNOWN
+        guild = self._my_guild()
+        try:
+            if message == "createFaction":
+                guild = guilds.create(store, uid, me["name"], params.get("faction_name"), now)
+                return self._guild_reply(params, guild), f"created guild {guild['name']} ({guild['id']})"
+            if message in ("joinFaction", "acceptFactionInvite"):
+                guild = guilds.join(store, params.get("faction_id"), uid, me["name"], me["level"], now,
+                                    invited=message == "acceptFactionInvite")
+                return self._guild_reply(params, guild), f"joined guild {guild['name']} ({guild['id']})"
+            if message == "getRecruitingFactions":
+                rows = [g for g in store.all() if g["recruitment_status"] != guilds.CLOSED
+                        and len(g["members"]) < guilds.MAX_MEMBERS and uid not in g["members"]]
+                reply = self._guild_reply(params, guild)
+                reply["factions"] = self._guild_rows(rows)
+                return reply, f"guilds taking members: {len(rows)}"
+            if message == "getTopFactions":
+                reply = self._guild_reply(params, guild)
+                reply["factions"] = self._guild_rows(store.all(), ranked=True)
+                return reply, f"top guilds: {len(reply['factions'])}"
+            if message == "getProfileData":
+                return self._member_profile(params, guild)
+            if guild is None:
+                if message in ("updateFaction", "getFactionNews", "updateFactionWar"):
+                    reply = self._guild_reply(params, None)
+                    return reply, f"no guild; {len(reply['faction_invites'])} invitation(s)"
+                if message == "getUsersLFG":
+                    reply = self._guild_reply(params, None)
+                    reply["user_lfg"] = []
+                    return reply, "players looking for a guild: you're not in one"
+                raise guilds.GuildError("You aren't in a guild.")
+            if message == "leaveFaction":
+                left, successor = guilds.leave(store, uid, me["name"], now, self._name_of)
+                how = f"left guild {left['name']}" + ("; it had no one left, so it's disbanded" if not left["members"]
+                                                    else f"; {self._name_of(successor)} leads it now" if successor else "")
+                return self._guild_reply(params, None), how
+            if message in ("updateFaction", "getFactionNews", "updateFactionWar"):
+                self._raid_state(guild)                         # a lost raid level shows in the news
+                guild = self._my_guild()
+                reply = self._guild_reply(params, guild)
+                return reply, (f"guild {guild['name']}: {len(guild['members'])} member(s), "
+                               f"{guild['guild_points']} guild points, {len(reply['faction_news'])} news line(s)")
+            if message == "getUsersLFG":
+                wanted = str(params.get("name") or "").lower()
+                looking = [u for u in (uid,) if store.of_member(u) is None]   # players without a guild
+                rows = [{"faction_id": "0", "user_id": u, **(self._guild_info(u) or guilds.UNKNOWN), "gp_earned": 0,
+                         "member_role": 0} for u in looking if wanted in self._name_of(u).lower()]
+                reply = self._guild_reply(params, guild)
+                reply["user_lfg"] = rows
+                return reply, f"players looking for a guild: {len(rows)}"
+            if message == "sendFactionInvite":
+                target = str(params.get("target_user_id"))
+                if self._guild_info(target) is None:
+                    raise guilds.GuildError("There's no such player on this server.")
+                guilds.invite(guild, uid, target, store.of_member(target) is not None, now)
+                store.save(guild)
+                return self._guild_reply(params, guild, f"{self._name_of(target)} has been invited."), \
+                    f"invited {self._name_of(target)} to {guild['name']}"
+            if message == "kickFactionMember":
+                target = str(params.get("target_user_id"))
+                guilds.kick(guild, uid, me["name"], target, self._name_of(target), now)
+                store.save(guild)
+                return self._guild_reply(params, guild), f"removed {self._name_of(target)} from {guild['name']}"
+            if message == "setMemberRank":
+                target = str(params.get("target_user_id"))
+                try:
+                    rank = int(params.get("rank"))
+                except (TypeError, ValueError):
+                    raise guilds.GuildError("That rank change isn't possible.")
+                what = guilds.set_rank(guild, uid, target, rank, self._name_of(target), now)
+                store.save(guild)
+                return self._guild_reply(params, guild), f"{self._name_of(target)} {what}"
+            if message == "setAllFactionSettings":
+                guilds.settings(guild, uid, params.get("text"), params.get("recruitment_status"), params.get("min_level"))
+                store.save(guild)
+                return self._guild_reply(params, guild), (
+                    f"guild settings: recruitment {guilds.RECRUITMENT[guild['recruitment_status']]}, "
+                    f"minimum level {guild['min_level']}")
+            if message == "sendFactionMessage":
+                entry = guilds.chat(guild, uid, me["name"], params.get("chat"), now)
+                store.save(guild)
+                return self._guild_reply(params, guild), f"guild chat: {me['name']}: {entry['data']['message']}"
+            if message == "donateFactionGold":
+                return self._donate(params, guild, me)
+            if message in ("buyFactionCard", "removeFactionCard"):
+                return self._fortress(message, params, guild, me)
+        except guilds.GuildError as e:
+            return self._guild_reply(params, self._my_guild(), str(e), ok=False), f"refused {message}: {e}"
+        raise NotSupported(f"'{message}' is not supported yet.")
+
+    def _member_profile(self, params: dict, guild) -> tuple[dict, str]:
+        """getProfileData target_user_id: a guild member's profile (an empty user_id tells the
+        client they must share a guild)."""
+        target = str(params.get("target_user_id"))
+        info = self._guild_info(target)
+        reply = self.envelope(params)
+        reply["result"] = True
+        if info is None or guild is None or target not in guild["members"]:
+            reply["player_info"] = {"user_id": ""}
+            return reply, f"profile of {target}: not in your guild"
+        player = self.player()
+        deck = (player.decks or {}).get(self._active_deck_id()) or {}
+        defense = (player.decks or {}).get(player.defense_deck or "") or deck
+        as_json = lambda d: {"commander_id": d.get("commander_id", 0),                      # noqa: E731
+                             "cards": [c for c, n in (d.get("cards") or {}).items() for _ in range(n)]}
+        stars = sum(int(bool(m.get("complete"))) + int(bool(m.get("star2"))) + int(bool(m.get("star3")))
+                    for m in (player.missions or {}).values())
+        reply["player_info"] = {"user_id": target, "name": info["name"], "rating": info["rating"],
+                                "level": info["level"], "level_name": level_info(info["level"])[0],
+                                "stars_earned": stars,
+                                "faction_war_points": -1, "last_update_time": info["last_update_time"],
+                                "deck": as_json(deck), "defense_deck": as_json(defense)}
+        return reply, f"profile of {info['name']}"
+
+    def _donate(self, params: dict, guild: dict, me: dict) -> tuple[dict, str]:
+        """donateFactionGold amount=<gold>: gold_per_point gold a guild point (content.toml)."""
+        c = self.content()
+        if not c.guild_donations:
+            raise guilds.GuildError("Donations are switched off on this server.")
+        player = self.player()
+        try:
+            gold = int(params.get("amount"))
+        except (TypeError, ValueError):
+            raise guilds.GuildError("How much gold?")
+        cost = gold // c.gold_per_point * c.gold_per_point
+        if cost > player.gold:
+            raise guilds.GuildError(f"Not enough gold: that's {cost}, and you have {player.gold}.")
+        points = guilds.donate(guild, OFFLINE_USER_ID, me["name"], cost, c.gold_per_point, int(self.clock()))
+        player.gold -= cost
+        self.player_store.save(player)
+        self.guild_store.save(guild)
+        reply = self._guild_reply(params, guild)
+        reply.update(self._player_parts(params, ("user_data",)))
+        return reply, f"donated {cost} gold to {guild['name']} for {points} guild points ({guild['guild_points']} now)"
+
+    def _fortress(self, message: str, params: dict, guild: dict, me: dict) -> tuple[dict, str]:
+        """buyFactionCard slot_id card_id / removeFactionCard slot_id (guilds.py)."""
+        cards, _ = self._engine_data()
+        now = int(self.clock())
+        if message == "removeFactionCard":
+            name = guilds.remove_card(guild, OFFLINE_USER_ID, me["name"], params.get("slot_id"), cards, now)
+            self.guild_store.save(guild)
+            return self._guild_reply(params, guild), f"fortress: removed {name} from slot {params.get('slot_id')}"
+        card = cards.get(params.get("card_id")) if str(params.get("card_id", "")).isdigit() else None
+        what, cost = guilds.buy_card(guild, OFFLINE_USER_ID, me["name"], params.get("slot_id"), card, cards, now)
+        self.guild_store.save(guild)
+        return self._guild_reply(params, guild), (
+            f"fortress: {what} {card.name} (level {card.level}) in slot {params.get('slot_id')}"
+            + (f" for {cost} guild points ({guild['guild_points']} left)" if cost else ""))
+
+    # ---- raids (each guild fights its own run of the raid content.toml sets) ---------------------
 
     def _raid_defs(self) -> dict:
         if getattr(self, "_raids", None) is None:
@@ -1116,23 +1352,30 @@ class GameApi:
             self._bges = bge.load(self._assets)
         return self._bges
 
-    def _raid_state(self, player):
-        """(raid, run, health scale) for the raid content.toml sets, with the player's run
-        brought up to now (a new run when there's none, or the last one is over), or
-        None when no raid is set."""
+    def _set_raid(self):
         c = self.content()
-        raid = self._raid_defs().get(c.raid) if c.raid else None
-        if raid is None or player is None:
+        return self._raid_defs().get(c.raid) if c.raid else None
+
+    def _raid_state(self, guild):
+        """(raid, run, health scale) for the guild's run of the raid content.toml sets,
+        brought up to now (a new run when there's none or the last one is over), or None
+        when no raid is set or there's no guild. Saves the guild if anything changed."""
+        raid = self._set_raid()
+        if raid is None or guild is None:
             return None
+        c = self.content()
         now, scale = int(self.clock()), c.raid_health_percent / 100
-        run = player.raid
-        created = run is None or run.get("id") != raid.id or now >= run.get("decay", 0)
-        if created:
-            run = player.raid = raids.new_run(raid, now, c.raid_days, scale)
-        before = dict(run)
-        raids.refresh(run, raid, now, scale)
-        if created or run != before:
-            self.player_store.save(player)
+        run = guild.get("raid")
+        before = json.dumps(run, sort_keys=True)
+        if not run or run.get("id") != raid.id or now >= run.get("decay", 0) or "members" not in run:
+            run = guild["raid"] = raids.new_run(raid, now, c.raid_days, scale)
+        lost = raids.refresh(run, raid, now, scale)
+        if lost:
+            guilds.add_news(guild, guilds.RAID_LOST, {"raid_level": lost, "raid_name": raid.name}, now)
+        for m in run["members"].values():
+            raids.refresh_member(run, m, now)
+        if json.dumps(run, sort_keys=True) != before or lost:
+            self.guild_store.save(guild)
         return raid, run, scale
 
     def _raid_replay(self, params) -> dict | None:
@@ -1143,51 +1386,59 @@ class GameApi:
             return None
         return {**reply, **self.envelope(params), "result": True}
 
-    def _raid_info(self, player, state) -> list:
+    def _raid_info(self, state) -> list:
         raid, run, scale = state
-        return raids.raid_info(raid, run, OFFLINE_USER_ID, player.name or OFFLINE_NAME, int(self.clock()), scale)
-
-    def _guild(self, player, run) -> dict:
-        deck = (player.decks or {}).get(self._active_deck_id()) or {}
-        return raids.guild(self.content().guild_name, OFFLINE_USER_ID, player.name or OFFLINE_NAME, run,
-                           int((player.arena or {}).get("rating", 0)), int((player.arena or {}).get("level", 1)),
-                           deck.get("commander_id", 0), int(self.clock()))
+        names = {uid: self._name_of(uid) for uid in run["members"]}
+        names[str(OFFLINE_USER_ID)] = self._name_of(OFFLINE_USER_ID)
+        return raids.raid_info(raid, run, OFFLINE_USER_ID, names, int(self.clock()), scale)
 
     def _raid_message(self, message: str, params: dict) -> tuple[dict, str]:
-        player = self.player()
-        state = self._raid_state(player)
-        if state is None:
+        raid = self._set_raid()
+        if raid is None:
             return self._refuse(params, "There's no raid on."), f"refused {message}: no raid set in content.toml"
-        raid, run, scale = state
-        if message == "fightRaidBattle":
-            return self._raid_fight(params, player, raid, run, scale)
-        if message == "claimRaidReward":
-            return self._raid_claim(params, player, raid, run)
-        if message == "refillEventBattleEnergy":
-            return self._raid_refill(params, player, raid, run, scale)
-        reply = self.envelope(params)
-        reply["result"] = True
         if message == "getRaidLeaderboard":
-            reply["raid_leaderboard"] = [{"faction_id": str(raids.GUILD_ID), "name": self.content().guild_name,
-                                          "raid_level": run["level"]}]
-            return reply, f"raid leaderboard: {self.content().guild_name}, level {run['level']}"
+            reply = self.envelope(params)
+            reply["result"] = True
+            runs = [g for g in self.guild_store.all() if (g.get("raid") or {}).get("id") == raid.id]
+            runs.sort(key=lambda g: (-g["raid"]["level"], g["id"]))
+            reply["raid_leaderboard"] = [{"faction_id": str(g["id"]), "name": g["name"], "raid_level": g["raid"]["level"]}
+                                         for g in runs]
+            return reply, f"raid leaderboard: {len(runs)} guild(s)"
         if message == "getPreviousRaidTopLeaderboard":
+            reply = self.envelope(params)
+            reply["result"] = True
             reply["previous_raid_top_leaderboard"] = []
             return reply, "previous raid leaderboard: none"
+        guild = self._my_guild()
+        if guild is None:
+            return self._refuse(params, "You need to be in a guild to raid."), f"refused {message}: not in a guild"
+        state = self._raid_state(guild)
+        raid, run, scale = state
+        m = raids.member(run, OFFLINE_USER_ID, int(self.clock()))
+        if message == "fightRaidBattle":
+            return self._raid_fight(params, guild, raid, run, m, scale)
+        if message == "claimRaidReward":
+            return self._raid_claim(params, guild, raid, run, m, scale)
+        if message == "refillEventBattleEnergy":
+            return self._raid_refill(params, guild, raid, run, m, scale)
+        self.guild_store.save(guild)                                   # the member's part, if new
+        reply = self.envelope(params)
+        reply["result"] = True
         reply.update(self._player_parts(params, ("user_data",)))
         reply["current_raids"] = raids.current_raids(raid, run, self._mini_packs())
-        reply["raid_info"] = self._raid_info(player, state)
-        reply["faction"] = self._guild(player, run)
-        return reply, (f"{raid.name}: level {run['level']}, health {max(0, run['hp'])}/"
-                       f"{raid.max_health(run['level'], scale)}, raid energy {run['energy']}/{raids.ENERGY_MAX}, "
-                       f"your damage {run['damage']}")
+        reply["raid_info"] = self._raid_info(state)
+        reply.update(self._guild_parts(guild))
+        return reply, (f"{raid.name}: {guild['name']} at level {run['level']}, health {max(0, run['hp'])}/"
+                       f"{raid.max_health(run['level'], scale)}, raid energy {m['energy']}/{raids.ENERGY_MAX}, "
+                       f"your damage {m['damage']}")
 
-    def _raid_fight(self, params, player, raid, run, scale) -> tuple[dict, str]:
+    def _raid_fight(self, params, guild, raid, run, m, scale) -> tuple[dict, str]:
         """fightRaidBattle raid_id raid_level: a whole fight in one reply, played on auto
-        (the client shows it as a replay), for one raid energy."""
+        (the client shows it as a replay), for one of the player's raid energy. The damage
+        goes to the guild's boss."""
         now = int(self.clock())
         try:
-            raids.can_fight(run, now)
+            raids.can_fight(run, m, now)
         except raids.RaidError as e:
             return self._refuse(params, str(e)), f"refused fightRaidBattle: {e}"
         cards, _ = self._engine_data()
@@ -1211,8 +1462,13 @@ class GameApi:
                         if FIRST_UID[DEFENDER] <= int(uid) < last_card)
         bc = battle.sides[DEFENDER].commander
         damage = raids.fight_damage(destroyed, bc.hp, bc.max_hp)
-        cleared = raids.record_fight(run, raid, damage, now, scale)
-        self.player_store.save(player)
+        started, cleared = raids.record_fight(run, m, raid, damage, now, scale)
+        name = self._name_of(OFFLINE_USER_ID)
+        if started:
+            guilds.add_news(guild, guilds.RAID_STARTED, {"name": name, "raid_level": level, "raid_name": raid.name}, now)
+        if cleared:
+            guilds.add_news(guild, guilds.RAID_WON, {"raid_level": level, "raid_name": raid.name, "name": name}, now)
+        self.guild_store.save(guild)
         battle_id = int(self.clock() * 1000)
         session = BattleSession(battle, battle_id, str(OFFLINE_USER_ID),
                                 extra={"enemy_name": raid.name, "enemy_id": "0", "battleground_effects": entries})
@@ -1224,17 +1480,18 @@ class GameApi:
         self._last_raid_reply = reply
         won = battle.winner == 1
         how = (f"raid fight vs {raid.name} level {level}: {'won' if won else 'lost'} in {battle.turn} turns, "
-               f"{destroyed} cards destroyed, damage {damage}; boss {max(0, run['hp'])}/"
+               f"{destroyed} cards destroyed, damage {damage}; {guild['name']}'s boss {max(0, run['hp'])}/"
                f"{raid.max_health(run['level'], scale)}" + (f"; level {level} cleared" if cleared else "")
-               + f"; raid energy {run['energy']}")
+               + f"; raid energy {m['energy']}")
         if battle.ignored_skills:
             how += "; skills not built yet: " + ", ".join(sorted(battle.ignored_skills))
         return reply, how
 
-    def _raid_refill(self, params, player, raid, run, scale) -> tuple[dict, str]:
-        """refillEventBattleEnergy event_type=2 event_id: raid energy to full, 5 war bonds
-        a point."""
-        missing = raids.ENERGY_MAX - run["energy"]
+    def _raid_refill(self, params, guild, raid, run, m, scale) -> tuple[dict, str]:
+        """refillEventBattleEnergy event_type=2 event_id: the player's raid energy to full, 5
+        war bonds a point."""
+        player = self.player()
+        missing = raids.ENERGY_MAX - m["energy"]
         cost = missing * raids.REFILL_WB
         if missing <= 0:
             return self._refuse(params, "Your raid energy is already full."), "refused raid refill: full"
@@ -1242,37 +1499,41 @@ class GameApi:
             reply = self._refuse(params, f"Not enough war bonds: a refill costs {cost}, and you have {player.war_bonds}.")
             return reply, "refused raid refill: war bonds"
         player.war_bonds -= cost
-        run["energy"], run["energy_updated"] = raids.ENERGY_MAX, int(self.clock())
+        m["energy"], m["energy_updated"] = raids.ENERGY_MAX, int(self.clock())
         self.player_store.save(player)
+        self.guild_store.save(guild)
         reply = self.envelope(params)
         reply["result"] = True
         reply.update(self._player_parts(params, ("user_data",)))
-        reply["raid_info"] = self._raid_info(player, (raid, run, scale))
+        reply["raid_info"] = self._raid_info((raid, run, scale))
         return reply, f"raid energy refilled: +{missing} for {cost} war bonds"
 
-    def _raid_claim(self, params, player, raid, run) -> tuple[dict, str]:
-        """claimRaidReward raid_id: every reward tier reached, opened into cards."""
+    def _raid_claim(self, params, guild, raid, run, m, scale) -> tuple[dict, str]:
+        """claimRaidReward raid_id: every reward tier the player's damage and the guild's
+        level reached, opened into cards."""
         now = int(self.clock())
-        if run["claimed"]:
+        if m["claimed"]:
             return self._refuse(params, "You already claimed this raid's reward."), "refused raid claim: claimed"
-        if not raids.claimable(run, now):
+        if not raids.claimable(run, m, now):
             return self._refuse(params, "The raid's reward can be claimed once it's over."), "refused raid claim: early"
+        player = self.player()
         cards, _ = self._engine_data()
         rng = self.rng_factory()
-        tiers = raids.earned_tiers(raid, run["damage"], run["level"])
+        tiers = raids.earned_tiers(raid, m["damage"], run["level"])
         got = []
         for tier in tiers:
             for kind, rid, amount in tier.rewards:
                 got += self._open_raid_reward(kind, rid, amount, cards, rng)
         for cid in got:
             player.add_card(cid)
-        run["claimed"] = 1
+        m["claimed"] = 1
         self.player_store.save(player)
+        self.guild_store.save(guild)
         reply = self.envelope(params)
         reply["result"] = True
         reply.update(self._player_parts(params, ("user_data", "user_cards")))
         reply["new_cards"] = [str(c) for c in got]
-        reply["raid_info"] = self._raid_info(player, (raid, run, self.content().raid_health_percent / 100))
+        reply["raid_info"] = self._raid_info((raid, run, scale))
         names = ", ".join(cards[c].name for c in got[:8]) + (f" and {len(got) - 8} more" if len(got) > 8 else "")
         return reply, f"raid reward: {len(tiers)} tiers, {len(got)} cards ({names or 'none'})"
 
@@ -1762,15 +2023,23 @@ class GameApi:
             player = self.player()
             if player is not None:
                 store_upgrades.apply_to_store(body, player, self._decks_limit())
-        if any(k in body for k in ("current_raids", "raid_info", "faction")):
+        if any(k in body for k in ("current_raids", "raid_info", "faction", "faction_invites", "fortress_slots")):
             player = self.player()
-            state = self._raid_state(player) if player is not None else None
+            guild = self._my_guild() if player is not None else None
+            state = self._raid_state(guild)
             if "current_raids" in body:
                 body["current_raids"] = raids.current_raids(state[0], state[1], self._mini_packs()) if state else []
             if "raid_info" in body:
-                body["raid_info"] = self._raid_info(player, state) if state else None
-            if "faction" in body and state:
-                body["faction"] = self._guild(player, state[1])
+                body["raid_info"] = self._raid_info(state) if state else None
+            if player is not None:                          # the server's guilds, not the recording's
+                parts = self._guild_parts(self._my_guild())
+                body["faction"] = parts["faction"]
+                if "fortress_slots" in body:
+                    body["fortress_slots"] = parts["fortress_slots"]
+                if "faction_invites" in body:
+                    body["faction_invites"] = parts.get("faction_invites", [])
+        if "guild_donations_enabled" in body:
+            body["guild_donations_enabled"] = int(self.content().guild_donations)
         if "daily_bonus_time" in body:
             saved = self.player_store.load() if self.player_store is not None else None
             if saved is not None and saved.daily_bonus:
@@ -1791,6 +2060,7 @@ class GameApi:
         base = (self.fixtures.get("init") or self.fixtures.get("getUserAccount") or {}).get("body", {})
         now = int(self.clock())
         out = {k: base.get(k, v) for k, v in DEFAULT_ENVELOPE.items()}
+        out["guild_donations_enabled"] = int(self.content().guild_donations)   # content.toml, not the recording
         bonus = base.get("daily_bonus_time")
         saved = self.player_store.load() if self.player_store is not None else None
         if saved is not None and saved.daily_bonus:

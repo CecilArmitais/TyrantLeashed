@@ -248,7 +248,9 @@ def test_server_off_for_hours_counts_up_to_the_players_own_max(tmp_path):
     assert restarted.startup_report() == ("Player save: 100 gold, 50 war bonds, energy 300/300 "
                                           "(+200 regenerated in the 4h 0m since the last update)\n"
                                           "Gold bonuses: missions x7, arena x3\n"
-                                          "Store (content.toml): packs basic, epic; 3 promos; boxes: none")
+                                          "Store (content.toml): packs basic, epic; 3 promos; boxes: none\n"
+                                          "Guilds (state/guilds/): none yet; donations on (100 gold a guild point); "
+                                          "raid: none")
     r = ask(restarted, "init")
     assert r["user_data"]["energy"] == "300" and r["max_energy"] == 300  # the player's cap, not the recorded 250
     assert r["user_data"]["last_update_time"] == str(clock[0])        # full: the sync point is now

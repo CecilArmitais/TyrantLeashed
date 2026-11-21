@@ -77,48 +77,65 @@ def test_earned_tiers(all_raids):
 def test_energy_comes_back_while_the_raid_runs(all_raids):
     icarus = all_raids[161]
     run = raids.new_run(icarus, T, 3, 0.02)
-    assert (run["energy"], run["hp"], run["level"], run["end"] - T) == (13, 300, 1, 3 * DAY)
-    raids.refresh(run, icarus, T + 1799, 0.02)
-    assert run["energy"] == 13
-    raids.refresh(run, icarus, T + 3 * 1800 + 5, 0.02)
-    assert run["energy"] == 16 and run["energy_updated"] == T + 3 * 1800    # the part-point carries on
-    raids.refresh(run, icarus, T + 2 * DAY, 0.02)
-    assert run["energy"] == 25                                               # the cap
-    run["energy"] = 0
-    run["energy_updated"] = run["end"] - 1800
-    raids.refresh(run, icarus, run["end"] + DAY, 0.02)
-    assert run["energy"] == 1                                                # none after the end
+    assert (run["hp"], run["level"], run["end"] - T, run["members"]) == (300, 1, 3 * DAY, {})
+    m = raids.member(run, 1000001, T)
+    assert (m["energy"], run["members"]["1000001"] is m) == (13, True)
+    raids.refresh_member(run, m, T + 1799)
+    assert m["energy"] == 13
+    raids.refresh_member(run, m, T + 3 * 1800 + 5)
+    assert m["energy"] == 16 and m["energy_updated"] == T + 3 * 1800       # the part-point carries on
+    raids.refresh_member(run, m, T + 2 * DAY)
+    assert m["energy"] == 25                                               # the cap
+    m["energy"] = 0
+    m["energy_updated"] = run["end"] - 1800
+    raids.refresh_member(run, m, run["end"] + DAY)
+    assert m["energy"] == 1                                                # none after the end
 
 
 def test_a_level_not_cleared_in_time_heals_the_boss(all_raids):
     icarus = all_raids[161]
     run = raids.new_run(icarus, T, 3, 0.02)
-    assert raids.record_fight(run, icarus, 20, T, 0.02) is False
-    assert (run["hp"], run["level_end"], run["energy"], run["damage"]) == (280, T + 8 * HOUR, 12, 20)
-    raids.refresh(run, icarus, T + 8 * HOUR - 1, 0.02)
-    assert run["hp"] == 280
-    raids.refresh(run, icarus, T + 8 * HOUR, 0.02)
-    assert (run["hp"], run["level_end"], run["damage"]) == (300, 0, 20)     # the player keeps their damage
+    m = raids.member(run, 1000001, T)
+    assert raids.record_fight(run, m, icarus, 20, T, 0.02) == (True, False)    # it started the level's clock
+    assert (run["hp"], run["level_end"], m["energy"], m["damage"]) == (280, T + 8 * HOUR, 12, 20)
+    assert raids.record_fight(run, m, icarus, 5, T + 60, 0.02) == (False, False)
+    assert raids.refresh(run, icarus, T + 8 * HOUR - 1, 0.02) is None and run["hp"] == 275
+    assert raids.refresh(run, icarus, T + 8 * HOUR, 0.02) == 1                 # level 1 lost
+    assert (run["hp"], run["level_end"], m["damage"]) == (300, 0, 25)        # the member keeps their damage
+
+
+def test_members_share_the_boss(all_raids):
+    icarus = all_raids[161]
+    run = raids.new_run(icarus, T, 3, 0.02)
+    a, b = raids.member(run, 1, T), raids.member(run, 2, T)
+    raids.record_fight(run, a, icarus, 200, T, 0.02)
+    assert raids.record_fight(run, b, icarus, 100, T + 60, 0.02) == (False, True)   # b lands the final blow
+    assert (run["level"], run["hp"], a["damage"], b["damage"], a["energy"], b["energy"]) == (2, 320, 200, 100, 12, 12)
+    info = raids.raid_info(icarus, run, 1, {"1": "Ann", "2": "Bo"}, T + 120, 0.02)[0]
+    assert info["members"] == [{"member_id": "1", "member_name": "Ann", "damage": 200},
+                               {"member_id": "2", "member_name": "Bo", "damage": 100}]
+    assert info["energy"]["battle_energy"] == 12
 
 
 def test_clearing_a_level(all_raids):
     icarus = all_raids[161]
     run = raids.new_run(icarus, T, 3, 0.02)
     run["hp"] = 10
-    assert raids.record_fight(run, icarus, 15, T, 0.02) is True
+    assert raids.record_fight(run, raids.member(run, 1, T), icarus, 15, T, 0.02) == (True, True)
     assert (run["level"], run["hp"], run["level_end"]) == (2, 320, 0)
 
 
 def test_when_the_reward_can_be_claimed(all_raids):
     icarus = all_raids[161]
     run = raids.new_run(icarus, T, 3, 0.02)
+    m = raids.member(run, 1, T)
     end = run["end"]
-    assert not raids.claimable(run, end + 599) and raids.claimable(run, end + 600)
+    assert not raids.claimable(run, m, end + 599) and raids.claimable(run, m, end + 600)
     run["level_end"] = end + HOUR                                            # a level still running at the end
-    assert not raids.claimable(run, end + 600) and raids.claimable(run, end + HOUR + 600)
-    assert not raids.claimable(run, run["decay"])
-    run["claimed"] = 1
-    assert not raids.claimable(run, end + HOUR + 600)
+    assert not raids.claimable(run, m, end + 600) and raids.claimable(run, m, end + HOUR + 600)
+    assert not raids.claimable(run, m, run["decay"])
+    m["claimed"] = 1
+    assert not raids.claimable(run, m, end + HOUR + 600)
 
 
 # ---- fortresses in the engine ------------------------------------------------------------------------
@@ -146,7 +163,9 @@ def test_fortresses_come_in_with_the_bosss_first_turn(cards):
 
 # ---- the game server ---------------------------------------------------------------------------------
 
-def game(tmp_path, raid=161, bonds=2000, extra=""):
+def game(tmp_path, raid=161, bonds=2000, extra="health_percent = 2\n", guild="Raiders"):
+    """A server with the raid set (at 2% of the boss's health, so the numbers stay small)
+    and the player in a guild of their own."""
     if raid is not None:
         (tmp_path / "content.toml").write_text(f"[raids]\nraid = {raid}\n{extra}", "utf-8")
     clock = [T]
@@ -156,19 +175,47 @@ def game(tmp_path, raid=161, bonds=2000, extra=""):
     p = api.player()
     p.war_bonds = bonds
     api.player_store.save(p)
+    if guild:
+        tb.ask(api, "createFaction", faction_name=guild)
     return api, clock
 
 
+def run_of(api):
+    return api._my_guild()["raid"]
+
+
+def me(api):
+    return run_of(api)["members"]["1000001"]
+
+
+def change_run(api, **values):
+    """Set parts of the guild's run (and the player's part of it) directly."""
+    tb.ask(api, "getRaidInfo")
+    guild = api._my_guild()
+    for k, v in values.items():
+        (guild["raid"]["members"]["1000001"] if k in ("damage", "energy", "claimed") else guild["raid"])[k] = v
+    api.guild_store.save(guild)
+
+
 def fight(api):
-    return tb.ask(api, "fightRaidBattle", raid_id="161", raid_level=str(api.player().raid["level"]))
+    level = (run_of(api) or {"level": 1})["level"]                          # no run until the first raid call
+    return tb.ask(api, "fightRaidBattle", raid_id="161", raid_level=str(level))
 
 
 def test_no_raid_by_default(tmp_path):
     api, _ = game(tmp_path, raid=None)
     r, _ = tb.ask(api, "init")
-    assert r["current_raids"] == [] and r["raid_info"] is None and r["faction"] == {"faction_id": 0}
+    assert r["current_raids"] == [] and r["raid_info"] is None and r["faction"]["name"] == "Raiders"
     r, how = tb.ask(api, "getRaidInfo")
     assert r["result"] is False and how == "refused getRaidInfo: no raid set in content.toml"
+
+
+def test_a_raid_needs_a_guild(tmp_path):
+    api, _ = game(tmp_path, guild=None)
+    r, _ = tb.ask(api, "init")
+    assert r["current_raids"] == [] and r["raid_info"] is None and r["faction"] == {"faction_id": 0}
+    r, how = tb.ask(api, "fightRaidBattle", raid_id="161", raid_level="1")
+    assert r["result"] is False and r["result_message"] == ["You need to be in a guild to raid."]
 
 
 def test_a_raid_in_init_and_the_guild(tmp_path):
@@ -185,17 +232,16 @@ def test_a_raid_in_init_and_the_guild(tmp_path):
     assert info["members"] == [{"member_id": "1000001", "member_name": name, "damage": 0}]
     assert info["energy"]["battle_energy"] == 13 and info["energy"]["max_battle_energy"] == 25
     guild = r["faction"]
-    assert guild["faction_id"] == str(raids.GUILD_ID) and guild["name"] == "Offline Guild"
-    assert guild["members"][0]["member_role"] == raids.LEADER and guild["leader_id"] == "1000001"
+    assert guild["faction_id"] == "900001" and guild["name"] == "Raiders" and "faction_war_points" not in guild
     r, how = tb.ask(api, "getRaidInfo")
-    assert r["result"] and how == "Sentinel Icarus: level 1, health 300/300, raid energy 13/25, your damage 0"
+    assert r["result"] and how == ("Sentinel Icarus: Raiders at level 1, health 300/300, raid energy 13/25, "
+                                   "your damage 0")
 
 
-def test_the_content_file_sets_the_guild_and_the_boss_health(tmp_path):
-    api, _ = game(tmp_path, extra='guild_name = "Solo Raiders"\nhealth_percent = 100\ndays = 1\n')
+def test_the_boss_has_its_real_health_by_default(tmp_path):
+    api, _ = game(tmp_path, extra="days = 1\n")
     r, _ = tb.ask(api, "getRaidInfo")
-    assert r["faction"]["name"] == "Solo Raiders" and r["raid_info"][0]["max_health"] == 15000
-    assert r["current_raids"][0]["end_time"] == T + DAY
+    assert r["raid_info"][0]["max_health"] == 15000 and r["current_raids"][0]["end_time"] == T + DAY
 
 
 def slow_deck(api):
@@ -219,22 +265,33 @@ def test_a_raid_fight(tmp_path):
     assert {"18954", "18964"} <= {bd["card_map"].get(p["card_uid"] if isinstance(p["card_uid"], str) else str(p["card_uid"]))
                                   for p in bd["turn"]["2"]["plays"]}       # the fortresses
     assert bd["battleground_effects"] == {"global": [], "attacker": [], "defender": []}
-    run = api.player().raid
-    assert (run["energy"], run["damage"], run["hp"], run["fights"]) == (12, damage, 300 - damage, 1)
+    run = run_of(api)
+    assert (me(api)["energy"], me(api)["damage"], run["hp"], me(api)["fights"]) == (12, damage, 300 - damage, 1)
     assert run["level_end"] == T + 8 * HOUR
+    r, _ = tb.ask(api, "updateFaction", last_activity_id="0")
+    assert [n["type"] for n in r["faction_news"]] == [1, 31]               # joined, then "launched a level 1 raid"
     r, _ = tb.ask(api, "getRaidInfo")
     info = r["raid_info"][0]
     assert (info["status"], info["raid_level_start"], info["raid_level_end"]) == (0, T, T + 8 * HOUR)
     assert info["members"][0]["damage"] == damage and info["energy"]["battle_energy"] == 12
     again = ga.GameApi(fixture_dir=ga.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: clock[0])
-    assert again.player().raid == run                                        # saved
+    assert again._my_guild()["raid"] == run                                  # kept in the guild's file
+    assert "raid" not in json.loads((tmp_path / "player.json").read_text("utf-8"))["player"]
+
+
+def test_a_lost_level_shows_in_the_news(tmp_path):
+    api, clock = game(tmp_path)
+    fight(api)
+    clock[0] += 8 * HOUR
+    r, _ = tb.ask(api, "updateFaction", last_activity_id="2")
+    assert [(n["type"], json.loads(n["data"])) for n in r["faction_news"]] == \
+        [(33, {"raid_level": 1, "raid_name": "Sentinel Icarus"})]
+    assert run_of(api)["hp"] == 300
 
 
 def test_out_of_raid_energy_and_the_refill(tmp_path):
     api, _ = game(tmp_path)
-    p = api.player()
-    p.raid["energy"] = 0
-    api.player_store.save(p)
+    change_run(api, energy=0)
     r, how = fight(api)
     assert r["result"] is False and r["result_message"] == ["You're out of raid energy."]
     r, how = tb.ask(api, "refillEventBattleEnergy", event_type="2", event_id="161")
@@ -246,15 +303,15 @@ def test_out_of_raid_energy_and_the_refill(tmp_path):
 
 def test_clearing_levels_by_fighting(tmp_path):
     api, _ = game(tmp_path)
-    p = api.player()
-    p.raid["hp"], p.raid["energy"] = 1, 25
-    api.player_store.save(p)
+    change_run(api, hp=1, energy=25)
     r, how = fight(api)
     assert "level 1 cleared" in how
-    run = api.player().raid
+    run = run_of(api)
     assert (run["level"], run["hp"], run["level_end"]) == (2, 320, 0)
+    r, _ = tb.ask(api, "updateFaction", last_activity_id="1")
+    assert [n["type"] for n in r["faction_news"]] == [31, 32]              # launched, won
     r, _ = tb.ask(api, "getRaidLeaderboard", raid_id="161")
-    assert r["raid_leaderboard"] == [{"faction_id": str(raids.GUILD_ID), "name": "Offline Guild", "raid_level": 2}]
+    assert r["raid_leaderboard"] == [{"faction_id": "900001", "name": "Raiders", "raid_level": 2}]
 
 
 def test_forfeit_during_the_replay_gives_the_same_result(tmp_path):
@@ -263,7 +320,7 @@ def test_forfeit_during_the_replay_gives_the_same_result(tmp_path):
     bid = r["battle_data"]["battle_id"]
     f, how = tb.ask(api, "forfeitBattle", battle_id=str(bid))
     assert f["result"] and f["battle_data"] == r["battle_data"] and how.startswith("forfeit during a raid fight")
-    assert api.player().raid["energy"] == 12                                 # not charged twice
+    assert me(api)["energy"] == 12                                          # not charged twice
 
 
 def owned(api):
@@ -272,12 +329,10 @@ def owned(api):
 
 def test_claiming_the_reward(tmp_path):
     api, clock = game(tmp_path)
-    p = api.player()
-    p.raid["damage"], p.raid["level"] = 1000, 5
-    api.player_store.save(p)
+    change_run(api, damage=1000, level=5)
     r, how = tb.ask(api, "claimRaidReward", raid_id="161")
     assert r["result"] is False and how == "refused raid claim: early"
-    clock[0] = p.raid["end"] + 600
+    clock[0] = run_of(api)["end"] + 600
     before = owned(api)
     r, how = tb.ask(api, "claimRaidReward", raid_id="161")
     # tiers 26-22: 5 epic packs (20), a card, 5 Legendary Packs (20), a card, a card
@@ -293,11 +348,19 @@ def test_claiming_the_reward(tmp_path):
 def test_a_new_run_after_the_last_one_is_over(tmp_path):
     api, clock = game(tmp_path)
     fight(api)
-    first = api.player().raid
-    clock[0] = first["decay"]
+    clock[0] = run_of(api)["decay"]
     r, _ = tb.ask(api, "getRaidInfo")
-    run = api.player().raid
-    assert run["start"] == clock[0] and run["damage"] == 0 and run["energy"] == 13
+    run = run_of(api)
+    assert run["start"] == clock[0] and me(api)["damage"] == 0 and me(api)["energy"] == 13
+
+
+def test_leaving_the_guild_mid_raid(tmp_path):
+    api, _ = game(tmp_path)
+    fight(api)
+    r, how = tb.ask(api, "leaveFaction")
+    assert r["faction"] == {"faction_id": 0} and "disbanded" in how
+    r, _ = tb.ask(api, "fightRaidBattle", raid_id="161", raid_level="1")
+    assert r["result_message"] == ["You need to be in a guild to raid."]
 
 
 def test_reward_packs_from_an_emptied_set(tmp_path):

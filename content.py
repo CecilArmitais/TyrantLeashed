@@ -1,5 +1,5 @@
-"""What's on offer in the offline game: the store's packs and promos, and event boxes.
-Later also events, raids and guild brawls.
+"""What's on offer in the game: the store's packs and promos, event boxes, the raid,
+guild donations and the daily crate. Later also events and guild brawls.
 
 Kept in state/content.toml, a file meant to be edited by hand. The first start
 writes it with the defaults (the store as recorded, no boxes) and comments on every
@@ -24,8 +24,9 @@ BOX_ITEM_TYPE = 8                               # store_promos item_type the gam
 TIERED_ITEM_TYPE = 10                           # ...and as a tiered box (a row of tiers that open in turn)
 BOX_BANNER_TEXT = "New Event Box!"              # the banner's ribbon for a box (ours; "" shows "0")
 
-TEMPLATE = '''# What's on offer in the offline Tyrant Unleashed: the store, and event boxes.
-# (Events, raids and guild brawls will go here too once the server has them.)
+TEMPLATE = '''# What's on offer in this Tyrant Unleashed server: the store, event boxes, the raid,
+# guild donations and the daily crate. (Events and guild brawls will go here too once the
+# server has them.)
 #
 # Edit this file while the server runs; the game shows the change after a reload.
 # Ids refer to the game's own data files (game/assets/mobile.tyrantonline.com/assets/).
@@ -63,16 +64,23 @@ on_offer = []
 # A raid to fight (raids_x42.xml), by id; 0 for none (the default). The last raid the
 # game ran was Sentinel Icarus (161, Nov 5-8, 2026):
 #   raid = 161
-# Raids are in the Guild screen's Wars tab, so while one is set you're in a one-player
-# guild with this name.
+# Raids are in the Guild screen's Wars tab: a guild fights the boss together, so you need
+# to be in one (each guild has its own run of the raid).
 raid = 0
-guild_name = "Offline Guild"
 # How long each raid runs (the real ones ran three days), then a day to claim the reward;
 # after that the next one starts.
 days = 3
-# A raid boss was fought by a whole guild, up to 50 players. Alone, its health is this
-# percentage of the real one (2: one player's share of a full guild).
-health_percent = 2
+# The boss's health as a percentage of the real one, which was made for a whole guild
+# of up to 50 players. Lower it for a server with few players.
+health_percent = 100
+
+[guilds]
+# Guilds belong to the server and are shared by its players (state/guilds/). Members can
+# donate gold for guild points, which buy the guild's fortress cards. The real game had
+# donations switched off by the end; a guild point cost this much gold (the client's
+# default).
+donations = true
+gold_per_point = 100
 
 [daily_bonus]
 # The crate on the home screen. It's ready again this many hours after it's opened (a
@@ -107,9 +115,10 @@ class Content:
     recorded_extras: bool = True
     boxes: tuple[int, ...] = ()
     raid: int = 0
-    guild_name: str = "Offline Guild"
     raid_days: int = 3
-    raid_health_percent: float = 2.0
+    raid_health_percent: float = 100.0
+    guild_donations: bool = True
+    gold_per_point: int = 100
     crate_every_hours: int = DEFAULT_EVERY_HOURS
     crate_rewards: tuple[Reward, ...] = DEFAULT_REWARDS
     problems: list[str] = field(default_factory=list)      # what in the file couldn't be used
@@ -143,17 +152,27 @@ def parse(text: str) -> Content:
         c.raid = raids.get("raid", 0)
     else:
         problems.append("raids.raid: needs a raid id (0 for none)")
-    if isinstance(raids.get("guild_name", c.guild_name), str) and raids.get("guild_name", c.guild_name).strip():
-        c.guild_name = raids.get("guild_name", c.guild_name).strip()[:30]
+    if "guild_name" in raids:
+        problems.append("raids.guild_name: no longer used (guilds are made in the game now)")
     if isinstance(raids.get("days", 3), int) and raids.get("days", 3) > 0:
         c.raid_days = raids.get("days", 3)
     else:
         problems.append("raids.days: needs a whole number of days, 1 or more")
-    pct = raids.get("health_percent", 2)
+    pct = raids.get("health_percent", 100)
     if isinstance(pct, (int, float)) and pct > 0:
         c.raid_health_percent = float(pct)
     else:
         problems.append("raids.health_percent: needs a number above 0")
+    guilds = data.get("guilds") or {}
+    if isinstance(guilds.get("donations", True), bool):
+        c.guild_donations = guilds.get("donations", True)
+    else:
+        problems.append("guilds.donations: needs true or false")
+    gpp = guilds.get("gold_per_point", 100)
+    if isinstance(gpp, int) and not isinstance(gpp, bool) and gpp > 0:
+        c.gold_per_point = gpp
+    else:
+        problems.append("guilds.gold_per_point: needs a whole number of gold, 1 or more")
     crate = data.get("daily_bonus") or {}
     every = crate.get("every_hours", DEFAULT_EVERY_HOURS)
     if isinstance(every, int) and every > 0:

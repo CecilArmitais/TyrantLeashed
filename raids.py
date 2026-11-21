@@ -1,4 +1,5 @@
-"""Raids: a boss with a big health pool, fought level after level with raid energy.
+"""Raids: a boss with a big health pool, fought by a guild level after level, each
+member on their own raid energy. The run lives in the guild (guilds.py).
 docs/protocol.md, "Raids", has the evidence.
 
 The data (raids_x42.xml, 161 raids) gives each raid its boss commander, a deck pool
@@ -146,9 +147,11 @@ def earned_tiers(raid: Raid, damage: int, level: int) -> list[Tier]:
     return [t for t in raid.tiers if damage >= t.damage and level >= t.level]
 
 
-# ---- a raid run: the save's state ----------------------------------------------------------------------
-# player.raid = {"id", "start", "end", "decay", "level", "level_start", "level_end", "hp",
-#   "damage", "fights", "claimed", "energy", "energy_updated"}
+# ---- a raid run: the guild's state --------------------------------------------------------------------
+# guild["raid"] = {"id", "start", "end", "decay", "level", "level_start", "level_end", "hp",
+#   "members": {user_id: {"damage", "fights", "claimed", "energy", "energy_updated"}}}
+# The boss (its level, health and the level's clock) is the guild's; each member has their
+# own raid energy, damage and reward claim.
 
 ENERGY_MAX = 25            # the wiki; recorded max_battle_energy 25
 ENERGY_START = 13          # the wiki: "starts at 13"
@@ -156,8 +159,6 @@ ENERGY_EVERY = 1800        # recorded battle_energy_recharge_time; the wiki: one
 REFILL_WB = 5              # the wiki: refills "for 5 per attack"
 CLAIM_WAIT = 600           # the client's default claim_reward_prevention
 CLAIM_DAYS = 1             # ours: how long after the raid its reward can be claimed
-GUILD_ID = 900001          # ours: the offline guild's id
-LEADER = 31                # member_role: 1 member, 21 officer, 31 leader (the client's getRankName)
 FALLBACK_REWARD_SET = 4500 # reward packs whose set has no level-1 cards left draw from here instead
 
 
@@ -168,51 +169,64 @@ class RaidError(Exception):
 def new_run(raid: Raid, now: int, days: int, scale: float) -> dict:
     end = now + days * 86400
     return {"id": raid.id, "start": now, "end": end, "decay": end + CLAIM_DAYS * 86400, "level": 1,
-            "level_start": 0, "level_end": 0, "hp": raid.max_health(1, scale), "damage": 0, "fights": 0,
-            "claimed": 0, "energy": ENERGY_START, "energy_updated": now}
+            "level_start": 0, "level_end": 0, "hp": raid.max_health(1, scale), "members": {}}
 
 
-def refresh(run: dict, raid: Raid, now: int, scale: float) -> None:
-    """Brings a run up to now: energy back over time (only while the raid runs), and a
-    level not cleared in time refilling the boss."""
-    stop = min(now, run["end"])
-    if run["energy"] < ENERGY_MAX and stop > run["energy_updated"]:
-        gained = (stop - run["energy_updated"]) // ENERGY_EVERY
-        run["energy"] = min(ENERGY_MAX, run["energy"] + gained)
-        run["energy_updated"] = run["energy_updated"] + gained * ENERGY_EVERY if run["energy"] < ENERGY_MAX else stop
-    elif run["energy"] >= ENERGY_MAX:
-        run["energy_updated"] = max(run["energy_updated"], stop)
+def member(run: dict, user_id, now: int) -> dict:
+    """A member's part of the run, made when they first take part (raid energy starts
+    at 13 then)."""
+    return run["members"].setdefault(str(user_id), {"damage": 0, "fights": 0, "claimed": 0,
+                                                     "energy": ENERGY_START, "energy_updated": int(now)})
+
+
+def refresh(run: dict, raid: Raid, now: int, scale: float) -> int | None:
+    """Brings the boss up to now: a level not cleared in time refills its health.
+    Returns that level, if it was lost just now."""
     if run["level_end"] and now >= run["level_end"]:
         run["hp"] = raid.max_health(run["level"], scale)          # not cleared in time: full health again
         run["level_start"] = run["level_end"] = 0
+        return run["level"]
+    return None
 
 
-def can_fight(run: dict, now: int) -> None:
-    if run["energy"] < 1:
+def refresh_member(run: dict, m: dict, now: int) -> None:
+    """Raid energy back over time, only while the raid runs."""
+    stop = min(now, run["end"])
+    if m["energy"] < ENERGY_MAX and stop > m["energy_updated"]:
+        gained = (stop - m["energy_updated"]) // ENERGY_EVERY
+        m["energy"] = min(ENERGY_MAX, m["energy"] + gained)
+        m["energy_updated"] = m["energy_updated"] + gained * ENERGY_EVERY if m["energy"] < ENERGY_MAX else stop
+    elif m["energy"] >= ENERGY_MAX:
+        m["energy_updated"] = max(m["energy_updated"], stop)
+
+
+def can_fight(run: dict, m: dict, now: int) -> None:
+    if m["energy"] < 1:
         raise RaidError("You're out of raid energy.")
     if now >= run["end"] and not run["level_end"] > now:
         raise RaidError("The raid is over: no new levels can be started.")
 
 
-def record_fight(run: dict, raid: Raid, damage: int, now: int, scale: float) -> bool:
-    """A fight's damage against the boss. True if it cleared the level."""
-    run["energy"] -= 1
-    run["fights"] += 1
-    if not run["level_end"]:                                      # the first fight starts the level's clock
+def record_fight(run: dict, m: dict, raid: Raid, damage: int, now: int, scale: float) -> tuple[bool, bool]:
+    """A member's fight against the boss: (it started the level's clock, it cleared the level)."""
+    m["energy"] -= 1
+    m["fights"] += 1
+    started = not run["level_end"]
+    if started:                                                   # the first fight starts the level's clock
         run["level_start"], run["level_end"] = now, now + raid.duration
-    run["damage"] += damage
+    m["damage"] += damage
     run["hp"] -= damage
     if run["hp"] > 0:
-        return False
+        return started, False
     run["level"] += 1
     run["hp"] = raid.max_health(run["level"], scale)
     run["level_start"] = run["level_end"] = 0
-    return True
+    return started, True
 
 
-def claimable(run: dict, now: int) -> bool:
+def claimable(run: dict, m: dict, now: int) -> bool:
     level_end = run["level_end"] or run["end"]
-    return now >= max(run["end"], level_end) + CLAIM_WAIT and now < run["decay"] and not run["claimed"]
+    return now >= max(run["end"], level_end) + CLAIM_WAIT and now < run["decay"] and not m["claimed"]
 
 
 # ---- the replies ------------------------------------------------------------------------------------------
@@ -242,32 +256,27 @@ def current_raids(raid: Raid, run: dict, mini_packs: dict) -> list:
              "rewards": {"tier": [tier_json(t, mini_packs) for t in raid.tiers]}}]
 
 
-def raid_info(raid: Raid, run: dict, user_id, name: str, now: int, scale: float) -> list:
-    """raid_info, as the client reads it (ServiceRaidStatusData)."""
+def raid_info(raid: Raid, run: dict, user_id, names: dict, now: int, scale: float) -> list:
+    """raid_info, as the client reads it (ServiceRaidStatusData): the guild's boss, every
+    member who has fought (and the player), and the player's raid energy. names: user
+    id -> name."""
     running = bool(run["level_end"]) and run["level_end"] > now
     if now >= run["end"]:
         level_end, status = max(run["level_end"] or 0, run["end"]), 0
     else:
         level_end, status = (run["level_end"] if running else 0), (0 if running else 1)
+    me = run["members"].get(str(user_id)) or {"damage": 0, "claimed": 0, "energy": ENERGY_START,
+                                               "energy_updated": now}
+    shown = {uid: m for uid, m in run["members"].items() if m["damage"] or uid == str(user_id)}
+    shown.setdefault(str(user_id), me)
+    members = sorted(({"member_id": uid, "member_name": names.get(uid, "Unknown"), "damage": m["damage"]}
+                      for uid, m in shown.items()), key=lambda r: -r["damage"])
     return [{"raid_id": raid.id, "raid_level": run["level"], "health": max(0, run["hp"]),
              "max_health": raid.max_health(run["level"], scale), "raid_level_start": run["level_start"] if running else 0,
-             "raid_level_end": level_end, "claimed_rewards": int(bool(run["claimed"])), "status": status,
-             "members": [{"member_id": str(user_id), "member_name": name, "damage": run["damage"]}],
-             "energy": {"battle_energy": run["energy"], "max_battle_energy": ENERGY_MAX,
+             "raid_level_end": level_end, "claimed_rewards": int(bool(me["claimed"])), "status": status,
+             "members": members,
+             "energy": {"battle_energy": me["energy"], "max_battle_energy": ENERGY_MAX,
                         "cost_per_battle_energy": REFILL_WB, "battle_energy_recharge_time": ENERGY_EVERY,
                         "battle_energy_recharge_start_time": run["start"],
                         "battle_energy_recharge_stop_time": run["end"],
-                        "battle_energy_update_time": run["energy_updated"]}}]
-
-
-def guild(name: str, user_id, player_name: str, run: dict | None, rating: int, level: int, commander_id, now: int) -> dict:
-    """The offline guild (the faction the client reads: ServiceGuildData): the player alone,
-    as its leader."""
-    return {"faction_id": str(GUILD_ID), "name": name, "leader_id": str(user_id), "leader_name": player_name,
-            "num_members": 1, "max_members": 50, "recruitment_status": 0, "min_level": 1, "max_level": 20,
-            "rank": 1, "total_rating": rating, "guild_points": 0, "gp_cost": 0, "max_slot_health": 0,
-            "faction_war_points": 0, "raid_level": run["level"] if run else 0, "conquest_points": 0,
-            "message": "", "faction_cards": [], "faction_items": [],
-            "members": [{"faction_id": str(GUILD_ID), "user_id": str(user_id), "name": player_name, "rating": rating,
-                         "level": level, "commander_id": commander_id, "gp_earned": 0, "member_role": LEADER,
-                         "last_update_time": now}]}
+                        "battle_energy_update_time": me["energy_updated"]}}]

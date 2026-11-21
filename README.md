@@ -16,7 +16,8 @@ This repository holds no game files. You need your own copy of them, beside it:
                                cdn.synapsegames.com/unleashed/... (bundles, images)
     fixtures/                  getUserAccount.json, init.json, replay.json: a recorded
                                login, built by make_fixtures.py from a recording
-  state/                       your save and settings, made on first start
+  state/                       your save and settings, made on first start, and the
+                               server's guilds (guilds/, one file each)
 ```
 
 ## Playing
@@ -29,7 +30,9 @@ python server/run.py --engine         # missions and the arena as real battles
 The game logs in as the offline player. Your progress is kept in `state/player.json`;
 `python server/player.py` shows it and can change it (gold, war bonds, cards, music
 and sound, the tutorial...). `state/content.toml`, written with comments on the first
-start, sets what the store sells, event boxes, the raid and the daily crate.
+start, sets what the store sells, event boxes, the raid, guild donations and the daily
+crate. Guilds belong to the server, not to a player's save, so players can share them;
+a raid is fought by a guild.
 
 ## Checking it
 

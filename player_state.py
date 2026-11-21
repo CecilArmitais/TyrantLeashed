@@ -53,10 +53,11 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-SAVE_VERSION = 10         # 2: max_energy; 3: flags and missions; 4: decks, gold/cards earned;
+SAVE_VERSION = 11         # 2: max_energy; 3: flags and missions; 4: decks, gold/cards earned;
                           # 5: stamina and the arena; 6: event boxes; 7: salvage points and card
                           # locks; 8: achievements; 9: the daily crate, store upgrades, name and
-                          # active deck; 10: raids (older saves are upgraded on load)
+                          # active deck; 10: raids; 11: the raid moved to the guild (guilds.py)
+                          # (older saves are upgraded on load)
 FIRST_CRATE_AFTER = 1799  # recorded: a new account's crate opened 1799 s after its login
 DEFAULT_MAX_ENERGY = 250
 DEFAULT_MAX_STAMINA = 15
@@ -115,7 +116,6 @@ class Player:
     name_changes: int = 0
     active_deck: str | None = None           # user_data.active_deck
     defense_deck: str | None = None          # user_data.defense_deck
-    raid: dict | None = None                 # the raid being fought (raids.py)
 
     @property
     def card_count(self) -> int:
@@ -336,7 +336,7 @@ class PlayerStore:
         if self._player is None or mtime != self._mtime:
             data = json.loads(self.path.read_text("utf-8"))
             version = data.get("version")
-            if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, SAVE_VERSION):
+            if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, SAVE_VERSION):
                 raise ValueError(f"{self.path}: save version {version}, expected {SAVE_VERSION}")
             p = data["player"]
             self._player = Player(
@@ -373,7 +373,6 @@ class PlayerStore:
                 name=p.get("name"), name_changes=int(p.get("name_changes") or 0),
                 active_deck=None if p.get("active_deck") is None else str(p["active_deck"]),
                 defense_deck=None if p.get("defense_deck") is None else str(p["defense_deck"]),
-                raid=copy.deepcopy(p.get("raid")),
             )
             self._mtime = mtime
             if version != SAVE_VERSION:

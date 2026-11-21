@@ -1,0 +1,6 @@
+__pycache__/
+.pytest_cache/
+# The game's own files and the player's save live beside this folder (../game and
+# ../state), never in it; these catch copies left here by hand or the old layout.
+fixtures/
+state/

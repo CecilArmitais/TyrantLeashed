@@ -85,7 +85,9 @@ import copy
 import dataclasses
 import hashlib
 import json
+import os
 import random
+import threading
 import time
 import xml.etree.ElementTree as ET
 from collections import defaultdict
@@ -96,6 +98,7 @@ from battle.engine import ATTACKER, DEFENDER, FIRST_UID, Battle, BattleError, Ra
 from battle.missions import load_missions
 from battle.protocol import BattleSession
 import achievements
+from accounts import AccountStore
 import arena
 import guilds
 import raids
@@ -184,6 +187,21 @@ BATTLE_TURN = "playCard"
 SHIFT_WINDOW_S = 365 * 86400       # timestamps this close to the recorded server time are "live"
 NO_SHIFT_UNDER = ("card_files",)   # file version stamps, not live times
 DEFAULT_ENVELOPE = {"version": "80.560", "guild_donations_enabled": 1, "guild_supplies_enabled": 1}
+
+
+class Session:
+    """What a player's client is in the middle of: the battle being played, how far the
+    replayed recordings have got, and the last raid fight (for a forfeit during its
+    replay). A new login starts it over."""
+
+    def __init__(self):
+        self.cursors: dict[tuple, int] = defaultdict(int)
+        self.battle_cursor: dict[tuple, int] = defaultdict(int)
+        self.battle: dict | None = None
+        self.last_raid_reply: dict | None = None
+
+
+NOT_LOGGED_IN = "Your login wasn't recognized on this server. Reload the game to log in again."
 
 
 class NotSupported(Exception):
@@ -296,6 +314,21 @@ def encode(reply: dict) -> bytes:
     return text.replace("/", "\\/").encode("ascii")
 
 
+def personalize(body: dict, user_id: int) -> None:
+    """A recorded reply (made for the offline player) for another player: their id where
+    the client reads its own."""
+    mine, uid = str(OFFLINE_USER_ID), str(user_id)
+    if isinstance(body.get("user_data"), dict) and str(body["user_data"].get("user_id")) == mine:
+        body["user_data"]["user_id"] = uid
+    bd = body.get("battle_data")
+    if isinstance(bd, dict):
+        if str(bd.get("host_id")) == mine:
+            bd["host_id"] = uid
+        for r in bd.get("rewards") or []:
+            if isinstance(r, dict) and str(r.get("user_id")) == mine:
+                r["user_id"] = uid
+
+
 def echo(params: dict) -> dict:
     """What the real server sends back as `request`: the parameters, plus a fingerprint."""
     out = {k: v for k, v in params.items()}
@@ -310,12 +343,17 @@ def request_key(message: str, params: dict) -> tuple:
 
 class GameApi:
     def __init__(self, fixture_dir: Path = FIXTURE_DIR, clock=time.time, state_dir: Path | None = None,
-                 asset_dir: Path | None = None, battle_engine: bool = False) -> None:
-        """state_dir: where the player's save lives (default: STATE_DIR, or
-        <fixture_dir>/../state for other fixtures).
+                 asset_dir: Path | None = None, battle_engine: bool = False, single_player: bool = True) -> None:
+        """state_dir: where the saves live (default: STATE_DIR, or <fixture_dir>/../state
+        for other fixtures).
         asset_dir: the game data files (default: the archive's ASSET_DIR).
         battle_engine: missions are real battles from the battle engine instead of
-        replayed recordings (docs/battle-engine.md; in progress)."""
+        replayed recordings (docs/battle-engine.md; in progress).
+        single_player: every login is the offline player (1000001), saved in
+        state/player.json, as before accounts existed (the tests and tools use this).
+        Otherwise each browser has its own account (accounts.py) and save
+        (state/players/<user_id>.json), and every request must carry its credentials;
+        a single-player save found in state/ becomes player 1000001's."""
         self.clock = clock
         self.battle_engine = battle_engine
         self.rng_factory = random.Random       # shuffles and random picks; tests swap in a seeded one
@@ -341,6 +379,13 @@ class GameApi:
         self.settings_store = SettingsStore(state / "settings.json")     # the gold bonuses
         self.content_store = ContentStore(state / "content.toml")        # the store and event boxes
         self.guild_store = guilds.GuildStore(state / "guilds")            # the server's guilds
+        self.single_player = single_player
+        self._state = state
+        self.accounts = AccountStore(state / "accounts.json")             # who may play (multi-player)
+        self._lock = threading.RLock()                    # one request at a time, whoever sends it
+        self._stores: dict[str, PlayerStore] = {}
+        self._sessions: dict[str, Session] = {}
+        self.migrated = False
         start = self.fixtures.get("init")
         if start is not None:
             body = start["body"]
@@ -351,13 +396,106 @@ class GameApi:
                                     or (body.get("user_data") or {}).get("energy_recharge_time") or 60)
             self.stamina_every = int(body.get("stamina_recharge_time")
                                      or (body.get("user_data") or {}).get("stamina_recharge_time") or 900)
-            self.player_store = PlayerStore(state / "player.json", clock=clock, default_max_energy=self.max_energy)
+        if not single_player:
+            self._take_in_single_player_save()
+        self.use_player(OFFLINE_USER_ID)                  # until a request says who it is
         self.replays: dict[tuple, list[dict]] = {}       # request key -> recorded bodies, in order
         self.scripts: dict[tuple, list[dict]] = {}       # battle-start request key -> recorded battles
         f = fixture_dir / "replay.json"
         if f.is_file():
             self._index(json.loads(f.read_text("utf-8")).get("calls", []))
         self._reset_session()
+
+    # ---- players --------------------------------------------------------------------------------------
+
+    def _save_path(self, user_id) -> Path:
+        if self.single_player:
+            return self._state / "player.json"
+        return self._state / "players" / f"{int(user_id)}.json"
+
+    def _store_for(self, user_id) -> PlayerStore | None:
+        """A player's save (None without starting data to make one from)."""
+        if self.fixtures.get("init") is None:
+            return None
+        uid = str(int(user_id))
+        if uid not in self._stores:
+            self._stores[uid] = PlayerStore(self._save_path(uid), clock=self.clock, default_max_energy=self.max_energy)
+        return self._stores[uid]
+
+    def use_player(self, user_id) -> None:
+        """Act as this player: their save and their session, until another request (or
+        call) says otherwise. Requests hold the lock while they do."""
+        self.uid = int(user_id)
+        self.player_store = self._store_for(self.uid)
+
+    def _session(self) -> Session:
+        return self._sessions.setdefault(str(self.uid), Session())
+
+    battle = property(lambda self: self._session().battle,
+                      lambda self, v: setattr(self._session(), "battle", v))
+    cursors = property(lambda self: self._session().cursors)
+    battle_cursor = property(lambda self: self._session().battle_cursor)
+    _last_raid_reply = property(lambda self: self._session().last_raid_reply,
+                                lambda self, v: setattr(self._session(), "last_raid_reply", v))
+
+    def _take_in_single_player_save(self) -> None:
+        """A save from single-player days (state/player.json) becomes player 1000001's, with
+        the offline login the browser already has. That password is public, so the next
+        login gives the browser new credentials (accounts.py)."""
+        old, new = self._state / "player.json", self._save_path(OFFLINE_USER_ID)
+        if old.is_file() and not new.exists() and not self.accounts.exists(OFFLINE_USER_ID):
+            new.parent.mkdir(parents=True, exist_ok=True)
+            os.replace(old, new)
+            self.accounts.create(int(self.clock()), user_id=OFFLINE_USER_ID, password=OFFLINE_PASSWORD,
+                                 syncode=OFFLINE_SYNCODE, rotate=True)
+            self.migrated = True
+
+    def player_ids(self) -> list[int]:
+        return [OFFLINE_USER_ID] if self.single_player else self.accounts.ids()
+
+    def _authenticate(self, params: dict) -> int | None:
+        """The player a request is from, if its user_id and password match an account."""
+        uid = str(params.get("user_id") or "")
+        if not uid.isdigit() or not self.accounts.check(uid, params.get("password")):
+            return None
+        now = int(self.clock())
+        acc = self.accounts.get(uid)
+        if now - int(acc.get("last_seen", 0)) >= 60:               # the guild screen's activity light
+            self.accounts.seen(uid, now)
+        return int(uid)
+
+    def _login(self, params: dict) -> tuple[dict, str]:
+        """getUserAccount, multi-player: a returning browser's account, or a new one for a
+        browser with none (or with credentials this server doesn't know). A reply with
+        new_user makes the client keep the credentials it carries."""
+        now = int(self.clock())
+        uid = self._authenticate(params)
+        new = None
+        if uid is None:
+            uid, password, syncode = self.accounts.create(now)
+            new, how = (uid, password, syncode), f"new player {uid}"
+            had = str(params.get("user_id") or "")
+            if had:
+                how += f" (the browser's login for {had} isn't this server's)"
+        elif self.accounts.needs_rotation(uid):
+            password, syncode = self.accounts.rotate_credentials(uid)
+            new, how = (uid, password, syncode), f"player {uid} logged in; new credentials replace the public ones"
+        else:
+            how = f"player {uid} logged in"
+        self.use_player(uid)
+        self._reset_session()
+        if new is not None and self.player_store is not None and self.player_store.load() is None:
+            player = self.player()                           # the new player's save, from the starting data
+            player.name = f"Player{uid}"
+            self.player_store.save(player)
+        body = self._prepare(self.fixtures["getUserAccount"]["body"], params)
+        for k in ("new_user", "new_password", "new_name"):
+            body.pop(k, None)
+        body["new_syncode"] = self.accounts.get(uid)["syncode"]
+        if new is not None:
+            body["new_user"], body["new_password"], body["new_syncode"] = new
+            body["new_name"] = (self.player() or Player(0, 0, 0)).name if self.player_store else ""
+        return body, how
 
     def _login_value(self, key: str):
         """A top-level value from the recorded login (e.g. which data files the game loads)."""
@@ -383,10 +521,8 @@ class GameApi:
                 self.replays.setdefault(request_key(message, c["key"]), []).append(body)
 
     def _reset_session(self) -> None:
-        """A new login starts the recorded story from the top again."""
-        self.cursors: dict[tuple, int] = defaultdict(int)
-        self.battle_cursor: dict[tuple, int] = defaultdict(int)
-        self.battle: dict | None = None
+        """A new login starts the player's session (and the recorded story) over."""
+        self._sessions[str(self.uid)] = Session()
 
     @property
     def missing_fixtures(self) -> list[str]:
@@ -488,6 +624,14 @@ class GameApi:
             return None
         bonuses = ("\nGold bonuses: " + self.settings().describe() + "\n" + self.store_report()
                    + "\n" + self.guild_report())
+        if not self.single_player:
+            ids = self.player_ids()
+            line = (f"Players: {len(ids) or 'none yet'}" + ("" if not ids else f" ({ids[0]}-{ids[-1]})")
+                    + "; each browser has its own account (state/accounts.json) and save (state/players/)")
+            if self.migrated:
+                line += ("\n  The single-player save (state/player.json) is now player 1000001's; that browser "
+                         "gets new login credentials at its next login")
+            return line + bonuses
         saved = self.player_store.load()
         if saved is None:
             return "Player save: none yet; the first login creates it from the starting data." + bonuses
@@ -510,22 +654,31 @@ class GameApi:
 
     def respond(self, message: str, params: dict) -> tuple[dict, str]:
         """(reply, how it was answered). Unsupported requests get the error reply."""
-        try:
-            return self._dispatch(message, params)
-        except NotSupported as e:
-            return self.unsupported(message, params, e.reason), f"UNSUPPORTED: {e.reason}"
+        with self._lock:
+            try:
+                return self._dispatch(message, params)
+            except NotSupported as e:
+                return self.unsupported(message, params, e.reason), f"UNSUPPORTED: {e.reason}"
 
     def handle(self, message: str, params: dict) -> dict | None:
         """The reply, or None if the message isn't supported (yet)."""
-        try:
-            return self._dispatch(message, params)[0]
-        except NotSupported:
-            return None
+        with self._lock:
+            try:
+                return self._dispatch(message, params)[0]
+            except NotSupported:
+                return None
 
     def _dispatch(self, message: str, params: dict) -> tuple[dict, str]:
         """Answers a message; replies after something that moved the achievements also
         carry the list (user_achievements) and any just finished (completed_achievements),
         as recorded."""
+        if not self.single_player:
+            if message == "getUserAccount" and "getUserAccount" in self.fixtures:
+                return self._login(params)
+            uid = self._authenticate(params)
+            if uid is None:
+                return self._refuse(params, NOT_LOGGED_IN), f"refused {message}: not logged in"
+            self.use_player(uid)
         self._ach_news, self._ach_changed, self._ach_ready = [], False, []
         reply, how = self._dispatch_message(message, params)
         if self._ach_ready:
@@ -725,7 +878,7 @@ class GameApi:
                               shuffled_deck([cards[i] for i in mission.deck], FIRST_UID[DEFENDER], rng)),
                         cards=cards)                                   # for Summon
         battle_id = int(self.clock() * 1000)
-        session = BattleSession(battle, battle_id, str(OFFLINE_USER_ID), mid)
+        session = BattleSession(battle, battle_id, str(self.uid), mid)
         turns = battle.start()
         self.battle = {"id": str(battle_id), "name": f"mission {mid}", "mission_id": mid, "engine": session}
         reply = self.envelope(params)
@@ -757,7 +910,7 @@ class GameApi:
                 rewards = result.rewards
             else:
                 result = self._finish_mission(b["mission_id"], won)
-                rewards = [result.reward if result else {"user_id": str(OFFLINE_USER_ID), "gold": 0}]
+                rewards = [result.reward if result else {"user_id": str(self.uid), "gold": 0}]
             if result:
                 how += "; paid " + result.summary()
             self.battle = None
@@ -785,7 +938,7 @@ class GameApi:
             rewards = result.rewards
         else:
             result = self._finish_mission(b["mission_id"], False) if b.get("mission_id") else None
-            rewards = [result.reward if result else {"user_id": str(OFFLINE_USER_ID), "gold": 0}]
+            rewards = [result.reward if result else {"user_id": str(self.uid), "gold": 0}]
         reply = self.envelope(params)
         reply["result"] = True
         if "engine" in b:
@@ -793,7 +946,7 @@ class GameApi:
             session.battle.forfeit()
             reply["battle_data"] = session.turn_data({}, rewards, end_time=int(self.clock()))
         else:
-            reply["battle_data"] = {"battle_id": b["id"], "host_id": str(OFFLINE_USER_ID), "turn": {},
+            reply["battle_data"] = {"battle_id": b["id"], "host_id": str(self.uid), "turn": {},
                                     "end_time": int(self.clock()), "winner": 0, "rewards": rewards,
                                     **({"mission_id": b["mission_id"]} if b.get("mission_id") else {})}
         reply.update(self._arena_parts(params) if b.get("rival") else self._final_parts(result, False, params))
@@ -858,7 +1011,7 @@ class GameApi:
         battle = Battle(Setup(commander, shuffled_deck(deck, FIRST_UID[ATTACKER], rng), enemy_commander,
                               shuffled_deck(enemy_deck, FIRST_UID[DEFENDER], rng)), cards=cards)
         battle_id = int(self.clock() * 1000)
-        session = BattleSession(battle, battle_id, str(OFFLINE_USER_ID),
+        session = BattleSession(battle, battle_id, str(self.uid),
                                 extra={**ARENA_FIELDS, "enemy_id": tid, "enemy_name": rival["name"]})
         turns = battle.start()
         self.battle = {"id": str(battle_id), "name": f"arena {tid} ({rival['name']})", "mission_id": None,
@@ -876,13 +1029,13 @@ class GameApi:
         first, as recorded (only `battle_reports`, no `result`). Nobody attacks the
         offline player, so there are no defence reports and nothing to take revenge on."""
         reply = self.envelope(params)
-        reply["battle_reports"] = arena.reports_json(self.player().arena, OFFLINE_USER_ID)
+        reply["battle_reports"] = arena.reports_json(self.player().arena, self.uid)
         return reply, f"battle reports: {len(reply['battle_reports'])}"
 
     def _finish_hunt(self, rival: dict, won: bool, battle_id=None, battle=None) -> arena.HuntResult:
         player = self.player()
         result = arena.finish_hunt(player, rival, won, self.reward_rules.loss_mult, int(self.clock()),
-                                   OFFLINE_USER_ID, battle_id)
+                                   self.uid, battle_id)
         if battle is not None:                   # the daily objectives count what happened
             achievements.ensure_dailies(self._achievement_defs(), player, int(self.clock()), self.rng_factory())
             ready = achievements.record_fight(self._achievement_defs(), player,
@@ -908,7 +1061,7 @@ class GameApi:
                 self.player_store.save(player)
             return None
         rules = dataclasses.replace(self.reward_rules, gold_multiplier=self.settings().mission_gold.effective)
-        result = finish_mission(player, mission, won, rules, int(self.clock()), OFFLINE_USER_ID,
+        result = finish_mission(player, mission, won, rules, int(self.clock()), self.uid,
                                 self._active_deck_id())
         self._track(player)                 # "Complete Mission #5"...
         self.player_store.save(player)
@@ -937,7 +1090,7 @@ class GameApi:
         if result is None or not isinstance(bd, dict):
             return reply
         others = [r for r in bd.get("rewards") or [] if isinstance(r, dict)
-                  and str(r.get("user_id")) != str(OFFLINE_USER_ID)]
+                  and str(r.get("user_id")) != str(self.uid)]
         bd["rewards"] = [result.reward, *others]
         for k in ("user_cards", "user_decks", "mission_completions",
                   "new_cards_data", "completed_achievements", "user_achievements"):   # achievements aren't kept
@@ -1132,33 +1285,58 @@ class GameApi:
 
     # ---- guilds -------------------------------------------------------------------------------------
 
+    def _player_of(self, user_id) -> Player | None:
+        """Any player's save: the current player's brought up to now, another's as last
+        saved; None for an id this server doesn't know."""
+        try:
+            uid = int(user_id)
+        except (TypeError, ValueError):
+            return None
+        if uid == self.uid:
+            return self.player()
+        if self.single_player or not self.accounts.exists(uid):
+            return None
+        store = self._store_for(uid)
+        return store.load() if store is not None else None
+
+    def _deck_of(self, player: Player) -> dict:
+        """A player's active deck ({"commander_id", "cards"})."""
+        decks = player.decks or {}
+        if player.active_deck and decks.get(player.active_deck):
+            return decks[player.active_deck]
+        start = self._start.get("user_decks") or {}
+        default = str((self._start.get("user_data") or {}).get("active_deck") or next(iter(start), ""))
+        return decks.get(default) or {}
+
+    def _last_active(self, user_id) -> int:
+        if int(user_id) == self.uid or self.single_player:
+            return int(self.clock())
+        return int((self.accounts.get(user_id) or {}).get("last_seen", 0))
+
     def _guild_info(self, user_id) -> dict | None:
         """A player's public details for guild screens: name, level, rating, commander and
-        when they were last active. The offline player is the only player this server has
-        so far; any other id is an unknown player."""
-        if str(user_id) != str(OFFLINE_USER_ID):
-            return None
-        player = self.player()
+        when they were last active; None for a player this server doesn't know."""
+        player = self._player_of(user_id)
         if player is None:
             return None
         arena = player.arena or {}
-        deck = (player.decks or {}).get(self._active_deck_id()) or {}
         return {"name": player.name or OFFLINE_NAME, "level": int(arena.get("level", 1)),
-                "rating": int(arena.get("rating", 0)), "commander_id": int(deck.get("commander_id") or 1000),
-                "last_update_time": int(self.clock())}
+                "rating": int(arena.get("rating", 0)),
+                "commander_id": int(self._deck_of(player).get("commander_id") or 1000),
+                "last_update_time": self._last_active(user_id)}
 
     def _name_of(self, user_id) -> str:
         return (self._guild_info(user_id) or guilds.UNKNOWN)["name"]
 
     def _my_guild(self) -> dict | None:
-        return self.guild_store.of_member(OFFLINE_USER_ID)
+        return self.guild_store.of_member(self.uid)
 
     def _guild_parts(self, guild, params: dict | None = None) -> dict:
         """What every guild reply carries: the player's guild (`faction`; {"faction_id": 0}
         without one, and then the invitations), its fortress, and, given the request, the
         news and chat after its last_activity_id."""
         if guild is None:
-            invites = guilds.invites_for(self.guild_store, OFFLINE_USER_ID)
+            invites = guilds.invites_for(self.guild_store, self.uid)
             return {"faction": dict(guilds.NO_GUILD), "fortress_slots": [],
                     "faction_invites": [guilds.list_json(g, self._guild_info) for g in invites]}
         out = {"faction": guilds.faction_json(guild, self._guild_info, self.content().gold_per_point),
@@ -1189,7 +1367,7 @@ class GameApi:
     def _guild_message(self, message: str, params: dict) -> tuple[dict, str]:
         """The guild calls (guilds.py): creating, joining and leaving, invitations, ranks,
         settings, chat, the guild lists, donations and the fortress."""
-        store, uid, now = self.guild_store, str(OFFLINE_USER_ID), int(self.clock())
+        store, uid, now = self.guild_store, str(self.uid), int(self.clock())
         me = self._guild_info(uid) or guilds.UNKNOWN
         guild = self._my_guild()
         try:
@@ -1234,7 +1412,8 @@ class GameApi:
                                f"{guild['guild_points']} guild points, {len(reply['faction_news'])} news line(s)")
             if message == "getUsersLFG":
                 wanted = str(params.get("name") or "").lower()
-                looking = [u for u in (uid,) if store.of_member(u) is None]   # players without a guild
+                looking = [str(u) for u in self.player_ids()                    # players without a guild
+                           if str(u) != uid and store.of_member(u) is None]
                 rows = [{"faction_id": "0", "user_id": u, **(self._guild_info(u) or guilds.UNKNOWN), "gp_earned": 0,
                          "member_role": 0} for u in looking if wanted in self._name_of(u).lower()]
                 reply = self._guild_reply(params, guild)
@@ -1290,8 +1469,8 @@ class GameApi:
         if info is None or guild is None or target not in guild["members"]:
             reply["player_info"] = {"user_id": ""}
             return reply, f"profile of {target}: not in your guild"
-        player = self.player()
-        deck = (player.decks or {}).get(self._active_deck_id()) or {}
+        player = self._player_of(target)
+        deck = self._deck_of(player)
         defense = (player.decks or {}).get(player.defense_deck or "") or deck
         as_json = lambda d: {"commander_id": d.get("commander_id", 0),                      # noqa: E731
                              "cards": [c for c, n in (d.get("cards") or {}).items() for _ in range(n)]}
@@ -1317,7 +1496,7 @@ class GameApi:
         cost = gold // c.gold_per_point * c.gold_per_point
         if cost > player.gold:
             raise guilds.GuildError(f"Not enough gold: that's {cost}, and you have {player.gold}.")
-        points = guilds.donate(guild, OFFLINE_USER_ID, me["name"], cost, c.gold_per_point, int(self.clock()))
+        points = guilds.donate(guild, self.uid, me["name"], cost, c.gold_per_point, int(self.clock()))
         player.gold -= cost
         self.player_store.save(player)
         self.guild_store.save(guild)
@@ -1330,11 +1509,11 @@ class GameApi:
         cards, _ = self._engine_data()
         now = int(self.clock())
         if message == "removeFactionCard":
-            name = guilds.remove_card(guild, OFFLINE_USER_ID, me["name"], params.get("slot_id"), cards, now)
+            name = guilds.remove_card(guild, self.uid, me["name"], params.get("slot_id"), cards, now)
             self.guild_store.save(guild)
             return self._guild_reply(params, guild), f"fortress: removed {name} from slot {params.get('slot_id')}"
         card = cards.get(params.get("card_id")) if str(params.get("card_id", "")).isdigit() else None
-        what, cost = guilds.buy_card(guild, OFFLINE_USER_ID, me["name"], params.get("slot_id"), card, cards, now)
+        what, cost = guilds.buy_card(guild, self.uid, me["name"], params.get("slot_id"), card, cards, now)
         self.guild_store.save(guild)
         return self._guild_reply(params, guild), (
             f"fortress: {what} {card.name} (level {card.level}) in slot {params.get('slot_id')}"
@@ -1389,8 +1568,8 @@ class GameApi:
     def _raid_info(self, state) -> list:
         raid, run, scale = state
         names = {uid: self._name_of(uid) for uid in run["members"]}
-        names[str(OFFLINE_USER_ID)] = self._name_of(OFFLINE_USER_ID)
-        return raids.raid_info(raid, run, OFFLINE_USER_ID, names, int(self.clock()), scale)
+        names[str(self.uid)] = self._name_of(self.uid)
+        return raids.raid_info(raid, run, self.uid, names, int(self.clock()), scale)
 
     def _raid_message(self, message: str, params: dict) -> tuple[dict, str]:
         raid = self._set_raid()
@@ -1414,7 +1593,7 @@ class GameApi:
             return self._refuse(params, "You need to be in a guild to raid."), f"refused {message}: not in a guild"
         state = self._raid_state(guild)
         raid, run, scale = state
-        m = raids.member(run, OFFLINE_USER_ID, int(self.clock()))
+        m = raids.member(run, self.uid, int(self.clock()))
         if message == "fightRaidBattle":
             return self._raid_fight(params, guild, raid, run, m, scale)
         if message == "claimRaidReward":
@@ -1463,16 +1642,16 @@ class GameApi:
         bc = battle.sides[DEFENDER].commander
         damage = raids.fight_damage(destroyed, bc.hp, bc.max_hp)
         started, cleared = raids.record_fight(run, m, raid, damage, now, scale)
-        name = self._name_of(OFFLINE_USER_ID)
+        name = self._name_of(self.uid)
         if started:
             guilds.add_news(guild, guilds.RAID_STARTED, {"name": name, "raid_level": level, "raid_name": raid.name}, now)
         if cleared:
             guilds.add_news(guild, guilds.RAID_WON, {"raid_level": level, "raid_name": raid.name, "name": name}, now)
         self.guild_store.save(guild)
         battle_id = int(self.clock() * 1000)
-        session = BattleSession(battle, battle_id, str(OFFLINE_USER_ID),
+        session = BattleSession(battle, battle_id, str(self.uid),
                                 extra={"enemy_name": raid.name, "enemy_id": "0", "battleground_effects": entries})
-        rewards = [{"user_id": str(OFFLINE_USER_ID), "gold": 0, "card": [], "item": [], "raid_damage": damage}]
+        rewards = [{"user_id": str(self.uid), "gold": 0, "card": [], "item": [], "raid_damage": damage}]
         reply = self.envelope(params)
         reply["result"] = True
         reply.update(self._player_parts(params, ("user_data",)))
@@ -2014,6 +2193,8 @@ class GameApi:
         body = shift_times(body, recorded_now, now - recorded_now)
         body["time"] = now
         body["request"] = echo(params)
+        if self.uid != OFFLINE_USER_ID:
+            personalize(body, self.uid)
         if "gold_multiplier_missions" in body or "event_popups" in body or "event_popup" in body:
             apply_to_login(body, self.settings())   # the mission gold bonus in use, as the game shows it
         if isinstance(body.get("store_promos"), list) or isinstance(body.get("store_packs"), dict):

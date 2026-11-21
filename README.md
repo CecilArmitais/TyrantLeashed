@@ -16,8 +16,9 @@ This repository holds no game files. You need your own copy of them, beside it:
                                cdn.synapsegames.com/unleashed/... (bundles, images)
     fixtures/                  getUserAccount.json, init.json, replay.json: a recorded
                                login, built by make_fixtures.py from a recording
-  state/                       your save and settings, made on first start, and the
-                               server's guilds (guilds/, one file each)
+  state/                       made on first start: the players' accounts and saves
+                               (accounts.json, players/), the settings, and the
+                               server's guilds (guilds/)
 ```
 
 ## Playing
@@ -25,14 +26,19 @@ This repository holds no game files. You need your own copy of them, beside it:
 ```
 python server/run.py --open           # http://127.0.0.1:8770/
 python server/run.py --engine         # missions and the arena as real battles
+python server/run.py --host 0.0.0.0   # let other machines connect too
 ```
 
-The game logs in as the offline player. Your progress is kept in `state/player.json`;
-`python server/player.py` shows it and can change it (gold, war bonds, cards, music
-and sound, the tutorial...). `state/content.toml`, written with comments on the first
-start, sets what the store sells, event boxes, the raid, guild donations and the daily
-crate. Guilds belong to the server, not to a player's save, so players can share them;
-a raid is fought by a guild.
+Each browser that opens the game gets its own account and save on its first login
+(`state/players/<user_id>.json`), and several players can play at once, meeting in
+guilds and raids. `python server/player.py players` lists them; `python
+server/player.py --user <id>` shows a player's save and can change it (gold, war
+bonds, cards, music and sound, the tutorial, the name...). `--single-player` makes every
+browser the one offline player, saved in `state/player.json`.
+
+`state/content.toml`, written with comments on the first start, sets what the store
+sells, event boxes, the raid, guild donations and the daily crate. Guilds belong to the
+server, not to a player's save, so players can share them; a raid is fought by a guild.
 
 ## Checking it
 

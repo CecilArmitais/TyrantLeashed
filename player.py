@@ -1,5 +1,12 @@
-"""View or edit the offline player's save (state/player.json) and the server's
-gold bonuses (state/settings.json).
+"""View or edit a player's save and the server's gold bonuses (state/settings.json).
+
+On a multi-player server (run.py's default: state/accounts.json and state/players/),
+choose the player with --user; with only one player it's that one. A single-player
+server's save is state/player.json.
+
+    python server/player.py players            # list the players: id, name, level, gold, guild
+    python server/player.py --user 1000002 gold 500
+    python server/player.py name Night Hawk    # rename the player (the game has no way to)
 
     python server/player.py                    # show gold, war bonds, energy, tutorial, missions,
                                                # arena, cards, deck, and the gold bonuses
@@ -38,7 +45,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import achievements  # noqa: E402
-from game_api import ASSET_DIR, FIXTURE_DIR, GameApi  # noqa: E402
+from game_api import ASSET_DIR, FIXTURE_DIR, STATE_DIR, GameApi  # noqa: E402
 from player_state import level_info  # noqa: E402
 
 CARD_XML_DIR = ASSET_DIR
@@ -94,7 +101,8 @@ def tutorial_status(flag, names: list[str]) -> str:
 def show(api: GameApi) -> None:
     p = api.player()
     store = api.player_store
-    print(f"Offline player save: {store.path}")
+    who = "Offline player" if api.single_player else f"Player {api.uid}"
+    print(f"{who} save: {store.path}")
     print(f"  gold       {p.gold} ({p.gold_earned or 0} earned in all)")
     print(f"  war bonds  {p.war_bonds}")
     print(f"  SP         {p.salvage or 0} (salvage points)")
@@ -167,11 +175,34 @@ def set_bonus(api: GameApi, cmd: str, setting: str) -> None:
         print("Rewards change at once; the game's own mission popup shows it after the next login (reload).")
 
 
+def list_players(api: GameApi) -> None:
+    ids = api.player_ids()
+    if not ids:
+        print("No players yet: each browser that logs in gets an account.")
+        return
+    print(f"{len(ids)} player{'s' * (len(ids) != 1)}:")
+    for uid in ids:
+        p = api._player_of(uid)
+        guild = api.guild_store.of_member(uid)
+        seen = (api.accounts.get(uid) or {}).get("last_seen")
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(seen)) if seen else "never"
+        if p is None:
+            print(f"  {uid}  (no save yet)  last seen {when}")
+            continue
+        level = (p.arena or {}).get("level", 1)
+        print(f"  {uid}  {p.name or '?':20}  level {level:<3} {p.gold:>7} gold  "
+              f"guild {guild['name'] if guild else '-':16}  last seen {when}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--fixtures", default=str(FIXTURE_DIR), help=argparse.SUPPRESS)
     ap.add_argument("--state", help=argparse.SUPPRESS)
+    ap.add_argument("--user", help="the player's user id (multi-player servers; `players` lists them)")
     sub = ap.add_subparsers(dest="cmd")
+    sub.add_parser("players", help="list the players")
+    nm = sub.add_parser("name", help="rename the player")
+    nm.add_argument("new_name", nargs="+")
     for name, what in (("gold", "gold"), ("bonds", "war bonds"), ("sp", "salvage points (SP)"),
                        ("energy", "energy"), ("max-energy", "the energy cap that refilling stops at")):
         s = sub.add_parser(name, help=f"set {what}")
@@ -192,8 +223,28 @@ def main() -> None:
     r.add_argument("--yes", action="store_true", help="really delete it")
     args = ap.parse_args()
 
-    api = GameApi(fixture_dir=Path(args.fixtures), state_dir=Path(args.state) if args.state else None,
-                  clock=lambda: CLOCK())
+    fixtures = Path(args.fixtures)
+    state = Path(args.state) if args.state else (STATE_DIR if fixtures.resolve() == FIXTURE_DIR.resolve()
+                                                 else fixtures.parent / "state")
+    multi = (state / "accounts.json").is_file() or (state / "players").is_dir()
+    api = GameApi(fixture_dir=fixtures, state_dir=state, clock=lambda: CLOCK(), single_player=not multi)
+    if args.cmd == "players":
+        return list_players(api)
+    if multi:
+        ids = api.player_ids()
+        if args.user:
+            if not str(args.user).isdigit() or int(args.user) not in ids:
+                sys.exit(f"There's no player {args.user}. `python server/player.py players` lists them.")
+            api.use_player(int(args.user))
+        elif len(ids) == 1:
+            api.use_player(ids[0])
+        elif not ids:
+            sys.exit("No players yet: each browser that logs in gets an account.")
+        else:
+            sys.exit(f"This server has {len(ids)} players: choose one with --user "
+                     "(`python server/player.py players` lists them).")
+    elif args.user and int(args.user) != api.uid:
+        sys.exit("This is a single-player server: its one player is 1000001.")
     if api.player_store is None:
         sys.exit("No starting data (game/fixtures/init.json). Build it with: python server/make_fixtures.py")
     store = api.player_store
@@ -210,6 +261,14 @@ def main() -> None:
         return
 
     p = api.player()
+    if args.cmd == "name":
+        new = " ".join(args.new_name).strip()[:20]
+        if not new:
+            sys.exit("Give a name.")
+        old, p.name = p.name, new
+        store.save(p)
+        print(f"Renamed {old or 'the player'} to {new}. The game shows it after the next login (reload).")
+        return
     if args.cmd in ("music", "sound"):
         p.flags[args.cmd] = "1" if args.switch == "on" else "0"   # as the game's own toggle stores it
         store.save(p)

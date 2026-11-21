@@ -202,6 +202,9 @@ class Setup:
     defender_dominion: Card | None = None       # tests use these; missions don't have them)
     defender_fortresses: tuple = ()             # a raid boss's fortress cards (structures), put in
                                                 # play at the start of its first turn
+    attacker_fortresses: tuple = ()             # the same for the attacker (a guild war's fortresses)
+    attacker_wins_stall: bool = False           # a stall (turn 50) goes to the attacker: a guild war
+                                                # fight, sent with the enemy as the attacker (surge)
 
 
 def shuffled_deck(cards: list[Card], first_uid: int, rng: random.Random) -> list[tuple[int, Card]]:
@@ -256,9 +259,11 @@ class Battle:
         for side, dominion in zip(self.sides, (setup.attacker_dominion, setup.defender_dominion)):
             if dominion is not None:
                 side.structures.append(Unit(FIRST_UID[side.index] - 1, dominion, side.index))
-        dfn = self.sides[DEFENDER]
-        self._fortresses = [(dfn.next_uid + i, card) for i, card in enumerate(setup.defender_fortresses)]
-        dfn.next_uid += len(self._fortresses)
+        self.attacker_wins_stall = setup.attacker_wins_stall
+        self._fortresses: dict[int, list] = {}
+        for side, forts in zip(self.sides, (setup.attacker_fortresses, setup.defender_fortresses)):
+            self._fortresses[side.index] = [(side.next_uid + i, card) for i, card in enumerate(forts)]
+            side.next_uid += len(forts)
 
     # ---- the outside -------------------------------------------------------------
 
@@ -288,16 +293,20 @@ class Battle:
             raise BattleError("the battle is over")
         if not self.turn or self.active.index != ATTACKER:
             raise BattleError("it isn't the attacker's turn")
-        uid = int(uid)
-        if uid not in self.active.hand:
-            raise BattleError(f"card {uid} isn't in the hand")
+        if uid is None:                              # only with nothing in the hand: the turn runs on
+            if self.active.hand:
+                raise BattleError("a card from the hand has to be played")
+        else:
+            uid = int(uid)
+            if uid not in self.active.hand:
+                raise BattleError(f"card {uid} isn't in the hand")
         first = self.turn
         if new_reply:
             self._shown = set()                      # a new reply
         self._finish_turn(uid)
         while not self.over:
-            if self.turn >= TURN_LIMIT:
-                self.winner = 0                      # a stall: the attacker didn't win
+            if self.turn >= TURN_LIMIT:                  # a stall: the attacker didn't win
+                self.winner = 1 if self.attacker_wins_stall else 0
                 break
             self._begin_turn()
             side = self.active
@@ -315,10 +324,12 @@ class Battle:
             raise BattleError("the battle is over")
         self.winner = 0
 
-    def play_out(self, uid=None) -> dict[int, dict]:
+    def play_out(self, uid=None, oldest: bool = False) -> dict[int, dict]:
         """The game's Skip button: the attacker plays `uid` (if it's in the hand; else a
         random card), and every later choice is a random card from the hand, the
-        optimizer's auto play, to the end of the battle. All of it is one reply."""
+        optimizer's auto play, to the end of the battle. All of it is one reply.
+        oldest: the attacker plays its oldest card instead, as the defender always does
+        (a guild war fight, where the attacker is the AI-played defense deck)."""
         if self.over:
             raise BattleError("the battle is over")
         if not self.turn or self.active.index != ATTACKER:
@@ -328,7 +339,9 @@ class Battle:
         pick = int(uid) if uid is not None and str(uid).lstrip("-").isdigit() and int(uid) in hand else None
         while not self.over:
             hand = self.active.hand
-            self.play(pick if pick is not None else self.rng.choice(hand), new_reply=new_reply)
+            if pick is None and hand:
+                pick = hand[0] if oldest else self.rng.choice(hand)
+            self.play(pick, new_reply=new_reply)
             pick, new_reply = None, False
         return self._since(first)
 
@@ -373,7 +386,7 @@ class Battle:
 
     def _finish_turn(self, uid: int | None) -> None:
         side = self.active
-        if side.index == DEFENDER and self._fortresses:
+        if self._fortresses.get(side.index):
             self._place_fortresses(side)
         if uid is not None:
             self._begin_action()
@@ -431,13 +444,13 @@ class Battle:
             self._in_bge = False
 
     def _place_fortresses(self, side: Side) -> None:
-        """A raid boss's fortresses enter the field, shown as plays before its first
-        card: the client places a turn's plays in the side whose turn it is, and there's
-        no field for them in the battle data, so they come in the boss's first turn (the
-        optimizer puts them in before turn 1). Their delay starts counting down the
-        boss's next turn, as the client shows it (it counts delays itself, at upkeep,
-        before the plays)."""
-        fortresses, self._fortresses = self._fortresses, []
+        """A side's fortresses (a raid boss's, a guild's in a war) enter the field, shown
+        as plays before its first card: the client places a turn's plays in the side
+        whose turn it is, and there's no field for them in the battle data, so they come
+        in the side's first turn (the optimizer puts them in before turn 1). Their delay
+        starts counting down the side's next turn, as the client shows it (it counts
+        delays itself, at upkeep, before the plays)."""
+        fortresses, self._fortresses[side.index] = self._fortresses[side.index], []
         for uid, card in fortresses:
             self._begin_action()
             self._place(side, card, uid, fortress=True)

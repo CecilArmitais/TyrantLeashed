@@ -122,8 +122,9 @@ def store_pack(start: dict, pack_id) -> Pack | None:
 
 def load_mini_packs(asset_dir: Path, file_name: str = "mini_packs_36i.xml") -> dict[str, dict]:
     """id -> {"name", "restrictions": {...}, "distribution": {name: count}, and the store
-    fields it has: type, desc, picture, banner_picture, icon, gold_cost, wb_cost} from
-    the mini pack file."""
+    fields it has: type, desc, picture, web_picture, banner_picture, icon, gold_cost,
+    wb_cost} from the mini pack file. web_picture is the web client's image (recorded in
+    war reward tiers)."""
     f = Path(asset_dir) / file_name
     if not f.is_file():
         files = sorted(Path(asset_dir).glob("mini_packs_*.xml"))
@@ -138,7 +139,7 @@ def load_mini_packs(asset_dir: Path, file_name: str = "mini_packs_36i.xml") -> d
         out[mid] = {"name": (mp.findtext("name") or "").strip(),
                     "restrictions": dict(r.attrib) if r is not None else {},
                     "distribution": {d.tag: int(d.text or 0) for d in (dist if dist is not None else [])}}
-        for k in ("type", "desc", "picture", "banner_picture", "icon", "gold_cost", "wb_cost"):
+        for k in ("type", "desc", "picture", "web_picture", "banner_picture", "icon", "gold_cost", "wb_cost"):
             if (mp.findtext(k) or "").strip():
                 out[mid][k] = mp.findtext(k).strip()
     return out

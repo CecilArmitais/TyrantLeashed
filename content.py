@@ -25,7 +25,7 @@ TIERED_ITEM_TYPE = 10                           # ...and as a tiered box (a row 
 BOX_BANNER_TEXT = "New Event Box!"              # the banner's ribbon for a box (ours; "" shows "0")
 
 TEMPLATE = '''# What's on offer in this Tyrant Unleashed server: the store, event boxes, the raid,
-# guild donations, other players as arena rivals and the daily crate. (Events and guild brawls will go here too once the
+# guild wars, guild donations, other players as arena rivals and the daily crate. (Events and guild brawls will go here too once the
 # server has them.)
 #
 # Edit this file while the server runs; the game shows the change after a reload.
@@ -73,6 +73,28 @@ days = 3
 # The boss's health as a percentage of the real one, which was made for a whole guild
 # of up to 50 players. Lower it for a server with few players.
 health_percent = 100
+
+[wars]
+# A guild war event to run (faction_wars_fp3.xml), by id; 0 for none (the default). The
+# last one the game ran was the Hypothermia War (94, Nov 19-23, 2026):
+#   war = 94
+# Wars are in the Guild screen's Wars tab, which shows a raid instead while one is set
+# ([raids] raid), so set raid = 0 to have wars. An officer or the leader presses Start;
+# the guild waits for another guild that has too, and the two are matched: an 8-hour
+# war (the first 30 minutes to prepare), then both wait for their next match. Members
+# attack the other guild's fortress with their own decks; its members' defense decks
+# defend, played by the AI. After the event, members claim rewards by their guild's
+# rank and their own points; after that the next event starts.
+war = 0
+# How long each event runs (the real ones ran three days), then two days to claim.
+days = 3
+# The real game's matchmaking rules: a guild needs this many members to start a war,
+# guilds more than point_gap_percent apart in the event's points aren't matched, nor
+# guilds that met in the last rematch_hours. With few guilds, loosen them (e.g. 1, 100
+# and 0), or two guilds may only meet once an event.
+min_members = 5
+point_gap_percent = 20
+rematch_hours = 8
 
 [guilds]
 # Guilds belong to the server and are shared by its players (state/guilds/). Members can
@@ -128,6 +150,11 @@ class Content:
     raid_health_percent: float = 100.0
     guild_donations: bool = True
     gold_per_point: int = 100
+    war_event: int = 0
+    war_days: int = 3
+    war_min_members: int = 5
+    war_point_gap_percent: float = 20.0
+    war_rematch_hours: float = 8.0
     arena_player_chance: float = 0.5
     arena_rank_reach: int = 1
     crate_every_hours: int = DEFAULT_EVERY_HOURS
@@ -174,6 +201,21 @@ def parse(text: str) -> Content:
         c.raid_health_percent = float(pct)
     else:
         problems.append("raids.health_percent: needs a number above 0")
+    wars = data.get("wars") or {}
+    whole = lambda v: isinstance(v, int) and not isinstance(v, bool)          # noqa: E731
+    number = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool)  # noqa: E731
+    for key, attr, ok, default, words in (
+            ("war", "war_event", lambda v: whole(v) and v >= 0, 0, "needs a war event id (0 for none)"),
+            ("days", "war_days", lambda v: whole(v) and v > 0, 3, "needs a whole number of days, 1 or more"),
+            ("min_members", "war_min_members", lambda v: whole(v) and v >= 1, 5, "needs a whole number, 1 or more"),
+            ("point_gap_percent", "war_point_gap_percent", lambda v: number(v) and v >= 0, 20,
+             "needs a number, 0 or more"),
+            ("rematch_hours", "war_rematch_hours", lambda v: number(v) and v >= 0, 8, "needs a number, 0 or more")):
+        value = wars.get(key, default)
+        if ok(value):
+            setattr(c, attr, value)
+        else:
+            problems.append(f"wars.{key}: {words}")
     guilds = data.get("guilds") or {}
     if isinstance(guilds.get("donations", True), bool):
         c.guild_donations = guilds.get("donations", True)

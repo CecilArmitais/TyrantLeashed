@@ -1,6 +1,8 @@
 """Tests for the game API (replay with time shifting) and the fixture builder."""
 
+import hashlib
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -171,7 +173,74 @@ def test_nothing_written_if_scrubbing_misses_something(tmp_path, monkeypatch):
     assert not (tmp_path / "fixtures").exists()       # checked before anything is written
 
 
+def sanitized_copy(session: Path, root: Path) -> Path:
+    """The session as the workspace's capture/sanitize_recordings.py leaves it: every
+    identifier already the offline player's (made here with make_fixtures' own scrub),
+    plus the copy's sessions.json naming the recorded account."""
+    secrets = mf.secrets_of(*mf.session_calls(session))
+    out = root / "api-sanitized" / session.name
+    out.mkdir(parents=True)
+    for f in session.iterdir():
+        text = f.read_text("utf-8")
+        if f.suffix == ".json":
+            text = json.dumps(mf.scrub(json.loads(text), secrets))
+        (out / f.name).write_text(text, "utf-8")
+    fp = hashlib.sha256(REAL_UID.encode()).hexdigest()[:8]
+    (out.parent / "sessions.json").write_text(json.dumps({"sessions": {session.name: {"accounts": [fp]}}}), "utf-8")
+    return out
+
+
+def test_fixtures_from_a_sanitized_session_match_the_raw_ones(tmp_path):
+    raw = make_session(tmp_path / "raw")
+    mf.build(raw, tmp_path / "from_raw")
+    clean = sanitized_copy(raw, tmp_path / "clean")
+    info = mf.build(clean, tmp_path / "from_clean")
+    assert info["replaced"] == 0                                     # nothing left to replace
+    assert info["account"] == hashlib.sha256(REAL_UID.encode()).hexdigest()[:8]   # from sessions.json
+    for name in ("getUserAccount", "init", "replay"):
+        assert (tmp_path / "from_clean" / f"{name}.json").read_bytes() == \
+            (tmp_path / "from_raw" / f"{name}.json").read_bytes()
+
+
+def test_a_sanitized_session_without_its_index_is_labelled_sanitized(tmp_path):
+    clean = sanitized_copy(make_session(tmp_path / "raw"), tmp_path / "clean")
+    (clean.parent / "sessions.json").unlink()
+    assert mf.build(clean, tmp_path / "fx")["account"] == "sanitized"
+
+
+def test_sanitized_kongregate_sessions_are_still_refused(tmp_path):
+    clean = sanitized_copy(make_session(tmp_path / "raw", kong=True), tmp_path / "clean")
+    with pytest.raises(mf.FixtureError, match="Kongregate"):
+        mf.build(clean, tmp_path / "fx")
+
+
+def test_without_raw_recordings_the_sanitized_copy_is_used(tmp_path, monkeypatch, capsys):
+    captures = tmp_path / "captures"
+    sanitized_copy(make_session(tmp_path / "raw"), captures)         # only captures/api-sanitized
+    monkeypatch.setattr(sys, "argv", ["make_fixtures.py", "--captures", str(captures), "--out", str(tmp_path / "fx")])
+    mf.main()
+    assert "Fixtures built from session 20261120-000000" in capsys.readouterr().out
+    assert json.loads((tmp_path / "fx" / "init.json").read_text("utf-8"))["body"]["user_data"]["user_id"] == \
+        str(ga.OFFLINE_USER_ID)
+
+
 REAL_CAPTURES = Path(__file__).resolve().parent.parent / "captures" / "api"
+REAL_SANITIZED = REAL_CAPTURES.parent / "api-sanitized"
+
+
+def _fixture_session() -> str:
+    try:
+        return json.loads((ga.FIXTURE_DIR / "init.json").read_text("utf-8"))["source"]["session"]
+    except (OSError, ValueError, KeyError):
+        return ""
+
+
+@pytest.mark.skipif(not (REAL_SANITIZED / _fixture_session()).is_dir() or not _fixture_session(),
+                    reason="no sanitized copy of the fixtures' session here")
+def test_the_real_fixtures_can_be_rebuilt_from_the_sanitized_recordings(tmp_path):
+    mf.build(REAL_SANITIZED / _fixture_session(), tmp_path / "fx")
+    for name in ("getUserAccount", "init", "replay"):
+        assert (tmp_path / "fx" / f"{name}.json").read_bytes() == (ga.FIXTURE_DIR / f"{name}.json").read_bytes(), name
 
 
 @pytest.mark.skipif(not REAL_CAPTURES.is_dir(), reason="no recorded sessions on this machine")

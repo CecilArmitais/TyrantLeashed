@@ -10,10 +10,18 @@ anywhere, and writes to game/fixtures/:
                                    replayed when the client asks the same thing
 
 Sessions where the game was signed in to Kongregate are skipped: that is a real
-account. Standard library only. From the Tyrant folder:
+account.
+
+It works from the raw recordings (captures/api) or from the workspace's sanitized
+copy (captures/api-sanitized, written by capture/sanitize_recordings.py), whose
+identifiers are already the offline player's: those are left as they are, and the
+account fingerprint comes from the copy's sessions.json. Without --session it tries
+the raw sessions first, newest first, then the sanitized ones. Standard library only.
+From the Tyrant folder:
 
     python server/make_fixtures.py                      # newest suitable session
     python server/make_fixtures.py --session captures/api/20261120-012700
+    python server/make_fixtures.py --session captures/api-sanitized/20261120-012700
 """
 
 from __future__ import annotations
@@ -30,6 +38,8 @@ from game_api import (FIXTURE_DIR, NOT_REPLAYED, OFFLINE_NAME, OFFLINE_PASSWORD,
 
 ROOT = Path(__file__).resolve().parent.parent
 KONG_PARAMS = ("kong_id", "kong_token", "kong_name")
+RECORDING_DIRS = ("api", "api-sanitized")   # under --captures: raw recordings, then the sanitized copy
+SANITIZED_INDEX = "sessions.json"           # the sanitized copy's list of sessions and their accounts
 MIN_SECRET_LEN = 4  # shorter values are too likely to match unrelated data
 
 
@@ -77,7 +87,7 @@ def secrets_of(*recs: dict) -> dict[str, object]:
         if value is None or isinstance(value, (dict, list, bool)):
             return
         s = str(value).strip()
-        if len(s) >= MIN_SECRET_LEN:
+        if len(s) >= MIN_SECRET_LEN and s != str(replacement):    # already the offline player's: nothing to hide
             found[s] = replacement
 
     for rec in recs:
@@ -123,6 +133,21 @@ def scrub(obj, secrets: dict[str, object]):
     return obj
 
 
+def account_fingerprint(session: Path, gua: dict) -> str:
+    """sha256 of the recorded account's user id, first 8 hex digits. A sanitized
+    session holds the offline id instead, so its fingerprint comes from the copy's
+    sessions.json ("sanitized" if that doesn't say)."""
+    uid = str(_params(gua).get("user_id") or _body(gua).get("new_user"))
+    if uid != str(OFFLINE_USER_ID):
+        return hashlib.sha256(uid.encode()).hexdigest()[:8]
+    try:
+        index = json.loads((session.parent / SANITIZED_INDEX).read_text("utf-8"))
+        accounts = index["sessions"][session.name]["accounts"]
+    except (OSError, ValueError, KeyError, TypeError):
+        accounts = []
+    return accounts[0] if len(accounts) == 1 and isinstance(accounts[0], str) else "sanitized"
+
+
 def session_calls(session: Path) -> list[dict]:
     rows = sorted((json.loads(l) for l in (session / "index.jsonl").read_text("utf-8").splitlines() if l.strip()),
                   key=lambda r: r["seq"])
@@ -154,7 +179,7 @@ def build(session: Path, out_dir: Path = FIXTURE_DIR, allow_kongregate: bool = F
     if not allow_kongregate and any(_params(r).get(k) for r in calls for k in KONG_PARAMS):
         raise FixtureError(f"{session.name}: signed in to Kongregate (a real account); not used")
     secrets = secrets_of(gua, init, *calls)
-    fingerprint = hashlib.sha256(str(_params(gua).get("user_id") or _body(gua).get("new_user")).encode()).hexdigest()[:8]
+    fingerprint = account_fingerprint(session, gua)
     source = {"session": session.name, "account": fingerprint}
     written = {}
     for name, rec in (("getUserAccount", gua), ("init", init)):
@@ -186,8 +211,11 @@ def main() -> None:
     if args.session:
         candidates = [Path(args.session)]
     else:
-        api = Path(args.captures) / "api"
-        candidates = sorted((d for d in api.iterdir() if d.is_dir()), reverse=True) if api.is_dir() else []
+        candidates = []
+        for name in RECORDING_DIRS:
+            api = Path(args.captures) / name
+            if api.is_dir():
+                candidates += sorted((d for d in api.iterdir() if d.is_dir()), reverse=True)
     reasons = []
     for session in candidates:
         try:

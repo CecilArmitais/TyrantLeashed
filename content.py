@@ -100,6 +100,18 @@ brawl = 0
 # influence. It takes at least two guilds.
 conquest = 0
 
+[objectives]
+# A timed objective challenge to run (achievements.xml), by the id of any objective in it;
+# 0 for none (the default). The objectives with dates (PvP challenges, the 2015 Legendary
+# Quest) are on only when picked here; the undated ones (mutant mission levels, the
+# undated Legendary Quests) are always on. The challenge runs server-wide for its own
+# length, then starts again (an open-ended one runs until this changes). The last ones:
+#   challenge = 3580     # Living Mirrors PVP Challenge (28 days, Oct-Nov 2026)
+#   challenge = 3450     # Extreme PVP Challenge (2025, no end)
+#   challenge = 3400     # Tyrant Giveaways (2025, 334 days)
+# Most need mission 17 complete to show (they count in the background before that).
+challenge = 0
+
 [wars]
 # A guild war event to run (faction_wars_fp3.xml), by id; 0 for none (the default). The
 # last one the game ran was the Hypothermia War (94, Nov 19-23, 2026):
@@ -178,6 +190,7 @@ class Content:
     gold_per_point: int = 100
     brawl_event: int = 0
     conquest_event: int = 0
+    challenge: int = 0
     war_event: int = 0
     war_days: int = 3
     war_min_members: int = 5
@@ -234,6 +247,11 @@ def parse(text: str) -> Content:
         c.brawl_event = brawl
     else:
         problems.append("brawls.brawl: needs a brawl id (0 for none)")
+    ch = (data.get("objectives") or {}).get("challenge", 0)
+    if isinstance(ch, int) and not isinstance(ch, bool) and ch >= 0:
+        c.challenge = ch
+    else:
+        problems.append("objectives.challenge: needs an objective id (0 for none)")
     cq = (data.get("conquest") or {}).get("conquest", 0)
     if isinstance(cq, int) and not isinstance(cq, bool) and cq >= 0:
         c.conquest_event = cq

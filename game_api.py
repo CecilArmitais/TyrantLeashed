@@ -398,6 +398,7 @@ class GameApi:
         self.guild_store = guilds.GuildStore(state / "guilds")            # the server's guilds
         self.war_store = wars.WarStore(state / "wars.json")              # the server's guild wars
         self.brawl_store = brawls.BrawlStore(state / "brawls.json")      # the server's brawls
+        self.challenge_store = achievements.ChallengeStore(state / "challenge.json")   # the objective challenge
         self.conquest_store = conquest.ConquestStore(state / "conquest.json")    # the server's conquest
         self.single_player = single_player
         self._state = state
@@ -637,6 +638,18 @@ class GameApi:
                    else "; raid: none")
                 + self._war_report() + self._brawl_report() + self._conquest_report())
 
+    def objectives_report(self) -> str:
+        """The objective challenge content.toml sets, if any."""
+        c, defs = self.content(), self._achievement_defs()
+        members = achievements.challenge_set(defs, c.challenge) if c.challenge else frozenset()
+        if not members:
+            return ("Objective challenge: none" + (f" (objective {c.challenge} isn't a dated one)" if c.challenge else "")
+                    + "; mutant mission levels and the undated Legendary Quests are always on")
+        root = defs[next((x for x in sorted(members) if defs[x].type == 12), c.challenge)]
+        length = achievements.challenge_length(defs, c.challenge)
+        return (f"Objective challenge: {root.name} ({root.id}), {len(members)} objectives, "
+                + (f"{length // 86400}-day runs" if length else "no end"))
+
     def _conquest_report(self) -> str:
         c = self.content()
         event = self._conquest_defs()[0].get(c.conquest_event) if c.conquest_event else None
@@ -668,7 +681,7 @@ class GameApi:
         if self.player_store is None:
             return None
         bonuses = ("\nGold bonuses: " + self.settings().describe() + "\n" + self.store_report()
-                   + "\n" + self.guild_report())
+                   + "\n" + self.guild_report() + "\n" + self.objectives_report())
         if not self.single_player:
             ids = self.player_ids()
             line = (f"Players: {len(ids) or 'none yet'}" + ("" if not ids else f" ({ids[0]}-{ids[-1]})")
@@ -729,7 +742,8 @@ class GameApi:
         if self._ach_ready:
             how += "; objective finished (tap Complete): " + ", ".join(self._ach_ready)
         if self._ach_changed and reply.get("result") is not False and self.player() is not None:
-            reply["user_achievements"] = achievements.user_achievements(self._achievement_defs(), self.player())
+            reply["user_achievements"] = achievements.user_achievements(self._achievement_defs(), self.player(),
+                                                                        self._events())
             if self._ach_news:
                 reply["completed_achievements"] = achievements.completed_json(self._ach_news)
                 how += "; achievement: " + ", ".join(f"{a.name} ({a.desc})" for a in self._ach_news)
@@ -1184,7 +1198,8 @@ class GameApi:
         if battle is not None:                   # the daily objectives count what happened
             achievements.ensure_dailies(self._achievement_defs(), player, int(self.clock()), self.rng_factory())
             ready = achievements.record_fight(self._achievement_defs(), player,
-                                              achievements.fight_stats(battle, won), int(self.clock()))
+                                              achievements.fight_stats(battle, won), int(self.clock()),
+                                              self._events())
             self._ach_changed = True
             if ready:
                 self._ach_ready = [a.name for a in ready]
@@ -1216,6 +1231,9 @@ class GameApi:
         rules = dataclasses.replace(self.reward_rules, gold_multiplier=self.settings().mission_gold.effective)
         result = finish_mission(player, mission, won, rules, int(self.clock()), self.uid,
                                 self._active_deck_id())
+        gains = self._event_drops(player, achievements.MISSION, won, mutant=mission.mutant)
+        if gains:
+            result.reward["item"] = achievements.reward_item(gains)
         self._track(player)                 # "Complete Mission #5"...
         self.player_store.save(player)
         return result
@@ -1903,8 +1921,8 @@ class GameApi:
                                 extra={"enemy_name": foe_name, "enemy_id": str(foe_uid),
                                        "battleground_effects": entries})
         shown = -(-damage * 100 // wars.FORT_HEALTH)            # as the slot's health bar shows it
-        rewards = [{"user_id": str(self.uid), "gold": gold, "sp": 0, "item": [], "war_points": points,
-                    "slot_damage": shown}]
+        rewards = [{"user_id": str(self.uid), "gold": gold, "sp": 0, "item": self._fight_drop(achievements.WAR, won),
+                    "war_points": points, "slot_damage": shown}]
         reply = self.envelope(params)
         reply["result"] = True
         reply.update(self._player_parts(params, ("user_data",)))
@@ -2310,8 +2328,8 @@ class GameApi:
         foe_name = self._name_of(foe)
         session = BattleSession(battle, int(self.clock() * 1000), str(self.uid), host_is_attacker=False,
                                 extra={"enemy_name": foe_name, "enemy_id": foe, "battleground_effects": entries})
-        rewards = [{"user_id": str(self.uid), "gold": 0, "sp": 0, "item": [], "rating_change": 0,
-                    "pvp_points": points}]
+        rewards = [{"user_id": str(self.uid), "gold": 0, "sp": 0, "item": self._fight_drop(achievements.BRAWL, won),
+                    "rating_change": 0, "pvp_points": points}]
         reply = self.envelope(params)
         reply["result"] = True
         reply.update(self._player_parts(params, ("user_data",)))
@@ -2482,7 +2500,8 @@ class GameApi:
         battle_id = int(self.clock() * 1000)
         session = BattleSession(battle, battle_id, str(self.uid),
                                 extra={"enemy_name": raid.name, "enemy_id": "0", "battleground_effects": entries})
-        rewards = [{"user_id": str(self.uid), "gold": 0, "card": [], "item": [], "raid_damage": damage}]
+        rewards = [{"user_id": str(self.uid), "gold": 0, "card": [], "raid_damage": damage,
+                    "item": self._fight_drop(achievements.RAID, battle.winner == 1)}]
         reply = self.envelope(params)
         reply["result"] = True
         reply.update(self._player_parts(params, ("user_data",)))
@@ -2686,6 +2705,36 @@ class GameApi:
             self._ach_defs = achievements.load(self._assets)
         return self._ach_defs
 
+    def _events(self) -> achievements.EventContext:
+        """The event objectives on now: the standing ones, and content.toml's challenge
+        (its run, server-wide)."""
+        defs = self._achievement_defs()
+        if getattr(self, "_standing", None) is None:
+            self._standing = achievements.standing_events(defs)
+        run = self.challenge_store.current(defs, self.content().challenge, int(self.clock()))
+        challenge = achievements.challenge_set(defs, run["id"]) if run else frozenset()
+        return achievements.EventContext(self._standing | challenge, challenge, run)
+
+    def _fight_drop(self, battle_type: int, won: bool):
+        """A one-reply fight's reward `item`: what it dropped, saved to the player."""
+        player = self.player()
+        gains = self._event_drops(player, battle_type, won)
+        if gains:
+            self._track(player)
+            self.player_store.save(player)
+        return achievements.reward_item(gains)
+
+    def _event_drops(self, player, battle_type: int, won: bool, mutant: bool = False) -> dict:
+        """The items a won battle drops for the item objectives counting now, added to the
+        inventory: {item id: n}."""
+        gains = achievements.drops(self._achievement_defs(), player, battle_type, won, self.rng_factory(),
+                                   self._events(), mutant)
+        for iid, n in gains.items():
+            items.add(player.items, iid, n)
+        if gains:
+            self._ach_changed = True
+        return gains
+
     def _cap_sp(self) -> int:
         caps = (self._start.get("user_data") or {}).get("caps") or {}
         return int(caps.get("max_salvage") or upgrades.DEFAULT_MAX_SALVAGE)
@@ -2693,7 +2742,7 @@ class GameApi:
     def _track(self, player) -> list:
         """Finishes (and pays) every permanent achievement the player has now reached; the
         reply then carries them. Returns the ones finished."""
-        done = achievements.complete_ready(self._achievement_defs(), player, self._cap_sp())
+        done = achievements.complete_ready(self._achievement_defs(), player, self._cap_sp(), self._events())
         self._ach_news = getattr(self, "_ach_news", []) + done
         self._ach_changed = True
         return done
@@ -2705,7 +2754,7 @@ class GameApi:
         changed = achievements.ensure_dailies(defs, player, int(self.clock()), self.rng_factory())
         if self._track(player) or changed:
             self.player_store.save(player)
-        return achievements.user_achievements(defs, player)
+        return achievements.user_achievements(defs, player, self._events())
 
     def _claim_achievement(self, params: dict) -> tuple[dict, str]:
         """completeAchievement achievement_id: the Complete button of a finished daily
@@ -2713,7 +2762,7 @@ class GameApi:
         player = self.player()
         try:
             a = achievements.claim(self._achievement_defs(), player, params.get("achievement_id"), self._cap_sp(),
-                                   int(self.clock()))
+                                   int(self.clock()), self._events())
         except ValueError as e:
             reply = self._refuse(params, str(e))
             return reply, f"refused {CLAIM}: {e}"

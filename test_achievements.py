@@ -46,7 +46,12 @@ def test_the_login_lists_them(tmp_path, defs):
     r, _ = tb.ask(api, "init")
     ua = r["user_achievements"]
     permanent = {k: v for k, v in ua.items() if v["type"] != "9"}
-    assert set(permanent) == {"801", "101", "201", "301", "406", "501"}
+    recorded = [k for k, v in INIT["user_achievements"].items() if v["type"] != "9"]
+    assert set(permanent) == set(recorded) == {"801", "101", "201", "301", "406", "501",
+                                                *(str(i) for i in range(1148, 1159))}  # + Mesmerize Mutant
+    assert len(ua) == 20                                 # as recorded
+    keys = list(ua)
+    assert [k for k in keys if k in permanent] == sorted(recorded, key=lambda k: (defs[int(k)].order, int(k)))
     for k, v in permanent.items():                      # the recorded entries, field for field
         rec = INIT["user_achievements"][k]
         assert {f: str(v[f]) for f in ("name", "description", "max_progress", "type")} == \

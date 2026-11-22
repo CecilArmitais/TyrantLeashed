@@ -38,9 +38,10 @@ cards, items, music and sound, the tutorial, the name...). `--single-player` mak
 browser the one offline player, saved in `state/player.json`.
 
 `state/content.toml`, written with comments on the first start, sets what the store
-sells, event boxes, the raid, brawls, conquest, guild wars, guild donations, how often
-other players turn up as arena rivals, and the daily crate. Guilds belong to the
-server, not to a player's save, so players can share them; a raid is fought by a guild.
+sells, event boxes, the raid, brawls, conquest, objective challenges, guild wars, guild
+donations, how often other players turn up as arena rivals, and the daily crate. Guilds
+belong to the server, not to a player's save, so players can share them; a raid is
+fought by a guild.
 
 ## Checking it
 

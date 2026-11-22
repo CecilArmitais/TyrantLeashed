@@ -19,6 +19,7 @@ class Mission:
     reward_cards: tuple[int, ...] = field(default=())
     star_wins: tuple[tuple[str, int], ...] = field(default=())   # (star id, wins it needs), e.g. ("2", 5)
     location: int = -1                    # <location_id>; 0 is the prologue (Asphodel, missions 1-5)
+    mutant: bool = False                  # <is_mutant>: a mutant mission (item drops can need one)
 
 
 # <req type='5' compare='great_equal' amount='N'/>: won the mission at least N times. It's
@@ -53,7 +54,8 @@ def parse_missions(root: ET.Element) -> dict[str, Mission]:
             energy=_int(m.findtext("energy")),
             gold=_int(rewards.findtext("gold")) if rewards is not None else 0,
             reward_cards=tuple(_int(c.text) for c in (rewards.findall("card") if rewards is not None else ())),
-            star_wins=_star_wins(rewards), location=_int(m.findtext("location_id"), -1))
+            star_wins=_star_wins(rewards), location=_int(m.findtext("location_id"), -1),
+            mutant=(m.findtext("is_mutant") or "").strip() == "1")
     return out
 
 

@@ -213,7 +213,9 @@ def test_no_war_event_unless_set(tmp_path):
     api, clock = server(tmp_path, engine=True)
     _, ann = login(api)
     r, _ = call(api, ann, "init")
-    assert "active_war_event" not in r                                    # the recording's isn't passed on
+    assert r["active_war_event"]["id"] == "0" and r["active_war_event"]["decay_time"] == 0   # not the recording's:
+    assert r["active_war_event"]["wait_message"] == "No guild war is on right now."      # an idle one, so the
+    assert "faction_war" not in call(api, ann, "updateFactionWar")[0]       # Wars tab draws
     r, how = call(api, ann, "fightFactionWar")
     assert r["result_message"] == ["There's no guild war on right now."]
 

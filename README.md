@@ -31,16 +31,16 @@ python server/run.py --host 0.0.0.0   # let other machines connect too
 
 Each browser that opens the game gets its own account and save on its first login
 (`state/players/<user_id>.json`), and several players can play at once. They meet in
-guilds, raids, guild wars and brawls, and as each other's arena rivals (their defense
-decks, played by the AI). `python server/player.py players` lists them; `python
+guilds, raids, guild wars, brawls and conquest, and as each other's arena rivals (their
+defense decks, played by the AI). `python server/player.py players` lists them; `python
 server/player.py --user <id>` shows a player's save and can change it (gold, war bonds,
 cards, music and sound, the tutorial, the name...). `--single-player` makes every
 browser the one offline player, saved in `state/player.json`.
 
 `state/content.toml`, written with comments on the first start, sets what the store
-sells, event boxes, the raid, brawls, guild wars, guild donations, how often other
-players turn up as arena rivals, and the daily crate. Guilds belong to the server, not
-to a player's save, so players can share them; a raid is fought by a guild.
+sells, event boxes, the raid, brawls, conquest, guild wars, guild donations, how often
+other players turn up as arena rivals, and the daily crate. Guilds belong to the
+server, not to a player's save, so players can share them; a raid is fought by a guild.
 
 ## Checking it
 

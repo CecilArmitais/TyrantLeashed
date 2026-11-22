@@ -25,7 +25,8 @@ TIERED_ITEM_TYPE = 10                           # ...and as a tiered box (a row 
 BOX_BANNER_TEXT = "New Event Box!"              # the banner's ribbon for a box (ours; "" shows "0")
 
 TEMPLATE = '''# What's on offer in this Tyrant Unleashed server: the store, event boxes, the raid,
-# brawls, guild wars, guild donations, other players as arena rivals and the daily crate. (Events and guild brawls will go here too once the
+# brawls, conquest, guild wars, guild donations, other players as arena rivals and the
+# daily crate. (Events and guild brawls will go here too once the
 # server has them.)
 #
 # Edit this file while the server runs; the game shows the change after a reload.
@@ -85,6 +86,19 @@ health_percent = 100
 # brawl points, their defense deck played by the AI. A guild brawl needs a guild, and
 # ranks guilds.
 brawl = 0
+
+[conquest]
+# A conquest to run (conquest.xml), by id; 0 for none (the default). The last one the
+# game ran was the Aftermath Conquest (33, May 2019):
+#   conquest = 33
+# It runs for its own length (76 hours), then three days to claim; after that it starts
+# again. It's on the Guild screen's Wars tab (the Conquest button): members fight in the
+# map's zones against members of other guilds (their defense decks, played by the AI),
+# each win earning the guild 50 influence there (5 for a loss), for 1 of 25 conquest
+# energy. Every 4 hours each zone pays the guilds conquest points and fortresses by their
+# influence rank; at the end, members claim rewards by their guild's rank and their own
+# influence. It takes at least two guilds.
+conquest = 0
 
 [wars]
 # A guild war event to run (faction_wars_fp3.xml), by id; 0 for none (the default). The
@@ -163,6 +177,7 @@ class Content:
     guild_donations: bool = True
     gold_per_point: int = 100
     brawl_event: int = 0
+    conquest_event: int = 0
     war_event: int = 0
     war_days: int = 3
     war_min_members: int = 5
@@ -219,6 +234,11 @@ def parse(text: str) -> Content:
         c.brawl_event = brawl
     else:
         problems.append("brawls.brawl: needs a brawl id (0 for none)")
+    cq = (data.get("conquest") or {}).get("conquest", 0)
+    if isinstance(cq, int) and not isinstance(cq, bool) and cq >= 0:
+        c.conquest_event = cq
+    else:
+        problems.append("conquest.conquest: needs a conquest id (0 for none)")
     wars = data.get("wars") or {}
     whole = lambda v: isinstance(v, int) and not isinstance(v, bool)          # noqa: E731
     number = lambda v: isinstance(v, (int, float)) and not isinstance(v, bool)  # noqa: E731

@@ -451,6 +451,20 @@ def event_json(event: WarEvent, run: dict, mini_packs: dict) -> dict:
             "repair_item_health": REPAIR_ITEM_HEALTH, "wait_message": WAIT_MESSAGE}
 
 
+IDLE_MESSAGE = "No guild war is on right now."
+
+
+def idle_event_json() -> dict:
+    """An active_war_event that isn't on (its start, end and decay all 0). The Wars tab
+    waits for one: it draws only after a reply carrying active_war_event (the client's
+    GUILD_WARS_UPDATED), and with none on it shows this wait_message and the guild's
+    fortress. Without it the tab says "Loading..." for good."""
+    return {"id": "0", "name": "", "start_time": "0", "end_time": "0", "web_picture": "", "web_link": "",
+            "rewards": {"tier": []}, "war_length": WAR_LENGTH, "war_battle_prep_time": PREP_TIME,
+            "no_new_war_time": 0, "claim_reward_prevention": CLAIM_WAIT, "decay_time": 0,
+            "battle_energy_cost": ENERGY_COST, "repair_item_health": REPAIR_ITEM_HEALTH, "wait_message": IDLE_MESSAGE}
+
+
 def event_info_json(state: dict, gid, uid, member_ids, names) -> dict:
     """faction_war_event_info: the guild's and the player's points, rank and claim, and
     the members' points (the client reads the block only when it has `members`).

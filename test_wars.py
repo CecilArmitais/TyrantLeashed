@@ -220,6 +220,17 @@ def test_no_war_event_unless_set(tmp_path):
     assert r["result_message"] == ["There's no guild war on right now."]
 
 
+def test_no_idle_war_event_while_a_raid_is_set(tmp_path):
+    """Any active_war_event runs the Wars tab's war display, which hides the raid panel."""
+    api, clock = server(tmp_path, content="[raids]\nraid = 161\n", engine=True)
+    _, ann = login(api)
+    r, _ = call(api, ann, "init")
+    assert "active_war_event" not in r and "faction_war_event_info" not in r   # nor the recording's
+    call(api, ann, "createFaction", faction_name="Owls")
+    r, _ = call(api, ann, "updateFaction", last_activity_id="0")
+    assert "active_war_event" not in r and r["current_raids"]
+
+
 def test_a_war_between_two_guilds(tmp_path):
     api, clock, ann, bob = two_guilds(tmp_path)
     store = api.guild_store

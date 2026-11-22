@@ -172,6 +172,17 @@ def test_drops(defs):
     assert ach.drops(defs, player(), ach.MISSION, True, always, ctx) == {}             # 402 not done yet
 
 
+def test_raid_drops_that_need_a_level(defs):
+    """"Earn 100 Marks of the Mythic in Raids level 5 or higher" (4111, after 3101)."""
+    assert defs[4111].drop["min_level"] == "5" and "min_level" not in defs[3002].drop
+    p = player(missions=[130])
+    ach.state(p)["done"].append(3101)
+    always = SimpleNamespace(random=lambda: 0.0)
+    assert ach.drops(defs, p, ach.RAID, True, always, level=4) == {}
+    assert ach.drops(defs, p, ach.RAID, True, always, level=5) == {3009: 1}
+    assert ach.drops(defs, p, ach.RAID, False, always, level=5) == {3009: 1}             # every raid fight counts
+
+
 # ---- the list ---------------------------------------------------------------------------------------
 
 def test_the_list_is_sorted_and_capped(defs):
@@ -210,3 +221,54 @@ def test_a_challenge_through_the_server(tmp_path, defs):
     clock[0] = run["end"]                                                              # a new run
     r, _ = tb.ask(api, "init")
     assert "3582" in r["user_achievements"]
+
+
+def test_complete_finishes_the_parent(tmp_path, defs):
+    """Completing a challenge's last sub-objective finishes its parent in the same reply."""
+    (tmp_path / "content.toml").write_text("[objectives]\nchallenge = 3580\n", "utf-8")
+    api, _ = tach.game(tmp_path, engine=True)
+    tb.ask(api, "init")
+    p = api.player()
+    p.won_mission("17")
+    p.arena["stamina"] = 15
+    ach.state(p)["done"] += [i for i in defs[LIVING_MIRRORS].subs if i != 3583]
+    ach.state(p)["event"]["progress"]["3583"] = 24
+    api.player_store.save(p)
+    ta.fight(api, "-1")                                                                # a sure win: Mirror 25 ready
+    before = api.player().war_bonds
+    r, how = tb.ask(api, "completeAchievement", achievement_id="3583")
+    assert [c["id"] for c in r["completed_achievements"]] == ["3583", "3580"], how
+    assert api.player().war_bonds == before + 50 + 500 and "3580" not in r["user_achievements"]
+
+
+def test_waiting_objectives_make_the_cut(defs):
+    """A finished PvP objective past the 20th place is still listed, for its Complete."""
+    ctx = run_of(defs, LIVING_MIRRORS)
+    p = player(missions=range(1, 143))
+    ach.state(p)["done"].append(3582)
+    ach.state(p)["event"]["ready"].append(3583)
+    ach.state(p)["event"]["progress"]["3583"] = 25
+    ua = ach.user_achievements(defs, p, ctx)
+    assert len(ua) == ach.LIST_SIZE and ua["3583"]["status"] == "1"
+    keys = [int(k) for k in ua]
+    assert keys == sorted(keys, key=lambda i: (defs[i].order, i))
+
+
+class AlwaysDrop(random.Random):
+    """Every drop roll succeeds."""
+    def random(self):
+        return 0.0
+
+
+def test_a_raid_fight_drops_an_item(tmp_path, defs):
+    """"Eradicate the Great Threat" (3002, after the 2015 Legendary Quest): Pantheon Idols
+    from raid battles, lost ones included, in the reward's `item` and the inventory."""
+    import test_raids as tr
+    api, _ = tr.game(tmp_path)
+    p = api.player()
+    ach.state(p)["done"].append(3001)
+    api.player_store.save(p)
+    api.rng_factory = lambda: AlwaysDrop(1)
+    r, how = tr.fight(api)
+    assert r["battle_data"]["rewards"][0]["item"] == {"3005": 1}, how
+    assert api.player().items["3005"] == 1 and ach.event_progress(defs[3002], api.player()) == 1

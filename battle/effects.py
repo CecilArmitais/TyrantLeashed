@@ -10,8 +10,9 @@ from the battlefield. docs/battle-engine.md, "Battleground effects", has the rul
 - <kv_mult>raid_level</kv_mult> (Silus' Pact, Octane's Cybernetics, Ballroom Blitz):
   each x is multiplied by the raid's level and rounded up (the optimizer's rule).
 - Effects without an <effect> are rules written into the real server (Bloodlust,
-  Virulence...) or just notes ("This Raid features the new skill Overload"); they're
-  shown but do nothing here yet.
+  Virulence...) or just notes ("This Raid features the new skill Overload"). Those in
+  PASSIVE are built (the optimizer's passive BGEs, battle/engine.py); the rest are shown
+  but do nothing here yet.
 - The client: battle_data.battleground_effects {"global", "attacker", "defender"}, each
   a list whose first entry's name, desc and web_picture (an icon) are shown, and whose
   card_uid is the actor of that effect's actions (0 or -3 and below; the icon glows when
@@ -28,6 +29,20 @@ from pathlib import Path
 from battle.cards import COMMANDER, Card, SkillSpec
 
 SCOPE_UID = {"global": -3, "attacker": -4, "defender": -5}       # the actors' uids (ours; 0 or <= -3)
+
+# Rule effects the engine plays (the optimizer's passive BGEs), by name -> (rule, the
+# value when the file gives none). The values follow the effects' own texts where the
+# optimizer's default (1) would disagree: "X/4" for Counterflux; Devour's file value is 4.
+PASSIVE = {
+    "Counterflux": ("counterflux", 4),        # Counter also heals and berserks itself for X/4
+    "Fortification": ("fortification", 1),    # armor: the best among it and the cards 1 away
+    "Virulence": ("virulence", 1),            # a poisoned assault's death spreads its poison
+    "Devour": ("devour", 4),                  # Leech/Refresh X hitting an assault: +X/4 attack and max health
+    "Oath of Loyalty": ("oath_of_loyalty", 1),   # Allegiance on play, once per other card of its faction
+    # Halted Orders ("Inactive Assaults with Inhibit will Inhibit the Assault across from
+    # them") needs nothing: every live assault inhibits the card across already, active or
+    # not, as in the optimizer, whose own Halted Orders rule is commented out.
+}
 
 
 @dataclass(frozen=True)
@@ -50,6 +65,13 @@ class Effect:
     picture: str
     skills: tuple[RawSkill, ...] = ()
     kv_mult: str | None = None
+    value: int = 0                            # <value>: a rule effect's number (Devour: 4)
+
+    @property
+    def passive(self) -> tuple[str, int] | None:
+        """(rule, value) for a rule effect the engine plays, else None."""
+        rule = PASSIVE.get(self.name)
+        return (rule[0], self.value or rule[1]) if rule else None
 
     def specs(self, level: int = 1) -> tuple[SkillSpec, ...]:
         """The skills at a level: x times the level, rounded up, for kv_mult effects."""
@@ -84,5 +106,6 @@ def load(asset_dir: Path) -> dict[int, Effect]:
                        for s in b.findall("effect/skill") if s.get("id"))
         out[bid] = Effect(bid, (b.findtext("name") or "").strip(), (b.findtext("desc") or "").strip(),
                           (b.findtext("web_picture") or "").strip(), skills,
-                          (b.findtext("kv_mult") or "").strip() or None)
+                          (b.findtext("kv_mult") or "").strip() or None,
+                          num((b.findtext("value") or "").strip()))
     return out

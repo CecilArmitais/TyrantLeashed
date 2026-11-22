@@ -232,9 +232,10 @@ class RandomChooser:
 class Battle:
     def __init__(self, setup: Setup, chooser=None, cards=None, effects=()):
         """cards: card id -> Card lookup, for Summon (without it, Summon does nothing).
-        effects: battleground effects, as (uid, scope, card): scope "global", "attacker"
-        or "defender", and a stand-in commander card holding the effect's skills
-        (battle/effects.py). Each side's are cast in its turns (_bge_phase)."""
+        effects: battleground effects, as (uid, scope, card[, passive]): scope "global",
+        "attacker" or "defender", a stand-in commander card holding the effect's skills
+        (battle/effects.py), and for a rule effect its (rule, value). Each side's skills
+        are cast in its turns (_bge_phase); the rules work where they apply (_passive)."""
         self.sides = (Side(ATTACKER, setup.attacker_commander, setup.attacker_deck),
                       Side(DEFENDER, setup.defender_commander, setup.defender_deck))
         self.choose = chooser or RandomChooser()
@@ -252,10 +253,15 @@ class Battle:
         self._section_name = "actions"
         self._in_bge = False                        # during a battleground effect's skills
         self.bge_casters: dict[int, list[Unit]] = {ATTACKER: [], DEFENDER: []}
-        for uid, scope, card in effects:
+        self.passive: dict[int, dict[str, tuple[int, Unit]]] = {ATTACKER: {}, DEFENDER: {}}
+        for uid, scope, card, *rest in effects:
+            passive = rest[0] if rest else None
             for index in ((ATTACKER, DEFENDER) if scope == "global" else
                           (ATTACKER,) if scope == "attacker" else (DEFENDER,)):
-                self.bge_casters[index].append(Unit(uid, card, index))
+                caster = Unit(uid, card, index)
+                self.bge_casters[index].append(caster)
+                if passive:
+                    self.passive[index][passive[0]] = (passive[1], caster)
         for side, dominion in zip(self.sides, (setup.attacker_dominion, setup.defender_dominion)):
             if dominion is not None:
                 side.structures.append(Unit(FIRST_UID[side.index] - 1, dominion, side.index))
@@ -264,6 +270,7 @@ class Battle:
         for side, forts in zip(self.sides, (setup.attacker_fortresses, setup.defender_fortresses)):
             self._fortresses[side.index] = [(side.next_uid + i, card) for i, card in enumerate(forts)]
             side.next_uid += len(forts)
+        self._fortress_uids = {uid for forts in self._fortresses.values() for uid, _ in forts}
 
     # ---- the outside -------------------------------------------------------------
 
@@ -637,6 +644,11 @@ class Battle:
                 damage += att.skill("venom")
             damage += target.enfeebled
         armor = target.skill("armored") if on_assault else 0
+        fort = self._passive("fortification")
+        if fort and on_assault:                             # the best Armor among it and its neighbours
+            row, i = foe.assaults, self.slot(target)
+            armor = max([armor] + [u.skill("armored") for u in row[max(0, i - fort[0]):i + fort[0] + 1]
+                                   if u is not target and u.alive])
         protect = target.protection
         cancel = att.skill("pierce") + att.skill("rupture") + target.corroded_rate
         if att.skill("pierce") and armor + protect:
@@ -681,6 +693,14 @@ class Battle:
             self._damage(att, back)
             self._action(target, "counter", [att], back, [self._health(att)] + self._own_health(target), block=[])
             self._after_damage()
+            flux = self._passive("counterflux")
+            if flux and on_assault and target.alive and not self.over:    # heals and berserks for X/4
+                value = -(-counter // flux[0])
+                self._heal_hp(target, value)
+                if not target.sundered:
+                    target.perm_attack += value
+                self._action(flux[1], "berserk", [target], value,
+                             [self._status(target, "perm_max_attack", target.perm_attack), self._health(target)])
         corrosive = target.skill("corrosive")
         if corrosive and att.alive and corrosive > att.corroded_rate:
             att.corroded_rate = corrosive
@@ -705,8 +725,12 @@ class Battle:
                 # (tested 2026-11-20), and the real server shows Hunt's hit as "swipe" too.
                 self._action(att, "swipe", [u], swipe + drain, [self._health(u)] + self._own_health(att), block=[])
             if drain and att.alive and att.hp < att.max_hp:
+                # The heal, with no targets: the client gives each target of a "drain" its
+                # Drain_Target animation, which threw NullReferenceExceptions every frame
+                # whether the target was the card itself or the cards hit (2026-11-20,
+                # 2026-11-22). The health status carries the heal.
                 self._heal_hp(att, drained)
-                self._action(att, "drain", [att], drained, [self._health(att)] + self._own_health(att))
+                self._action(att, "drain", [], drained, [self._health(att)] + self._own_health(att))
             self._after_damage()
         berserk = att.skill("berserk")
         if berserk and dealt and att.alive and not att.sundered:
@@ -722,6 +746,16 @@ class Battle:
             target.marked += mark
             self._action(att, "mark", [target], mark,          # no "mark" status: the client rejects it
                          self._shown_health([target]) + self._own_health(att))
+        devour = self._passive("devour")
+        feed = att.skill("leech") + att.skill("refresh")
+        if devour and feed and dealt and on_assault and att.alive:   # +X/4 attack and max health
+            value = -(-feed // devour[0])
+            if not att.sundered:
+                att.perm_attack += value
+            self._ext_hp(att, value)
+            self._action(devour[1], "berserk", [att], value,
+                         [self._status(att, "perm_max_attack", att.perm_attack),
+                          self._status(att, "perm_max_health", att.perm_health), self._health(att)])
         hunt = att.skill("hunt")
         if hunt and not target.is_commander:      # not after hitting the commander (recorded)
             prey = next((u for u in foe.assaults if u.alive), None)
@@ -1077,10 +1111,11 @@ class Battle:
                      + self._own_health(unit))
 
     def _allegiance(self, side: Side, played: Unit) -> None:
-        """A card joins: allies of its faction with Allegiance gain attack and health."""
-        if played.summoned:
-            return
-        for ally in side.assaults:
+        """A card joins: allies of its faction with Allegiance gain attack and health. With
+        Oath of Loyalty (the optimizer's), the card itself, if it has Allegiance X, gains X
+        for each other card of its faction on its side: assaults, and structures other
+        than the dominion and fortresses. Summoned cards get the Oath, not the allies'."""
+        for ally in side.assaults if not played.summoned else ():
             value = ally.skill("allegiance")
             if ally is played or not ally.alive or not value or ally.card.faction != played.card.faction:
                 continue
@@ -1091,6 +1126,21 @@ class Battle:
                          [self._status(ally, "allegiance_attack", ally.perm_attack),
                           self._status(ally, "perm_max_health", ally.perm_health), self._health(ally)]
                          + self._own_health(ally))
+        oath = self._passive("oath_of_loyalty", side.index)        # the played card's side
+        value = played.skill("allegiance")
+        if oath and value and played.alive:
+            faction = played.card.faction
+            same = sum(1 for u in side.assaults if u is not played and u.alive and u.card.faction == faction)
+            same += sum(1 for u in side.structures if u.alive and u.card.faction == faction
+                        and u.uid != FIRST_UID[side.index] - 1 and u.uid not in self._fortress_uids)
+            if same:                                       # not the dominion or fortresses
+                gain = value * same
+                played.perm_attack += gain
+                self._ext_hp(played, gain)
+                self._action(played, "allegiance", [played], gain,
+                             [self._status(played, "allegiance_attack", played.perm_attack),
+                              self._status(played, "perm_max_health", played.perm_health), self._health(played)]
+                             + self._own_health(played))
 
     def _stasis(self, side: Side, played: Unit) -> None:
         """A delayed assault of a faction with Stasis in play is protected until it acts."""
@@ -1123,8 +1173,9 @@ class Battle:
         self._action(unit, "summon", [summoned], card.id, [])
 
     def _after_damage(self) -> None:
-        """Deaths from the last hit: Scavenge, Avenge, and the dead card's own
+        """Deaths from the last hit: Scavenge, Avenge, Virulence, and the dead card's own
         "on death" skills."""
+        spread = {"side": None, "last": None, "stack": 0, "left": None}    # Virulence across a run of deaths
         while self._pending_deaths:
             dead = self._pending_deaths.pop(0)
             if self._in_bge:                                     # death_from_bge: only Summon goes off
@@ -1156,12 +1207,43 @@ class Battle:
                                  [self._status(ally, "avenge_attack", ally.perm_attack),
                                   self._status(ally, "perm_max_health", ally.perm_health),
                                   self._health(ally)] + self._own_health(ally), block=[])
+            self._virulence(dead, spread)
             for spec in dead.card.skills:
                 if spec.trigger == "death" and not self.over:
                     if spec.id == "summon":
                         self._summon_on(dead, "death")
                     else:
                         self._triggered(dead, spec)
+
+    def _virulence(self, dead: Unit, spread: dict) -> None:
+        """Virulence (the optimizer's): a dead assault's poison goes to the live assault on
+        its left, and the poison of a run of dead neighbours, added up, to the live one on
+        the right of each."""
+        vir = self._passive("virulence")
+        side = self.sides[dead.side]
+        if not vir or dead not in side.assaults:
+            return
+        row, i = side.assaults, self.slot(dead)
+        if spread["side"] != dead.side or spread["last"] != i - 1:
+            spread.update(side=dead.side, stack=0,
+                          left=row[i - 1] if i > 0 and row[i - 1].alive else None)
+        if dead.poisoned > 0:
+            if spread["left"] is not None:
+                self._spread_poison(vir[1], spread["left"], dead.poisoned)
+            spread["stack"] += dead.poisoned
+        right = row[i + 1] if i + 1 < len(row) and row[i + 1].alive else None
+        if right is not None and spread["stack"]:
+            self._spread_poison(vir[1], right, spread["stack"])
+        spread["last"] = i
+
+    def _spread_poison(self, caster: Unit, unit: Unit, amount: int) -> None:
+        unit.poisoned += amount
+        self._action(caster, "venom", [unit], amount, [self._status(unit, "poison", unit.poisoned)])
+
+    def _passive(self, rule: str, side: int | None = None):
+        """(value, caster) for a rule effect working for a side (the side whose turn it is,
+        as the optimizer's fd->tapi), else None."""
+        return self.passive[self.active.index if side is None else side].get(rule)
 
     # ---- bookkeeping ---------------------------------------------------------------------
 

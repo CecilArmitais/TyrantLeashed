@@ -295,6 +295,10 @@ def flag_value(raw):
     return str(raw)
 
 
+BASIC_MISSIONS, FULL_MISSIONS = "missions_basic.xml", "missions.xml"
+BASIC_LAST = "56"   # the basic campaign's last mission (location 4); the full file's 57 is at location 5
+
+
 def mission_costs(asset_dir: Path, file_name: str | None) -> dict[str, int]:
     """Mission id -> energy cost, from the mission file the game loads (`mission_file`,
     missions_basic.xml). The recorded charges for missions 1-7 match it exactly. ({} if
@@ -377,6 +381,7 @@ class GameApi:
         self._assets = ASSET_DIR if asset_dir is None else asset_dir
         self._cards: CardDB | None = None
         self._missions: dict | None = None
+        self._missions_by_file: dict = {}
         fixture_dir = Path(fixture_dir)
         self.fixtures: dict[str, dict] = {}
         for name in LOGIN:
@@ -386,6 +391,7 @@ class GameApi:
         assets = ASSET_DIR if asset_dir is None else asset_dir
         self.tutorials = tutorial_names(assets, self._login_value("tutorial_file"))
         self.mission_costs = mission_costs(assets, self._login_value("mission_file"))
+        self._costs_by_file = {self._login_value("mission_file"): self.mission_costs}
         # The saved player starts from the recorded init (gold, war bonds, energy, cards).
         self.player_store: PlayerStore | None = None
         self.reward_rules = RewardRules()
@@ -894,11 +900,34 @@ class GameApi:
 
     # ---- the battle engine ------------------------------------------------------------
 
+    def _mission_file(self) -> str | None:
+        """The mission file the player's game loads (`mission_file` in the login): the
+        recorded new account's, missions_basic.xml (the new-player campaign: locations 0-4,
+        missions 1-56), until its last mission is won; then missions.xml, the full one,
+        whose mission 57 carries the story on at location 5 and which has the side and
+        mutant missions. Recorded: a new account had the basic file, a returning one (8
+        missions in) the full one; when a new account moved over isn't recorded (ours)."""
+        recorded = self._login_value("mission_file")
+        player = self.player_store.load() if self.player_store is not None else None   # as saved: no refill
+        if recorded == BASIC_MISSIONS and player is not None \
+                and ((player.missions or {}).get(BASIC_LAST) or {}).get("complete") \
+                and (Path(self._assets) / FULL_MISSIONS).is_file():
+            return FULL_MISSIONS
+        return recorded
+
+    def _mission_costs(self) -> dict[str, int]:
+        name = self._mission_file()
+        if name not in self._costs_by_file:
+            self._costs_by_file[name] = mission_costs(self._assets, name)
+        return self._costs_by_file[name]
+
     def _mission_data(self) -> dict:
-        """The missions (enemy decks, energy, rewards), loaded on first use."""
-        if self._missions is None:
-            self._missions = load_missions(self._assets, self._login_value("mission_file"))
-        return self._missions
+        """The missions (enemy decks, energy, rewards) of the player's mission file, loaded
+        on first use."""
+        name = self._mission_file()
+        if name not in self._missions_by_file:
+            self._missions_by_file[name] = load_missions(self._assets, name)
+        return self._missions_by_file[name]
 
     def _engine_data(self) -> tuple[CardDB, dict]:
         """All cards and missions, loaded on first use (about a second)."""
@@ -1280,11 +1309,12 @@ class GameApi:
         """
         mid = str(params.get("mission_id"))
         player = self.player()
-        cost = self.mission_costs.get(mid)
+        costs = self._mission_costs()
+        cost = costs.get(mid)
         if player is None:
             return None, ""
         if cost is None:
-            return None, "; no energy cost in the mission data" if self.mission_costs else ""
+            return None, "; no energy cost in the mission data" if costs else ""
         if player.energy < cost:
             # The game checks its own copy first and only asks when it thinks there's
             # enough, so this means the two disagree. The refusal carries the real
@@ -1767,10 +1797,15 @@ class GameApi:
         active_war_event, faction_war_event_info and, while the guild is queued or at
         war, faction_war. The client takes a reply with active_war_event as the whole
         war state, so they always go together. With no war on, an idle active_war_event
-        (wars.idle_event_json): the Wars tab draws only once it has had one."""
+        (wars.idle_event_json): the Wars tab draws only once it has had one. But not while
+        a raid is set: any active_war_event runs the tab's war display, which hides the raid
+        panel (FortressController.onGuildWarsUpdated -> HideDisplays), and the raid draws
+        without one."""
         event, state = self._war_state()
         now = int(self.clock())
         if event is None or wars.phase(state, now) is None:
+            if self._set_raid() is not None:
+                return {}
             return {"active_war_event": wars.idle_event_json(), "faction_war_event_info": []}
         out = {"active_war_event": wars.event_json(event, state["run"], self._mini_packs())}
         if guild is None:
@@ -1898,7 +1933,7 @@ class GameApi:
         eid = wars.effect_on(event, state["run"], now)
         effect = self._bge_defs().get(eid) if eid else None
         if effect is not None:
-            effects.append((bge.SCOPE_UID["global"], "global", effect.caster(1)))
+            effects.append((bge.SCOPE_UID["global"], "global", effect.caster(1), effect.passive))
             entries["global"].append(effect.entry("global"))
         battle = Battle(Setup(foe_commander, shuffled_deck(foe_deck, FIRST_UID[ATTACKER], rng), commander,
                               shuffled_deck(deck, FIRST_UID[DEFENDER], rng),
@@ -2138,7 +2173,7 @@ class GameApi:
         effects, entries = [], {"global": [], "attacker": [], "defender": []}
         effect = self._bge_defs().get(zone.battleground_effect) if zone.battleground_effect else None
         if effect is not None:
-            effects.append((bge.SCOPE_UID["global"], "global", effect.caster(1)))
+            effects.append((bge.SCOPE_UID["global"], "global", effect.caster(1), effect.passive))
             entries["global"].append(effect.entry("global"))
         theirs = [cards[c] for c in conquest.fortress_cards(state, foe_gid) if cards.get(c)]
         ours = [cards[c] for c in conquest.fortress_cards(state, guild["id"]) if cards.get(c)]
@@ -2309,7 +2344,7 @@ class GameApi:
         eid = brawls.effect_on(event, run, now)
         effect = self._bge_defs().get(eid) if eid else None
         if effect is not None:
-            effects.append((bge.SCOPE_UID["global"], "global", effect.caster(1)))
+            effects.append((bge.SCOPE_UID["global"], "global", effect.caster(1), effect.passive))
             entries["global"].append(effect.entry("global"))
         battle = Battle(Setup(foe_commander, shuffled_deck(foe_deck, FIRST_UID[ATTACKER], rng), commander,
                               shuffled_deck(deck, FIRST_UID[DEFENDER], rng), attacker_wins_stall=True),
@@ -2478,7 +2513,7 @@ class GameApi:
         for eid, scope in ((raid.battleground_effect, "global"), (raid.enemy_battleground_effect, "defender")):
             effect = self._bge_defs().get(eid) if eid else None
             if effect is not None:
-                effects.append((bge.SCOPE_UID[scope], scope, effect.caster(level)))
+                effects.append((bge.SCOPE_UID[scope], scope, effect.caster(level), effect.passive))
                 entries[scope].append(effect.entry(scope))
         battle = Battle(Setup(commander, shuffled_deck(deck, FIRST_UID[ATTACKER], rng), boss,
                               shuffled_deck(boss_cards, FIRST_UID[DEFENDER], rng), defender_fortresses=tuple(forts)),
@@ -2501,7 +2536,7 @@ class GameApi:
         session = BattleSession(battle, battle_id, str(self.uid),
                                 extra={"enemy_name": raid.name, "enemy_id": "0", "battleground_effects": entries})
         rewards = [{"user_id": str(self.uid), "gold": 0, "card": [], "raid_damage": damage,
-                    "item": self._fight_drop(achievements.RAID, battle.winner == 1)}]
+                    "item": self._fight_drop(achievements.RAID, battle.winner == 1, level=level)}]
         reply = self.envelope(params)
         reply["result"] = True
         reply.update(self._player_parts(params, ("user_data",)))
@@ -2715,20 +2750,21 @@ class GameApi:
         challenge = achievements.challenge_set(defs, run["id"]) if run else frozenset()
         return achievements.EventContext(self._standing | challenge, challenge, run)
 
-    def _fight_drop(self, battle_type: int, won: bool):
+    def _fight_drop(self, battle_type: int, won: bool, level: int | None = None):
         """A one-reply fight's reward `item`: what it dropped, saved to the player."""
         player = self.player()
-        gains = self._event_drops(player, battle_type, won)
+        gains = self._event_drops(player, battle_type, won, level=level)
         if gains:
             self._track(player)
             self.player_store.save(player)
         return achievements.reward_item(gains)
 
-    def _event_drops(self, player, battle_type: int, won: bool, mutant: bool = False) -> dict:
+    def _event_drops(self, player, battle_type: int, won: bool, mutant: bool = False,
+                     level: int | None = None) -> dict:
         """The items a won battle drops for the item objectives counting now, added to the
         inventory: {item id: n}."""
         gains = achievements.drops(self._achievement_defs(), player, battle_type, won, self.rng_factory(),
-                                   self._events(), mutant)
+                                   self._events(), mutant, level)
         for iid, n in gains.items():
             items.add(player.items, iid, n)
         if gains:
@@ -2766,8 +2802,9 @@ class GameApi:
         except ValueError as e:
             reply = self._refuse(params, str(e))
             return reply, f"refused {CLAIM}: {e}"
-        self.player_store.save(player)
         self._ach_news, self._ach_changed = [a], True
+        self._track(player)                 # what it finishes in turn (a challenge's parent, a count)
+        self.player_store.save(player)
         start = {"time": self._start.get("time"), "user_data": self._start.get("user_data") or {}, "user_cards": {}}
         reply = self.envelope(params)
         reply["result"] = True
@@ -3218,6 +3255,8 @@ class GameApi:
                 body.pop(key, None)                         # the recording's event; ours, if any, below
             if self.player() is not None:
                 body.update(self._war_parts(self._my_guild()))
+        if "mission_file" in body and self.player() is not None:
+            body["mission_file"] = self._mission_file()        # the full campaign past mission 56
         if "conquest_data" in body and self.player() is not None:
             body["conquest_data"] = self._conquest_parts(self._my_guild()).get("conquest_data", [])
         if "active_brawl_data" in body or "player_brawl_data" in body:

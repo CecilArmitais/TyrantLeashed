@@ -222,3 +222,20 @@ def test_conquest_needs_a_guild(tmp_path):
     r, _ = call(api, bob, "fightConquestBattle", zone_id="11")
     assert r["result_message"] == ["You must be in a guild to fight in Conquest."]
     assert call(api, ann, "fightConquestBattle", zone_id="99")[0]["result_message"] == ["There's no such zone."]
+
+
+def test_a_zones_rule_effect_works_in_its_fights(tmp_path, monkeypatch):
+    seen = []
+
+    class Watched(ga.Battle):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            seen.append(self.passive)
+    monkeypatch.setattr(ga, "Battle", Watched)
+    api, clock, ann, bob, cid = setup(tmp_path)
+    call(api, bob, "createFaction", faction_name="Bats")
+    r, how = call(api, ann, "fightConquestBattle", zone_id="5")              # Infested Depot: Devour
+    assert how.startswith("conquest fight in Infested Depot"), how
+    assert r["battle_data"]["battleground_effects"]["global"][0]["name"] == "Devour"
+    assert {side: {name: value for name, (value, _) in rules.items()} for side, rules in seen[-1].items()} == \
+        {0: {"devour": 4}, 1: {"devour": 4}}

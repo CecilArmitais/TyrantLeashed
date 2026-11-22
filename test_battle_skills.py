@@ -27,6 +27,7 @@ CARDS = """<root>
   <unit><id>24</id><name>Hitter</name><attack>2</attack><health>20</health></unit>
   <unit><id>25</id><name>Glass</name><attack>0</attack><health>1</health></unit>
   <unit><id>26</id><name>Mortar</name><attack>0</attack><health>5</health><skill id="besiege" x="3"/></unit>
+  <unit><id>27</id><name>Drainer</name><attack>2</attack><health>10</health><skill id="drain" x="3"/></unit>
   <unit><id>2100</id><name>Wall</name><health>6</health><skill id="wall"/></unit>
 </root>"""
 DB = CardDB.from_xml(CARDS)
@@ -125,6 +126,17 @@ def test_hunt_shows_as_swipe_and_swipe_hits_neighbours():
     turns = b.play(3)                                      # three Dummies; the Swiper lands across slot 1
     swipes = actions(turns, 6, "swipe")                    # one action per card hit
     assert [s["targets"] for s in swipes] == [["1"], ["3"]] and swipes[0]["value"] == 1
+
+
+def test_drain_heals_with_no_targets():
+    b = battle(att=(27, 23, 23, 23), dfn=(24, 23, 23, 23))
+    b.start()
+    b.play(1)                                             # the Drainer; the enemy Hitter hits it (10 -> 8)
+    turns = b.play(2)                                     # it hits the Hitter (2) and drains that back
+    drain, = actions(turns, 3, "drain")
+    # no targets: the client's Drain_Target animation on any card threw errors every frame
+    assert drain["card_uid"] == 1 and drain["targets"] == [] and drain["value"] == 2
+    assert {"card_uid": "1", "status_flag": "h", "value": 10} in drain["status"]     # 8 + 2
 
 
 def test_wall_takes_hits_meant_for_the_commander():

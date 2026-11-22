@@ -54,6 +54,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -116,6 +117,13 @@ class Achievement:
         return not self.permanent and not self.daily
 
 
+def _min_level(desc: str) -> dict:
+    """A raid level the drop needs, from the objective's own text ("Collect 100 Medals of
+    Triumph from Raid level 5 or higher battles"): the data has no field for it."""
+    m = re.search(r"level (\d+) or higher", desc, re.I)
+    return {"min_level": m.group(1)} if m else {}
+
+
 def load(asset_dir: Path) -> dict[int, Achievement]:
     f = Path(asset_dir) / "achievements.xml"
     if not f.is_file():
@@ -162,7 +170,8 @@ def load(asset_dir: Path) -> dict[int, Achievement]:
             special=bool(text("legendary_quest")) or (req_el is not None and req_el.find("level") is not None),
             start=num("start_time"), end=num("end_time"), mission_req=num("mission_req"),
             background=text("no_background_progress") != "1", subs=subs,
-            drop={k: req[k] for k in ("item_id", "drop_rate", "num", "battle_type", "mutant_req") if k in req}
+            drop={**{k: req[k] for k in ("item_id", "drop_rate", "num", "battle_type", "mutant_req") if k in req},
+                  **_min_level(text("desc"))}
             if num("type") == 10 and "item_id" in req else None,
             count_type=int(req["achievement_type"]) if num("type") == 11 and req.get("achievement_type", "").isdigit()
             else None, portrait_bundle=text("portrait_bundle") or None)
@@ -558,11 +567,14 @@ def claim(defs: dict[int, Achievement], player, aid, cap_sp: int, now: int,
 # ---- item drops (type 10) -------------------------------------------------------------------------
 
 def drops(defs: dict[int, Achievement], player, battle_type: int, won: bool, rng: random.Random,
-          ctx: EventContext | None = None, mutant: bool = False) -> dict[int, int]:
-    """Items a won battle drops for the type-10 objectives counting now (each its own
-    `drop_rate` roll): {item id: how many}. The caller adds them to the inventory; the
+          ctx: EventContext | None = None, mutant: bool = False, level: int | None = None) -> dict[int, int]:
+    """Items a battle drops for the type-10 objectives counting now (each its own
+    `drop_rate` roll): {item id: how many}. Missions drop on a win ("by defeating
+    Missions"); raid, war and brawl fights on every fight ("from Raid battles": a raid
+    fight is nearly always lost to the boss). `level`: a raid's, for the drops that need a
+    level ("Raid level 5 or higher"). The caller adds them to the inventory; the
     objectives' progress is counted here."""
-    if not won:
+    if not won and battle_type == MISSION:
         return {}
     s = state(player)
     ctx = ctx if ctx is not None else context(defs)
@@ -573,6 +585,8 @@ def drops(defs: dict[int, Achievement], player, battle_type: int, won: bool, rng
         if not a.drop or int(a.drop.get("battle_type") or 0) != battle_type or not counting(a, player, done):
             continue
         if a.drop.get("mutant_req") == "1" and not mutant:
+            continue
+        if a.drop.get("min_level") and (level or 0) < int(a.drop["min_level"]):
             continue
         if rng.random() < float(a.drop.get("drop_rate") or 0):
             iid = int(a.drop["item_id"])
@@ -628,7 +642,12 @@ def user_achievements(defs: dict[int, Achievement], player, ctx: EventContext | 
         rows.append((a, entry(a, min(event_progress(a, player), a.goal), status,
                               run_end if aid in ctx.challenge else None)))
     rows.sort(key=lambda r: (r[0].order, r[0].id))
-    return {str(a.id): e for a, e in rows[:LIST_SIZE]}
+    # Ones waiting for Complete always make the cut (ours: nothing recorded had one), or a
+    # finished objective could sit out of reach.
+    waiting = [r for r in rows if r[1]["status"] == "1"]
+    keep = waiting[:LIST_SIZE] + [r for r in rows if r[1]["status"] != "1"][:max(0, LIST_SIZE - len(waiting))]
+    keep.sort(key=lambda r: (r[0].order, r[0].id))
+    return {str(a.id): e for a, e in keep}
 
 
 def completed_json(done: list[Achievement]) -> list[dict]:

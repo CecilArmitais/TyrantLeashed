@@ -104,6 +104,7 @@ import achievements
 from accounts import AccountStore
 import arena
 import guilds
+import items
 import brawls
 import conquest
 import raids
@@ -162,6 +163,7 @@ BRAWL_MESSAGES = {"fightBrawlBattle", "claimBrawlRewards", "getBrawlLeaderboard"
                   "getPreviousBrawlTopLeaderboard"}
 WAR_MESSAGES = {"fightFactionWar", "startFactionWarBattle", "claimFactionWarRewards", "getFactionWarLeaderboard",
                 "getFactionWarMatchLeaderboard", "getPreviousFactionWarTopLeaderboard"}
+ITEM_MESSAGES = {"getUserItems", "consumeItem"}
 RAID_MESSAGES = {"getRaidInfo", "getCurrentRaids", "fightRaidBattle", "claimRaidReward", "refillEventBattleEnergy",
                  "getRaidLeaderboard", "getPreviousRaidTopLeaderboard"}
 BUY_UPGRADE = "buyUpgrade"          # the deck screen's Extra Deck Slot
@@ -773,6 +775,8 @@ class GameApi:
                 return self._brawl_message(message, params)
             if message in CONQUEST_MESSAGES:
                 return self._conquest_message(message, params)
+            if message in ITEM_MESSAGES:
+                return self._item_message(message, params)
             if message == CRATE:
                 return self._open_crate(params)
             if message == BUY_UPGRADE or (message in (PROMO_GOLD, PROMO_WB) and str(params.get("item_type")) == "4"):
@@ -1930,31 +1934,15 @@ class GameApi:
                  else "You didn't earn a reward in this war." if not tiers else None)
         if words:
             return self._refuse(params, words), f"refused claimFactionWarRewards: {words}"
-        cards, _ = self._engine_data()
-        rng = self.rng_factory()
-        got, items = [], 0
-        for tier in tiers:
-            for kind, rid, amount in tier.rewards:
-                if kind == "item":
-                    items += amount                   # items aren't built
-                else:
-                    got += self._open_raid_reward(kind, rid, amount, cards, rng)
         player = self.player()
-        for cid in got:
-            player.add_card(cid)
-        player.cards_earned = (player.cards_earned or 0) + len(got)
+        got, gains = self._pay_tiers(player, tiers)
         row["claimed"] = 1
         self.player_store.save(player)
         self.war_store.save(state)
-        reply = self.envelope(params)
-        reply["result"] = True
-        reply.update(self._player_parts(params, ("user_data", "user_cards")))
-        reply["new_cards"] = [str(c) for c in got]
-        reply["new_items"] = []
+        reply = self._reward_reply(params, player, got, gains)
         reply.update(self._war_parts(guild))
-        names = ", ".join(cards[c].name for c in got[:8]) + (f" and {len(got) - 8} more" if len(got) > 8 else "")
-        return reply, (f"war rewards (rank {rank}, {row['points']} points): {len(tiers)} tiers, {len(got)} cards"
-                       f" ({names or 'none'})" + (f"; {items} item(s) not given (items aren't built)" if items else ""))
+        return reply, (f"war rewards (rank {rank}, {row['points']} points): {len(tiers)} tiers, "
+                       f"{self._describe_gains(got, gains)}")
 
     # ---- conquest (conquest.py; the server's, across guilds) -----------------------------------------
 
@@ -2181,30 +2169,14 @@ class GameApi:
                  else "You didn't earn a reward in this conquest." if not tiers else None)
         if words:
             return self._refuse(params, words), f"refused claimConquestReward: {words}"
-        cards, _ = self._engine_data()
-        rng = self.rng_factory()
-        got, items = [], 0
-        for tier in tiers:
-            for kind, rid, amount in tier.rewards:
-                if kind == "item":
-                    items += amount
-                else:
-                    got += self._open_raid_reward(kind, rid, amount, cards, rng)
         player = self.player()
-        for cid in got:
-            player.add_card(cid)
-        player.cards_earned = (player.cards_earned or 0) + len(got)
+        got, gains = self._pay_tiers(player, tiers)
         me["claimed"] = 1
         self.player_store.save(player)
         self.conquest_store.save(state)
-        reply = self.envelope(params)
-        reply["result"] = True
-        reply.update(self._player_parts(params, ("user_data", "user_cards")))
-        reply["new_cards"] = [str(c) for c in got]
-        reply["new_items"] = []
-        names = ", ".join(cards[c].name for c in got[:8]) + (f" and {len(got) - 8} more" if len(got) > 8 else "")
+        reply = self._reward_reply(params, player, got, gains)
         return reply, (f"conquest rewards (guild rank {rank}, {me['influence']} influence): {len(tiers)} tiers, "
-                       f"{len(got)} cards ({names or 'none'})" + (f"; {items} item(s) not given" if items else ""))
+                       f"{self._describe_gains(got, gains)}")
 
     # ---- brawls (brawls.py; the server's, across players) -------------------------------------------
 
@@ -2368,31 +2340,15 @@ class GameApi:
                  else "You didn't earn a reward in this brawl." if not tiers else None)
         if words:
             return self._refuse(params, words), f"refused claimBrawlRewards: {words}"
-        cards, _ = self._engine_data()
-        rng = self.rng_factory()
-        got, items = [], 0
-        for tier in tiers:
-            for kind, rid, amount in tier.rewards:
-                if kind == "item":
-                    items += amount                   # items (shards) aren't built
-                else:
-                    got += self._open_raid_reward(kind, rid, amount, cards, rng)
         player = self.player()
-        for cid in got:
-            player.add_card(cid)
-        player.cards_earned = (player.cards_earned or 0) + len(got)
+        got, gains = self._pay_tiers(player, tiers)
         row["claimed"] = 1
         self.player_store.save(player)
         self.brawl_store.save(state)
-        reply = self.envelope(params)
-        reply["result"] = True
-        reply.update(self._player_parts(params, ("user_data", "user_cards")))
-        reply["new_cards"] = [str(c) for c in got]
-        reply["new_items"] = []
+        reply = self._reward_reply(params, player, got, gains)
         reply.update(self._brawl_parts())
-        names = ", ".join(cards[c].name for c in got[:8]) + (f" and {len(got) - 8} more" if len(got) > 8 else "")
-        return reply, (f"brawl rewards (rank {rank}, {row['points']} points): {len(tiers)} tiers, {len(got)} cards"
-                       f" ({names or 'none'})" + (f"; {items} item(s) not given (items aren't built)" if items else ""))
+        return reply, (f"brawl rewards (rank {rank}, {row['points']} points): {len(tiers)} tiers, "
+                       f"{self._describe_gains(got, gains)}")
 
     # ---- raids (each guild fights its own run of the raid content.toml sets) ---------------------
 
@@ -2931,6 +2887,19 @@ class GameApi:
         player = self.player()
         if player is None:
             raise NotSupported("there is no starting data (game/fixtures/init.json) to keep energy in.")
+        if items.owned(player.items, items.ENERGY_REFILL):
+            # The energy bar's + sends this without asking when the player owns an Energy
+            # Refill (EnergyBar.BuyRefillTapped), so the item is used, not war bonds.
+            before = player.energy
+            self._refill_energy(player)
+            items.take(player.items, items.ENERGY_REFILL, 1)
+            self.player_store.save(player)
+            reply = self.envelope(params)
+            reply["result"] = True
+            reply["user_data"] = self.current_user_data(params)
+            reply["user_items"] = items.user_items_json(player.items)
+            return reply, (f"energy refill: +{player.max_energy} ({before} -> {player.energy}), an Energy Refill "
+                           f"({items.owned(player.items, items.ENERGY_REFILL)} left)")
         cost = int(self._start.get("wb_energy_cost") or DEFAULT_REFILL_COST)
         if player.war_bonds < cost:
             # The game checks its own copy first ("You do not have enough war bonds to buy
@@ -2940,8 +2909,7 @@ class GameApi:
             reply["user_data"] = self.current_user_data(params)
             return reply, f"refused: a refill costs {cost} war bonds, has {player.war_bonds}"
         before = (player.energy, player.war_bonds)
-        player.energy += player.max_energy
-        player.energy_updated = int(self.clock())   # at or over the max: the refill clock waits from now
+        self._refill_energy(player)
         player.war_bonds -= cost
         self.player_store.save(player)
         reply = self.envelope(params)
@@ -2949,6 +2917,108 @@ class GameApi:
         reply["user_data"] = self.current_user_data(params)
         return reply, (f"energy refill: +{player.max_energy} ({before[0]} -> {player.energy}), "
                        f"{cost} war bonds ({before[1]} -> {player.war_bonds})")
+
+    def _refill_energy(self, player) -> None:
+        player.energy += player.max_energy
+        player.energy_updated = int(self.clock())   # at or over the max: the refill clock waits from now
+
+    # ---- items (items.py) ----------------------------------------------------------------------------
+
+    def _item_defs(self) -> dict:
+        if getattr(self, "_items", None) is None:
+            self._items = items.load(self._assets)
+        return self._items
+
+    def _pay_tiers(self, player, tiers) -> tuple[list[int], dict[int, int]]:
+        """Pays reward tiers into the save: (the cards opened, {item id: how many})."""
+        cards, _ = self._engine_data()
+        rng = self.rng_factory()
+        got, gains = [], {}
+        for tier in tiers:
+            for kind, rid, amount in tier.rewards:
+                if kind == "item":
+                    gains[int(rid)] = gains.get(int(rid), 0) + amount
+                else:
+                    got += self._open_raid_reward(kind, rid, amount, cards, rng)
+        for cid in got:
+            player.add_card(cid)                      # counted in cards_earned
+        for iid, n in gains.items():
+            items.add(player.items, iid, n)
+        return got, gains
+
+    def _reward_reply(self, params: dict, player, got: list[int], gains: dict) -> dict:
+        """A claim's reply, read like a pack purchase: the save's data, new_cards and
+        new_items (shown together), and the inventory."""
+        reply = self.envelope(params)
+        reply["result"] = True
+        reply.update(self._player_parts(params, ("user_data", "user_cards")))
+        reply["new_cards"] = [str(c) for c in got]
+        reply["new_items"] = items.new_items_json(gains)
+        reply["user_items"] = items.user_items_json(player.items)
+        return reply
+
+    def _describe_gains(self, got: list[int], gains: dict) -> str:
+        cards, _ = self._engine_data()
+        defs = self._item_defs()
+        names = ", ".join(cards[c].name for c in got[:8]) + (f" and {len(got) - 8} more" if len(got) > 8 else "")
+        out = f"{len(got)} cards ({names or 'none'})"
+        if gains:
+            out += "; items: " + ", ".join(f"{defs[i].name if i in defs else i} x{n}" for i, n in gains.items())
+        return out
+
+    def _item_message(self, message: str, params: dict) -> tuple[dict, str]:
+        """getUserItems (the inventory) and consumeItem item_id (the inventory's Use)."""
+        player = self.player()
+        if message == "getUserItems":
+            reply = self.envelope(params)
+            reply["result"] = True
+            reply["user_items"] = items.user_items_json(player.items)
+            return reply, f"items: {sum(player.items.values())} in {len(player.items)} kind(s)"
+        defs = self._item_defs()
+        try:
+            item = defs.get(int(params.get("item_id")))
+        except (TypeError, ValueError):
+            item = None
+        cards, _ = self._engine_data()
+        pack = items.item_pack(item) if item else None
+        try:
+            items.check_use(item, player.items)
+            if pack is not None:
+                n = sum(count for _, count in pack.draws)
+                cap = player.max_cards or int(((self._start.get("user_data") or {}).get("caps") or {})
+                                              .get("max_cards") or 1600)
+                if player.card_count + n > cap:
+                    raise items.ItemError(f"Your inventory is full: {player.card_count} of {cap} cards.")
+            if item.sp and (player.salvage or 0) >= self._cap_sp():
+                raise items.ItemError(f"Your SP is full: {player.salvage} of {self._cap_sp()}.")
+        except items.ItemError as e:
+            reply = self._refuse(params, str(e))
+            reply["user_items"] = items.user_items_json(player.items)
+            return reply, f"refused consumeItem {params.get('item_id')}: {e}"
+        items.take(player.items, item.id, item.cost)
+        got, did, shown = [], [], {}
+        if pack is not None:
+            got = packs.open_pack(pack, cards, self.rng_factory())
+            for cid in got:
+                player.add_card(cid)
+            did.append(", ".join(cards[c].name for c in got))
+        if item.sp:
+            before = player.salvage or 0
+            player.salvage = min(self._cap_sp(), before + item.sp)
+            shown[items.SALVAGE_POINTS] = player.salvage - before          # shown as "Salvage Points"
+            did.append(f"{player.salvage - before} SP")
+        if item.refill:
+            self._refill_energy(player)
+            did.append(f"+{player.max_energy} energy")
+        self.player_store.save(player)
+        reply = self.envelope(params)
+        reply["result"] = True
+        reply.update(self._player_parts(params, ("user_data", "user_cards")))
+        reply["new_cards"] = [str(c) for c in got]
+        reply["new_items"] = items.new_items_json(shown)
+        reply["user_items"] = items.user_items_json(player.items)
+        return reply, (f"used {item.cost} {item.name} ({items.owned(player.items, item.id)} left): "
+                       + "; ".join(did))
 
     def _battle_finished(self, body: dict) -> tuple[str, MissionResult | None]:
         """A replayed mission's end: pays its rewards into the save by the same rules as

@@ -18,6 +18,7 @@ server's save is state/player.json.
     python server/player.py card 1001 +2       # add 2 copies of card 1001
     python server/player.py card 1001 -1       # remove one copy
     python server/player.py card 1001 =3       # set the count (0 removes the card)
+    python server/player.py item 2000 +500     # add 500 Epic Shards (Home, Items); -N and =N too
     python server/player.py music off          # music on/off (the game's own toggle saves it too)
     python server/player.py sound off          # sound effects on/off
     python server/player.py tutorial skip      # mark the tutorial finished (and mission 1 won,
@@ -45,6 +46,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import achievements  # noqa: E402
+import items  # noqa: E402
 from game_api import ASSET_DIR, FIXTURE_DIR, STATE_DIR, GameApi  # noqa: E402
 from player_state import level_info  # noqa: E402
 
@@ -140,6 +142,10 @@ def show(api: GameApi) -> None:
           + (f", name {p.name!r}" if p.name else ""))
     print(f"  objectives {len(st.get('done', []))} done; today: {goals or 'none yet'}"
           + (f" (new ones in {fmt_wait(left)})" if goals and left > 0 else ""))
+    item_defs = items.load(api._assets)
+    print("  items      " + (", ".join(f"{item_defs[int(i)].name if int(i) in item_defs else 'item ' + i} x{n}"
+                                       for i, n in sorted(p.items.items(), key=lambda kv: int(kv[0])))
+                             or "none"))
     print(f"  cards      {p.card_count} ({len(p.cards)} different)")
     names = card_names(set(p.cards))
     for cid in sorted(p.cards, key=lambda c: (names.get(c, "~"), int(c) if c.isdigit() else 0)):
@@ -211,6 +217,9 @@ def main() -> None:
     c.add_argument("card_id")
     c.add_argument("change", help="+N to add, -N to remove, =N to set")
     c.add_argument("--any", action="store_true", help="allow an id that isn't in the card data")
+    it = sub.add_parser("item", help="change how many of an item you have (shards, refills...)")
+    it.add_argument("item_id")
+    it.add_argument("change", help="+N to add, -N to remove, =N to set")
     for name, what in (("music", "music"), ("sound", "sound effects")):
         s = sub.add_parser(name, help=f"turn {what} on or off")
         s.add_argument("switch", choices=["on", "off"])
@@ -314,6 +323,22 @@ def main() -> None:
     m = re.fullmatch(r"([+=-])(\d+)", args.change)
     if not m:
         sys.exit("The change must look like +2, -1 or =3.")
+    if args.cmd == "item":
+        item_defs = items.load(api._assets)
+        if not args.item_id.isdigit() or int(args.item_id) not in item_defs:
+            sys.exit(f"Item {args.item_id} isn't in the item data (items.xml).")
+        iid, op, n = args.item_id, m.group(1), int(m.group(2))
+        have = items.owned(p.items, iid)
+        count = have + n if op == "+" else have - n if op == "-" else n
+        if count < 0:
+            sys.exit(f"You only have {have} of item {iid}.")
+        if count:
+            p.items[iid] = count
+        else:
+            p.items.pop(iid, None)
+        store.save(p)
+        print(f"Item {iid} ({item_defs[int(iid)].name}): {have} -> {count}.")
+        return
     cid, op, n = args.card_id, m.group(1), int(m.group(2))
     name = card_names({cid}).get(cid)
     if name is None and not args.any:

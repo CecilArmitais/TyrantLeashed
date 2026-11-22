@@ -163,8 +163,12 @@ def test_a_solo_brawl(tmp_path):
     run = api.brawl_store.load()["run"]
     clock[0] = run["end"] + brawls.CLAIM_WAIT
     r, how = call(api, ann, "claimBrawlRewards")
-    assert r["result"] is True and r["new_cards"] and r["new_items"] == [], how
-    assert "item(s) not given" in how and r["player_brawl_data"]["claimed_rewards"] == 1
+    assert r["result"] is True and r["new_cards"], how
+    shards = {2000: 500, 2001: 3050, 2002: 1600}                              # Epic, Legendary, Vindicator Shards
+    assert {i["id"]: i["number"] for i in r["new_items"]} == shards and r["player_brawl_data"]["claimed_rewards"] == 1
+    assert {int(k): v["number"] for k, v in r["user_items"].items()} == shards
+    assert api.player().items == {str(k): n for k, n in shards.items()}
+    assert int(r["user_data"]["cards_earned"]) == 5 + len(r["new_cards"])     # counted once
     assert call(api, ann, "claimBrawlRewards")[0]["result_message"] == ["You already claimed your brawl rewards."]
     assert call(api, bob, "claimBrawlRewards")[0]["result_message"] == ["You didn't take part in this brawl."]
 

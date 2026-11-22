@@ -34,7 +34,7 @@ Each browser that opens the game gets its own account and save on its first logi
 guilds, raids, guild wars, brawls and conquest, and as each other's arena rivals (their
 defense decks, played by the AI). `python server/player.py players` lists them; `python
 server/player.py --user <id>` shows a player's save and can change it (gold, war bonds,
-cards, music and sound, the tutorial, the name...). `--single-player` makes every
+cards, items, music and sound, the tutorial, the name...). `--single-player` makes every
 browser the one offline player, saved in `state/player.json`.
 
 `state/content.toml`, written with comments on the first start, sets what the store

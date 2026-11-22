@@ -53,11 +53,13 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-SAVE_VERSION = 11         # 2: max_energy; 3: flags and missions; 4: decks, gold/cards earned;
+import items
+
+SAVE_VERSION = 12         # 2: max_energy; 3: flags and missions; 4: decks, gold/cards earned;
                           # 5: stamina and the arena; 6: event boxes; 7: salvage points and card
                           # locks; 8: achievements; 9: the daily crate, store upgrades, name and
-                          # active deck; 10: raids; 11: the raid moved to the guild (guilds.py)
-                          # (older saves are upgraded on load)
+                          # active deck; 10: raids; 11: the raid moved to the guild (guilds.py);
+                          # 12: items (older saves are upgraded on load)
 FIRST_CRATE_AFTER = 1799  # recorded: a new account's crate opened 1799 s after its login
 DEFAULT_MAX_ENERGY = 250
 DEFAULT_MAX_STAMINA = 15
@@ -116,6 +118,7 @@ class Player:
     name_changes: int = 0
     active_deck: str | None = None           # user_data.active_deck
     defense_deck: str | None = None          # user_data.defense_deck
+    items: dict[str, int] = field(default_factory=dict)   # item id -> how many (items.py)
 
     @property
     def card_count(self) -> int:
@@ -338,7 +341,7 @@ class PlayerStore:
         if self._player is None or mtime != self._mtime:
             data = json.loads(self.path.read_text("utf-8"))
             version = data.get("version")
-            if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, SAVE_VERSION):
+            if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, SAVE_VERSION):
                 raise ValueError(f"{self.path}: save version {version}, expected {SAVE_VERSION}")
             p = data["player"]
             self._player = Player(
@@ -375,6 +378,7 @@ class PlayerStore:
                 name=p.get("name"), name_changes=int(p.get("name_changes") or 0),
                 active_deck=None if p.get("active_deck") is None else str(p["active_deck"]),
                 defense_deck=None if p.get("defense_deck") is None else str(p["defense_deck"]),
+                items={str(k): int(v) for k, v in (p.get("items") or {}).items() if int(v) > 0},
             )
             self._mtime = mtime
             if version != SAVE_VERSION:
@@ -477,4 +481,6 @@ class PlayerStore:
                                   for cid, c in player.cards.items()}
         if "user_decks" in body and player.decks is not None:
             body["user_decks"] = decks_json(player.decks)
+        if "user_items" in body:
+            body["user_items"] = items.user_items_json(player.items)
         return body

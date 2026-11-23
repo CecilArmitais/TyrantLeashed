@@ -1,9 +1,13 @@
 """The offline server's game API: answers api.php messages.
 
-Everything comes from fixtures built by make_fixtures.py (recorded responses with
-every account identifier replaced):
+Replies start from fixtures built by make_fixtures.py (recorded responses with every
+account identifier replaced). The messages below are answered by the server's own rules;
+anything else is replayed from the recordings:
 
-  getUserAccount, init   the recorded login of a new account
+  getUserAccount, init   the recorded login. With several players (run.py's default),
+                         getUserAccount also makes a new browser's account, or gives a
+                         returning one new credentials in place of public ones
+                         (accounts.py, session_calls.py)
   startMission/playCard  recorded battles, replayed as scripts: a mission starts the
                          next recorded battle of that mission, and each card played
                          must be the card the recording played at that point. Starting
@@ -13,9 +17,9 @@ every account identifier replaced):
                          gold, its card on the first win, stars (rewards.py).
   setDeckCards           real logic: the deck is saved (cards you own, up to 10)
   forfeitBattle          real logic: Surrender; the battle is lost and paid as a loss
-  getHuntingTargets,     with --engine, real logic: the arena's AI rivals, fights for
-  startHuntingBattle,    stamina, rating and level-ups, and the refresh button
-  buyRivalsRefresh       (arena.py)
+  getHuntingTargets,     with --engine, real logic: the arena's AI rivals and other
+  startHuntingBattle,    players, fights for stamina, rating and level-ups, and the
+  buyRivalsRefresh       refresh button (arena.py)
   buyStaminaRefillTokens real logic: stamina up to the max, for war bonds
   unlockCommander        real logic: Promote, a commander and bonus cards for a
                          promotion point
@@ -23,27 +27,27 @@ every account identifier replaced):
                          and other players' fights against their defense deck
   startRevengeBattle     with --engine, real logic: a report's Revenge button, a fight
                          against the attacker's defense deck (arena.py)
-  buyPackGold,           real logic: the Basic Pack, the Epic Pack, the gold Basic Pack
-  buyPackTokens,         bundles and base-set faction packs (the Blight Pack), with the
-  buyStorePromoGold,     game's published drop rates (packs.py), and event boxes
-  buyStorePromoTokens    (boxes.py) and their deals; other promos are replayed. What the
-                         store offers comes from state/content.toml (content.py),
-                         in the store's replies (store.py)
+  buyPackGold,           real logic: the store as state/content.toml sets it (store.py,
+  buyPackTokens,         packs.py, boxes.py): the Basic and Epic Pack tiles, mini pack
+  buyStorePromoGold,     promos (the Basic Pack bundles, faction packs such as the Blight
+  buyStorePromoTokens    Pack, any mini pack that opens), single cards at rising prices,
+                         the recorded real-money bundles sold for gold or war bonds, and
+                         event boxes and their deals, with the game's drop rates; a promo
+                         the server doesn't sell is replayed
+  buyUpgrade, store      real logic: +50 Max Energy, +10 Card Slots (store promos of
+  promos item_type 4     item_type 4) and the deck screen's Extra Deck Slot (store.py)
   upgradeCard,           real logic: the Upgrade screen. Upgrades cost salvage points
   salvageCard,           (SP), salvage gives them, locks keep cards from salvage, and
   salvageL1CommonCards,  fusion turns a recipe's cards into the fused card, with the
   salvageL1RareCards,    game's own numbers (upgrades.py)
   setCardLock,
   fuseCard
-  completeAchievement    real logic: achievements (achievements.py). The permanent ones
+  completeAchievement    real logic: objectives (achievements.py). The permanent ones
                          finish by themselves and pay at once (completed_achievements in
-                         that reply); daily battle objectives count arena fights and are
-                         claimed with this message
+                         that reply); daily objectives, and the PvP event objectives
+                         (content.toml's challenge among them), are claimed with this
   useDailyBonus          real logic: the home screen crate (daily_crate.py; its rewards
                          are set in content.toml)
-  buyUpgrade, store      real logic: +50 Max Energy, +10 Card Slots (store promos of
-  promos item_type 4     item_type 4) and the deck screen's Extra Deck Slot
-                         (store.py)
   setUserName,           real logic: the player's name, active deck and defence deck
   setActiveDeck,
   setDefenseDeck
@@ -52,13 +56,21 @@ every account identifier replaced):
   getUserDecks,
   getCardData,
   getVersionNumber
+  getUserItems,          real logic: the inventory, and using an item: a pack, SP or an
+  consumeItem            energy refill (items.py)
+  buyEnergyRefillTokens  real logic: max energy on top of the current energy, with an
+                         Energy Refill item if the player has one, else for
+                         wb_energy_cost (30) war bonds
+  setUserFlag            real logic: the flag is saved (tutorial progress, guides seen,
+                         battle speed, autopilot, music...), so it survives a reload
   createFaction, joinFaction, leaveFaction, acceptFactionInvite, sendFactionInvite,
   kickFactionMember, setMemberRank, setAllFactionSettings, sendFactionMessage,
-  updateFaction, getRecruitingFactions, getTopFactions, getUsersLFG, getProfileData,
-  donateFactionGold, buyFactionCard, removeFactionCard, updateFactionWar,
-  fightPracticeBattle    (a guild member's deck, for nothing)
+  updateFaction, getFactionNews, getRecruitingFactions, getTopFactions, getUsersLFG,
+  getProfileData, donateFactionGold, buyFactionCard, removeFactionCard, updateFactionWar
                          real logic: guilds (guilds.py), kept by the server in
-                         state/guilds/, apart from the player's save
+                         state/guilds/, apart from the players' saves
+  fightPracticeBattle    real logic: a guild member profile's Battle / Surge buttons, an
+                         engine fight against the member's deck, for nothing
   getRaidInfo,           real logic: raids (raids.py), set in content.toml: each guild's
   getCurrentRaids,       run of the boss (levels, health), each member's raid energy,
   fightRaidBattle,       fights resolved by the battle engine in one reply, the reward
@@ -66,12 +78,26 @@ every account identifier replaced):
   refillEventBattleEnergy,
   getRaidLeaderboard,
   getPreviousRaidTopLeaderboard
-  buyEnergyRefillTokens  real logic: max energy on top of the current energy, for
-                         wb_energy_cost (30) war bonds
-  setUserFlag            real logic: the flag is saved (tutorial progress, guides seen,
-                         battle speed, autopilot, music...), so it survives a reload
+  fightFactionWar, startFactionWarBattle, claimFactionWarRewards,
+  getFactionWarLeaderboard, getFactionWarMatchLeaderboard,
+  getPreviousFactionWarTopLeaderboard
+                         real logic: guild wars (wars.py), set in content.toml: guilds
+                         queue and are matched, members attack the other guild's
+                         fortresses, and the event's reward tiers are claimed
+  fightBrawlBattle, claimBrawlRewards, getBrawlLeaderboard, getBrawlMemberLeaderboard,
+  getPreviousBrawlTopLeaderboard
+                         real logic: brawls (brawls.py), set in content.toml: fights
+                         against other players' defense decks for points, brawl energy,
+                         and reward tiers by rank
+  getConquestUpdate, fightConquestBattle, setConquestMarker, claimConquestReward,
+  getConquestLeaderboard, getConquestTopLeaderboard, getConquestZoneRankings,
+  getConquestZoneTopLeaderboard, getGuildInfluenceLeaderboard,
+  getGuildZoneInfluenceLeaderboard, getPreviousConquestTopLeaderboard
+                         real logic: conquest (conquest.py), set in content.toml: guilds
+                         fight in a map's zones for influence, scoring rounds rank them,
+                         and the zones give fortresses and the reward tiers
   other messages         replayed when the client asks exactly what was recorded
-                         (same message and same details, e.g. buyPackGold pack_id=1)
+                         (same message and same details, e.g. getStoreData)
   recordEvent            analytics; answered with an empty reply, like the real server
 
 Every reply gets its timestamps moved forward so the recording looks current, and

@@ -60,7 +60,7 @@ def test_the_tier_a_rank_reaches():
     assert conquest.tier_for(conquest_zones()[NEXUS], 1, "fortress_card") is None
 
 
-# ---- scoring rounds ------------------------------------------------------------------------------
+# ---- the rules -----------------------------------------------------------------------------------
 
 @pytest.mark.needs_game
 def test_scoring_rounds():

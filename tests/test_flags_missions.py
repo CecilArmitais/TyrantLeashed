@@ -1,4 +1,6 @@
-"""Tests for saved game flags (tutorial progress, settings) and mission progress."""
+"""Tests for saved game flags (tutorial progress, settings), mission progress and the
+full campaign, mission energy costs, buying an energy refill, and player.py's tutorial
+and music commands."""
 
 import json
 
@@ -164,6 +166,16 @@ def test_old_save_gets_flags_and_missions_from_the_starting_data(tmp_path):
     assert saved(tmp_path)["flags"]["tutorial"] == "0"
 
 
+def test_game_toggles_music_like_the_real_server(tmp_path):
+    # The real server's reply to the game's own toggle (recorded): result true, and the
+    # flag back in user_data.flags as a string.
+    api = make_api(tmp_path)
+    r, how = ask(api, "setUserFlag", flag="music", value="0")
+    assert r["result"] is True and r["user_data"]["flags"]["music"] == "0" and how == "saved music=0"
+    assert set(r) == {"time", "version", "result", "user_data", "daily_bonus_time",
+                      "guild_donations_enabled", "guild_supplies_enabled", "request"}
+
+
 # ---- missions ------------------------------------------------------------------------------------
 
 def test_a_won_mission_is_saved_and_shown(tmp_path):
@@ -201,6 +213,22 @@ def test_repeat_wins_and_extra_stars(tmp_path):
     # The recording gave mission 3 all three stars; the rules (no star conditions here) decide instead.
     assert r["mission_completions"]["3"] == {"number": "1", "complete": "1", "star2": "0", "star3": "0"}
     assert (r["user_data"]["mission_wins"], r["user_data"]["stars"]) == (3, 3)
+
+
+@pytest.mark.needs_game
+def test_the_full_campaign_after_mission_56(tmp_path):
+    """missions_basic.xml (locations 0-4, missions 1-56) until mission 56 is won, then
+    missions.xml: its mission 57 is at location 5, with the side and mutant missions."""
+    api = ga.GameApi(fixture_dir=paths.FIXTURE_DIR, state_dir=tmp_path, battle_engine=True)
+    r, _ = ask(api, "init")
+    assert r["mission_file"] == "missions_basic.xml" and "57" not in api._mission_data()
+    p = api.player()
+    p.won_mission("56")
+    api.player_store.save(p)
+    r, _ = ask(api, "init")
+    assert r["mission_file"] == "missions.xml"
+    missions = api._mission_data()
+    assert missions["57"].location == 5 and missions["1516"].mutant and api._mission_costs()["1516"] == 50
 
 
 # ---- mission energy costs ------------------------------------------------------------------------
@@ -346,16 +374,6 @@ def test_cli_music_and_sound(tmp_path, monkeypatch, capsys):
     assert saved(tmp_path)["flags"]["music"] == "1"
 
 
-def test_game_toggles_music_like_the_real_server(tmp_path):
-    # The real server's reply to the game's own toggle (recorded): result true, and the
-    # flag back in user_data.flags as a string.
-    api = make_api(tmp_path)
-    r, how = ask(api, "setUserFlag", flag="music", value="0")
-    assert r["result"] is True and r["user_data"]["flags"]["music"] == "0" and how == "saved music=0"
-    assert set(r) == {"time", "version", "result", "user_data", "daily_bonus_time",
-                      "guild_donations_enabled", "guild_supplies_enabled", "request"}
-
-
 @pytest.mark.parametrize("flag, expected", [("-1", "finished"), ("2", "part 3 of 5: Won First Mission"),
                                             ("-2", "switched off (-2; the game does this when it loads "
                                                    "with mission 1 already won)"),
@@ -363,19 +381,3 @@ def test_game_toggles_music_like_the_real_server(tmp_path):
 def test_tutorial_status(flag, expected):
     names = ["Start First Mission", "In First Mission", "Won First Mission", "Buy a card", "Second Mission"]
     assert cli.tutorial_status(flag, names) == expected
-
-
-@pytest.mark.needs_game
-def test_the_full_campaign_after_mission_56(tmp_path):
-    """missions_basic.xml (locations 0-4, missions 1-56) until mission 56 is won, then
-    missions.xml: its mission 57 is at location 5, with the side and mutant missions."""
-    api = ga.GameApi(fixture_dir=paths.FIXTURE_DIR, state_dir=tmp_path, battle_engine=True)
-    r, _ = ask(api, "init")
-    assert r["mission_file"] == "missions_basic.xml" and "57" not in api._mission_data()
-    p = api.player()
-    p.won_mission("56")
-    api.player_store.save(p)
-    r, _ = ask(api, "init")
-    assert r["mission_file"] == "missions.xml"
-    missions = api._mission_data()
-    assert missions["57"].location == 5 and missions["1516"].mutant and api._mission_costs()["1516"] == 50

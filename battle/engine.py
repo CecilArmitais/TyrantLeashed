@@ -19,7 +19,8 @@ it is:
      removed and the rest slide left
 
 The attacker (the player, in a mission) has the odd turns, the defender the even
-ones. After turn 50 the battle is a stall, which the attacker loses.
+ones. After turn 50 the battle is a stall, which the attacker loses (or wins, in a
+surge fight: attacker_wins_stall).
 
 Random picks (which card a Strike hits...) go through `chooser`, so a recorded
 battle can be replayed with the picks the recording made.
@@ -202,9 +203,11 @@ class Setup:
     defender_dominion: Card | None = None       # tests use these; missions don't have them)
     defender_fortresses: tuple = ()             # a raid boss's fortress cards (structures), put in
                                                 # play at the start of its first turn
-    attacker_fortresses: tuple = ()             # the same for the attacker (a guild war's fortresses)
-    attacker_wins_stall: bool = False           # a stall (turn 50) goes to the attacker: a guild war
-                                                # fight, sent with the enemy as the attacker (surge)
+    attacker_fortresses: tuple = ()             # the same for the attacker (a guild's, in a war,
+                                                # a placement brawl or conquest)
+    attacker_wins_stall: bool = False           # a stall (turn 50) goes to the attacker: a surge fight
+                                                # (war, brawl, conquest, practice), sent with the enemy
+                                                # as the attacker
 
 
 def shuffled_deck(cards: list[Card], first_uid: int, rng: random.Random) -> list[tuple[int, Card]]:
@@ -316,7 +319,7 @@ class Battle:
             self._shown = set()                      # a new reply
         self._finish_turn(uid)
         while not self.over:
-            if self.turn >= TURN_LIMIT:                  # a stall: the attacker didn't win
+            if self.turn >= TURN_LIMIT:                  # a stall: the defender wins (a surge: the attacker)
                 self.winner = 1 if self.attacker_wins_stall else 0
                 break
             self._begin_turn()
@@ -340,7 +343,7 @@ class Battle:
         random card), and every later choice is a random card from the hand, the
         optimizer's auto play, to the end of the battle. All of it is one reply.
         oldest: the attacker plays its oldest card instead, as the defender always does
-        (a guild war fight, where the attacker is the AI-played defense deck)."""
+        (a surge fight, where the attacker is the AI-played defense deck)."""
         if self.over:
             raise BattleError("the battle is over")
         if not self.turn or self.active.index != ATTACKER:
@@ -459,7 +462,8 @@ class Battle:
             self._in_bge = False
 
     def _place_fortresses(self, side: Side) -> None:
-        """A side's fortresses (a raid boss's, a guild's in a war) enter the field, shown
+        """A side's fortresses (a raid boss's, a guild's in a war, placement brawl or conquest)
+        enter the field, shown
         as plays before its first card: the client places a turn's plays in the side
         whose turn it is, and there's no field for them in the battle data, so they come
         in the side's first turn (the optimizer puts them in before turn 1). Their delay
@@ -608,6 +612,23 @@ class Battle:
         for s in self.sides:                                # the dead go, the rest slide left
             s.assaults = [u for u in s.assaults if u.alive]
             s.structures = [u for u in s.structures if u.alive]
+
+    def _instant_debuffs(self, unit: Unit, across: Unit) -> None:
+        inhibit = unit.skill("inhibit")
+        if inhibit > across.inhibited:
+            across.inhibited = inhibit
+            self._action(unit, "inhibit", [across], inhibit, [self._status(across, "inhibited", inhibit)]
+                         + self._shown_health([across]) + self._own_health(unit))
+        sabotage = unit.skill("sabotage")
+        if sabotage > across.sabotaged:
+            across.sabotaged = sabotage
+            self._action(unit, "sabotage", [across], sabotage, [self._status(across, "sabotaged", sabotage)]
+                         + self._shown_health([across]) + self._own_health(unit))
+        disease = unit.skill("disease")
+        if disease and unit.is_assault:
+            across.diseased += disease
+            self._action(unit, "disease", [across], disease, [self._status(across, "disease", across.diseased)]
+                         + self._shown_health([across]) + self._own_health(unit))
 
     # ---- attacks ---------------------------------------------------------------------------------
 
@@ -799,23 +820,6 @@ class Battle:
                 self._action(att, "swipe", [prey], hunt, [self._health(prey)] + self._own_health(att), block=[])
                 self._after_damage()
         return True
-
-    def _instant_debuffs(self, unit: Unit, across: Unit) -> None:
-        inhibit = unit.skill("inhibit")
-        if inhibit > across.inhibited:
-            across.inhibited = inhibit
-            self._action(unit, "inhibit", [across], inhibit, [self._status(across, "inhibited", inhibit)]
-                         + self._shown_health([across]) + self._own_health(unit))
-        sabotage = unit.skill("sabotage")
-        if sabotage > across.sabotaged:
-            across.sabotaged = sabotage
-            self._action(unit, "sabotage", [across], sabotage, [self._status(across, "sabotaged", sabotage)]
-                         + self._shown_health([across]) + self._own_health(unit))
-        disease = unit.skill("disease")
-        if disease and unit.is_assault:
-            across.diseased += disease
-            self._action(unit, "disease", [across], disease, [self._status(across, "disease", across.diseased)]
-                         + self._shown_health([across]) + self._own_health(unit))
 
     # ---- active skills ---------------------------------------------------------------------------
 
@@ -1294,6 +1298,8 @@ class Battle:
                     else:
                         self._triggered(dead, spec)
 
+    # ---- battleground rule effects (the optimizer's passive BGEs; Ballroom Blitz) ----------------
+
     def _virulence(self, dead: Unit, spread: dict) -> None:
         """Virulence (the optimizer's): a dead assault's poison goes to the live assault on
         its left, and the poison of a run of dead neighbours, added up, to the live one on
@@ -1373,7 +1379,8 @@ class Battle:
         self._skill_rally(caster, SkillSpec("rally", rule[0], all=True))
 
     def _heroism_protect(self, side: Side) -> None:
-        """Heroism: each assault Protects itself for (Valor + Bravery) / 2, rounded up,
+        """Heroism: each assault Protects itself for (Valor + Bravery) / the rule's value (2),
+        rounded up,
         after the instant debuffs, Inhibit permitting."""
         rule = self._passive("heroism")
         if not rule:
@@ -1390,7 +1397,8 @@ class Battle:
             self._end_action()
 
     def _cold_sleep(self, side: Side, played: Unit) -> None:
-        """Cold Sleep: a card played; each ally under Stasis heals half its Stasis."""
+        """Cold Sleep: a card played; each ally under Stasis heals its Stasis / the rule's
+        value (2: half), rounded up."""
         rule = self._passive("cold_sleep", side.index)
         if not rule:
             return

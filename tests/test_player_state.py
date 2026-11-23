@@ -23,7 +23,7 @@ def test_refill(energy, updated, now, expected):
     assert refill(energy, updated, now, max_energy=250, every=60) == expected
 
 
-# ---- the store -----------------------------------------------------------------------------------
+# ---- the save file -------------------------------------------------------------------------------
 
 
 def test_create_save_load(tmp_path):
@@ -70,6 +70,15 @@ def test_apply_replaces_only_existing_fields_and_keeps_their_type():
     assert partial == {"user_data": {"money": "1234"}}                # nothing added
 
 
+def test_version_1_save_is_upgraded(tmp_path):
+    f = tmp_path / "player.json"
+    f.write_text(json.dumps({"version": 1, "player": {
+        "gold": 5, "war_bonds": 6, "energy": 7, "energy_updated": T, "cards": {}}}), "utf-8")
+    p = PlayerStore(f, clock=lambda: T, default_max_energy=250).load()
+    assert (p.gold, p.energy, p.max_energy) == (5, 7, 250)
+    assert json.loads(f.read_text("utf-8"))["version"] == SAVE_VERSION
+
+
 # ---- in the game API -----------------------------------------------------------------------------
 
 
@@ -113,6 +122,13 @@ def test_energy_refills_between_sessions(tmp_path):
     assert r["user_data"]["energy"] == "160"
     assert r["user_data"]["last_update_time"] == str(T + 100 + 3600)  # the 25 s towards the next point are kept
     assert json.loads((tmp_path / "state" / "player.json").read_text("utf-8"))["player"]["energy"] == 160
+
+
+@pytest.mark.needs_game
+def test_startup_report_without_a_save(tmp_path):
+    api = save_api(tmp_path, [T])
+    assert "none yet" in api.startup_report()
+    assert not (tmp_path / "state" / "player.json").exists()          # reporting doesn't create it
 
 
 # ---- the edit command ----------------------------------------------------------------------------
@@ -168,15 +184,15 @@ def test_cli_max_energy(tmp_path, monkeypatch, capsys):
     assert "too low" in str(code)
 
 
-# ---- energy across server downtime ---------------------------------------------------------------
+def test_cli_reset_needs_yes(tmp_path, monkeypatch, capsys):
+    run_player_cli(tmp_path, monkeypatch, capsys, "gold", "500")
+    code, _ = run_player_cli(tmp_path, monkeypatch, capsys, "reset")
+    assert "--yes" in str(code) and saved(tmp_path)["gold"] == 500
+    run_player_cli(tmp_path, monkeypatch, capsys, "reset", "--yes")
+    assert not (tmp_path / "state" / "player.json").exists()
 
-def test_version_1_save_is_upgraded(tmp_path):
-    f = tmp_path / "player.json"
-    f.write_text(json.dumps({"version": 1, "player": {
-        "gold": 5, "war_bonds": 6, "energy": 7, "energy_updated": T, "cards": {}}}), "utf-8")
-    p = PlayerStore(f, clock=lambda: T, default_max_energy=250).load()
-    assert (p.gold, p.energy, p.max_energy) == (5, 7, 250)
-    assert json.loads(f.read_text("utf-8"))["version"] == SAVE_VERSION
+
+# ---- energy across server downtime ---------------------------------------------------------------
 
 
 @pytest.mark.needs_game
@@ -219,18 +235,3 @@ def test_server_off_briefly_keeps_partial_progress(tmp_path):
     r, _ = ask(restarted, "init")
     assert r["user_data"]["energy"] == "35"
     assert r["user_data"]["last_update_time"] == str(T + 100 + 25 * 60)  # the 45 s count towards the next point
-
-
-@pytest.mark.needs_game
-def test_startup_report_without_a_save(tmp_path):
-    api = save_api(tmp_path, [T])
-    assert "none yet" in api.startup_report()
-    assert not (tmp_path / "state" / "player.json").exists()          # reporting doesn't create it
-
-
-def test_cli_reset_needs_yes(tmp_path, monkeypatch, capsys):
-    run_player_cli(tmp_path, monkeypatch, capsys, "gold", "500")
-    code, _ = run_player_cli(tmp_path, monkeypatch, capsys, "reset")
-    assert "--yes" in str(code) and saved(tmp_path)["gold"] == 500
-    run_player_cli(tmp_path, monkeypatch, capsys, "reset", "--yes")
-    assert not (tmp_path / "state" / "player.json").exists()

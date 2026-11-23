@@ -12,7 +12,8 @@ docs/protocol.md, "Items", has the evidence.
   - 49 artifacts (one of each per player; sets of them craft commanders by the
     file's blueprints) and 13 event currencies and Guild Supplies.
 - **What gives them** (in this server): brawl and guild war reward tiers (shards and
-  Commander Respecs). Missions list an artifact each, but the real server didn't
+  Commander Respecs; conquest's tiers have none), and objective drops in fights
+  (achievements.py). Missions list an artifact each, but the real server didn't
   pay them (the recorded first wins of missions 1-9 had none), so they aren't paid.
 - **The formats** (the client's code; never recorded with anything in them):
   - `user_items`: an object keyed by item id, each `{"id", "number"}`; `[]` when

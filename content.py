@@ -1,5 +1,6 @@
 """What's on offer in the game: the store's packs and promos, event boxes, the raid,
-guild donations, other players as arena rivals and the daily crate. Later also events and guild brawls.
+brawls, conquest, the objective challenge, guild wars, guild donations, other players as
+arena rivals and the daily crate. (The events.xml events aren't built.)
 
 Kept in state/content.toml, a file meant to be edited by hand. The first start
 writes it with the defaults (the store as recorded, no boxes) and comments on every
@@ -22,8 +23,7 @@ PACK_IDS = {"basic": "1", "epic": "1000"}       # the store's pack tiles (store_
 
 TEMPLATE = '''# What's on offer in this Tyrant Unleashed server: the store, event boxes, the raid,
 # brawls, conquest, guild wars, guild donations, other players as arena rivals and the
-# daily crate. (Events and guild brawls will go here too once the
-# server has them.)
+# daily crate.
 #
 # Edit this file while the server runs; the game shows the change after a reload.
 # Ids refer to the game's own data files (game/assets/mobile.tyrantonline.com/assets/).

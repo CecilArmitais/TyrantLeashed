@@ -218,3 +218,8 @@ class PlayerDataCalls:
         if not known:
             how += " (a flag the starting data didn't have)"
         return reply, how
+
+    def _in_tutorial(self, player) -> bool:
+        """The tutorial is under way: its flag is a part number, not -1 (done) or -2 (off)."""
+        raw = str((player.flags or {}).get("tutorial"))
+        return raw.isdigit() and (not self.tutorials or int(raw) < len(self.tutorials))

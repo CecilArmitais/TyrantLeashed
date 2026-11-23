@@ -51,7 +51,7 @@ off by one. Players rated below you paid the NPCs' 75. So, here:
   doesn't go back and forth (ours).
 
 Not recorded or documented, so these are ours:
-- Win rating: 30 + (their rating - yours) / 50, rounded, from 0 to 50. That gives the
+- Win rating: 30 + (their rating - yours) / 50, rounded, from 30 to 50. That gives the
   recorded +30 and the wiki's cap at +1000.
 - From a rating of 150 on, the nine rivals are NPCs at round ratings around yours
   (yours rounded to 50, -300 to +300), named from the wiki's list. Their commander:
@@ -117,6 +117,9 @@ LIST_SIZE = 9                        # rivals on a list (the recorded NPC lists;
 RANK_REACH = 1                       # other players this many ranks either side of yours (recorded: 4-6 at 5)
 PLAYER_CHANCE = 0.5                  # each such player's chance of being on a list (ours)
 GOLD_PER_POINT_ABOVE = 0.03          # a player rival rated above you pays 3% of the difference more (recorded)
+
+
+# ---- the rivals: NPCs and other players ----------------------------------------------------------
 
 
 def npc_tier_level(rating: int) -> tuple[int, int]:

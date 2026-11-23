@@ -33,7 +33,7 @@ REWARD_KINDS = ("card", "mini_pack", "pack", "item")
 DAY = 86400
 
 
-# ---- the state file -------------------------------------------------------------------------------
+# ---- the state file ------------------------------------------------------------------------------
 
 class StateStore:
     """An event's state file (state/brawls.json, ...), written whole (jsonfile.py). A load is
@@ -58,16 +58,6 @@ def new_run(event_id: int, now: int, end: int, claim_days: int, **extra) -> dict
     return {"event": event_id, "start": now, "end": end, "decay": end + claim_days * DAY, **extra}
 
 
-def pick_nearest(candidates: list[tuple[str, int]], my_points: int, rng: random.Random, nearest: int,
-                 order=str) -> str | None:
-    """One of the `nearest` candidates (id, points) closest to my points; ties in distance
-    go by `order` of the id."""
-    if not candidates:
-        return None
-    close = sorted(candidates, key=lambda c: (abs(c[1] - my_points), order(c[0])))[:nearest]
-    return rng.choice(sorted(c[0] for c in close))
-
-
 def phase(state: dict, now: int, active: str) -> str | None:
     """`active` while the run is on, "claim" after its end up to its decay, else None."""
     run = state.get("run")
@@ -84,6 +74,18 @@ def claimable(state: dict, now: int, wait: int) -> bool:
     """Whether rewards can be claimed now: `wait` after the run's end, up to its decay."""
     run = state.get("run")
     return bool(run) and run["end"] + wait <= now <= run["decay"]
+
+
+# ---- opponents -----------------------------------------------------------------------------------
+
+def pick_nearest(candidates: list[tuple[str, int]], my_points: int, rng: random.Random, nearest: int,
+                 order=str) -> str | None:
+    """One of the `nearest` candidates (id, points) closest to my points; ties in distance
+    go by `order` of the id."""
+    if not candidates:
+        return None
+    close = sorted(candidates, key=lambda c: (abs(c[1] - my_points), order(c[0])))[:nearest]
+    return rng.choice(sorted(c[0] for c in close))
 
 
 # ---- reward tiers --------------------------------------------------------------------------------

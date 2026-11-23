@@ -97,8 +97,6 @@ class WarError(Exception):
     """Why something can't be done, in words the player can read."""
 
 
-
-
 @dataclass(frozen=True)
 class WarEvent:
     id: int
@@ -363,6 +361,11 @@ def record_fight(state: dict, match: dict, uid, gid, defender_uid, slot: int, wo
     return points, damage
 
 
+def pick_defender(candidates: list, rng: random.Random):
+    """The member who defends against an attack: any member with a deck to defend with."""
+    return rng.choice(sorted(candidates, key=str)) if candidates else None
+
+
 def effect_on(event: WarEvent, run: dict, now: int) -> int | None:
     """The event's battleground effect today (the last one whose day has come)."""
     return event_runs.effect_on(event.effects, run, now)
@@ -388,7 +391,6 @@ def owes_rewards(state: dict, event: WarEvent, uid, gid, now: int) -> bool:
 
 
 # ---- what the client gets ------------------------------------------------------------------------
-
 
 
 def event_json(event: WarEvent, run: dict, mini_packs: dict) -> dict:
@@ -488,8 +490,3 @@ def leaderboard_json(rows: list[dict]) -> list[dict]:
     """faction_war_leaderboard entries."""
     return [{"faction_id": r["id"], "faction_name": r["name"], "faction_war_points": r["points"],
              "rank": r["rank"]} for r in rows]
-
-
-def pick_defender(candidates: list, rng: random.Random):
-    """The member who defends against an attack: any member with a deck to defend with."""
-    return rng.choice(sorted(candidates, key=str)) if candidates else None

@@ -1,5 +1,6 @@
 """Tests for buying packs (packs.py): the card pool, the published drop rates, the
-Basic Pack, its gold bundles and the Epic Pack, and the replies."""
+Basic Pack, its gold bundles, the Epic Pack, faction packs (the Blight Pack), and the
+replies."""
 
 import random
 from collections import Counter

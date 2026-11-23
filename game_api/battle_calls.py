@@ -298,7 +298,7 @@ class BattleCalls:
         return reply
 
     def _charge_mission(self, params: dict) -> tuple[tuple[dict, str] | None, str]:
-        """Takes the mission's energy cost from the save: (refusal, None) if there isn't
+        """Takes the mission's energy cost from the save: (refusal, "") if there isn't
         enough, else (None, a note for the log).
 
         The energy has already been refilled up to now. Below the maximum, the sync point
@@ -330,11 +330,6 @@ class BattleCalls:
         if self._bges is None:
             self._bges = bge.load(self._assets)
         return self._bges
-
-    def _in_tutorial(self, player) -> bool:
-        """The tutorial is under way: its flag is a part number, not -1 (done) or -2 (off)."""
-        raw = str((player.flags or {}).get("tutorial"))
-        return raw.isdigit() and (not self.tutorials or int(raw) < len(self.tutorials))
 
     def _battle_finished(self, body: dict) -> tuple[str, MissionResult | None]:
         """A replayed mission's end: pays its rewards into the save by the same rules as

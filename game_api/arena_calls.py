@@ -53,7 +53,7 @@ class ArenaCalls:
 
     def _player_rivals(self, player: Player) -> list[arena.PlayerRival]:
         """The other players on the current player's rivals list (picked again when the
-        list changes: arena.matched_players), as they are now. None with one player."""
+        list changes: arena.matched_players), as they are now. [] with one player."""
         if self.single_player:
             return []
         c = self.content()

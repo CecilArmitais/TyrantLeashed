@@ -12,7 +12,7 @@ from helpers import T, ask
 NOW = T + 1_000_000        # about 11.6 days later
 
 
-# ---- shift_times ---------------------------------------------------------------------------------
+# ---- replay helpers ------------------------------------------------------------------------------
 
 def test_shift_times_moves_live_times_only():
     body = {

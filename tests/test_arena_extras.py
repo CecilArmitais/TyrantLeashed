@@ -1,6 +1,7 @@
 """Tests for the arena extras: refreshing the rivals (buyRivalsRefresh), buying stamina
-(buyStaminaRefillTokens) and Promote (unlockCommander), checked against the account's
-two recorded unlocks where there are captures."""
+(buyStaminaRefillTokens), Promote (unlockCommander) and the Reports tab
+(getBattleReports, revenge), checked against the account's two recorded unlocks where
+there are captures."""
 
 import json
 import random

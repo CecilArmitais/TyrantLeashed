@@ -15,8 +15,10 @@ UNLOCK = "unlockCommander"          # Promote
 REPORTS = "getBattleReports"        # the Reports tab
 PACK_GOLD = "buyPackGold"           # the store's Basic Pack (pack_id 1)
 PACK_WB = "buyPackTokens"           # the store's Epic Pack (pack_id 1000), for war bonds
-PROMO_GOLD = "buyStorePromoGold"    # store promos for gold: the Basic Pack x4 / x20 bundles
-PROMO_WB = "buyStorePromoTokens"    # store promos for war bonds: faction packs (the Blight Pack), boxes
+PROMO_GOLD = "buyStorePromoGold"    # store promos for gold: mini packs (the Basic Pack bundles), bundles,
+                                    # +10 Card Slots (item 300)
+PROMO_WB = "buyStorePromoTokens"    # store promos for war bonds: mini packs, single cards, bundles, boxes,
+                                    # +50 Max Energy and +10 Card Slots (items 1, 351)
 UPGRADE = "upgradeCard"             # the Upgrade screen: a card one level up, for SP
 SALVAGE = "salvageCard"             # ...one card for SP
 SALVAGE_ALL = {"salvageL1CommonCards": 1, "salvageL1RareCards": 2}   # every spare level-1 common / rare

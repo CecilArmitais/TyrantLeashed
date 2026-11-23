@@ -198,6 +198,9 @@ def test_a_rivals_deck_matches_the_recorded_kind():
                for c in deck)                                         # fully upgraded at 1500
 
 
+# ---- ratings and pay -----------------------------------------------------------------------------
+
+
 def test_ratings():
     assert arena.rating_change(0, 0, True, first_win=True) == 75       # recorded
     assert arena.rating_change(75, 90, True, first_win=False) == 30    # recorded

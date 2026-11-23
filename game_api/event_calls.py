@@ -34,7 +34,8 @@ class EventCalls:
 
     def _pay_claim(self, params: dict, tiers, row: dict, save_state) -> tuple[dict, list[int], dict]:
         """A claim paid: the tiers into the save, the row marked claimed, both saved
-        (save_state saves the event's own state), and the reply (_reward_reply)."""
+        (save_state saves the event's own state): (the reply, as _reward_reply makes it,
+        the cards opened, {item id: how many})."""
         player = self.player()
         got, gains = self._pay_tiers(player, tiers)
         row["claimed"] = 1

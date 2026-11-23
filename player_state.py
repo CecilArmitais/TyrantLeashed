@@ -1,9 +1,11 @@
-"""The offline player's saved data: card inventory, gold, war bonds, energy, the
-game's flags (tutorial progress, settings) and mission progress.
+"""A player's saved data: card inventory, gold, war bonds, energy, the game's flags
+(tutorial progress, settings), mission progress, decks, the arena, items and the rest.
 
-Saved in state/player.json. Whenever a reply carries the player's data
-(`user_data`, `user_cards`, `max_energy`, `mission_completions`), the saved values
-replace the recorded ones, so the game always shows the save. server/player.py
+Saved in state/players/<user_id>.json (state/player.json with --single-player).
+Whenever a reply carries the player's data (`user_data`, `user_cards`, `user_decks`,
+`user_items`, `max_energy`, `max_decks`, `max_stamina`, `mission_completions`), the
+saved values replace the recorded ones (PlayerStore.apply), so the game always shows
+the save. server/player.py
 edits them by hand.
 
 How the game stores them:
@@ -119,7 +121,7 @@ class Player:
     active_deck: str | None = None           # user_data.active_deck
     defense_deck: str | None = None          # user_data.defense_deck
     items: dict[str, int] = field(default_factory=dict)   # item id -> how many (items.py)
-    promo_buys: dict[str, int] = field(default_factory=dict)   # promos.*_key -> times bought (rising prices)
+    promo_buys: dict[str, int] = field(default_factory=dict)   # store.*_key -> times bought (rising prices)
     max_salvage: int | None = None           # user_data.caps.max_salvage (6000, +350 from the Elite Pack)
 
     @property

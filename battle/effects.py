@@ -1,5 +1,5 @@
 """Battleground effects (battleground_effects.xml): skills that a side of a battle gets
-from the battlefield. docs/battle-engine.md, "Battleground effects", has the rules.
+from the battlefield. docs/protocol.md, "Battleground effects", has the rules.
 
 - Each effect's <effect> lists skills (activation skills like Strike or Rally, or
   Enhance of a skill). As the optimizer has it, they're cast once per turn by the side's

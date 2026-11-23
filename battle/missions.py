@@ -1,5 +1,6 @@
-"""Missions from the mission file the game loads (missions_basic.xml): the enemy's
-commander and deck, the energy cost and the rewards."""
+"""Missions from a mission file the game loads (missions_basic.xml, the new-player
+campaign; then missions.xml: game_api's _mission_file): the enemy's commander and deck,
+the energy cost and the rewards."""
 
 from __future__ import annotations
 

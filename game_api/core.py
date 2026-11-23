@@ -146,9 +146,10 @@ class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, Gu
         return self.content_store.load()
 
     def startup_report(self) -> str | None:
-        """Lines for the server's startup: the save, the energy that came back while the
-        server was off (counted from the save's sync point to now), the gold bonuses, the
-        store, and the guilds."""
+        """Lines for the server's startup: the save (or the players), the energy that came
+        back while the server was off (counted from the save's sync point to now), the gold
+        bonuses, the store, the guilds and raid, the war, brawl and conquest events, and the
+        objectives."""
         if self.player_store is None:
             return None
         bonuses = ("\nGold bonuses: " + self.settings().describe() + "\n" + self.store_report()

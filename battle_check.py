@@ -5,9 +5,9 @@
     python server/battle_check.py -v            # show where each battle first differs
 
 Each recorded battle is played again with the same decks and the same cards played.
-A battle "matches" when every turn is identical. Until every skill is built, most
-battles differ at their first skill; those are listed as waiting for that skill,
-while a difference in a plain attack is a bug.
+A battle "matches" when every turn is identical; every recorded battle does now. One
+that differs at a skill the engine doesn't have is listed as waiting for it, and a
+difference in a plain attack is a bug.
 """
 
 from __future__ import annotations

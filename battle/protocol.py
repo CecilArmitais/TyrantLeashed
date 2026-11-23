@@ -18,7 +18,7 @@ class BattleSession:
         enemy_id, enemy_name and battleground fields).
 
         host_is_attacker False: the player is the battle's defender, who moves second
-        (a guild war's surge fight, run with the enemy as the attacker). The client then
+        (a surge fight, run with the enemy as the attacker). The client then
         takes the even turns as the player's (BattleUIController.get_IsPlayerTurn), and
         `winner` stays the player's own result (ServiceCombatData.Map reads it as
         IsWinner)."""

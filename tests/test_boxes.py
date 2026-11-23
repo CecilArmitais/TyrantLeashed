@@ -15,6 +15,9 @@ from helpers import T, ask, init_body, real_cards, shop
 HOUR13 = 8099
 
 
+# ---- the boxes' rules ----------------------------------------------------------------------------
+
+
 def cards():
     return real_cards()
 
@@ -168,6 +171,9 @@ def test_the_content_file_sets_the_store(tmp_path):
 
 
 @pytest.mark.needs_game
+# ---- boxes in the store --------------------------------------------------------------------------
+
+
 def test_a_box_in_the_store(tmp_path):
     api = sell(tmp_path, "[boxes]\non_offer = [8099]\n")
     r, _ = ask(api, "init")

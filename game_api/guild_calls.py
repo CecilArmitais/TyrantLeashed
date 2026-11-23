@@ -44,8 +44,9 @@ class GuildCalls:
 
     def _guild_reply(self, params: dict, guild, message: str | None = None, ok: bool = True) -> dict:
         """A guild reply. Any `result_message` shows in a "Guild" dialog, success or not.
-        While a raid is set it also carries the raid, so the Wars tab shows it as soon as
-        the player creates or joins a guild (and stops showing it when they leave)."""
+        It also carries the war and conquest parts, and the raid while one is set, so the
+        Wars tab shows them as soon as the player creates or joins a guild (and stops when
+        they leave)."""
         reply = self.envelope(params)
         reply["result"] = ok
         if message:

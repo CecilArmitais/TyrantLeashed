@@ -278,8 +278,9 @@ def mini_pack(mp: dict, gold: int | None = None, war_bonds: int | None = None) -
 
 
 def reward_pack(mp: dict) -> Pack | None:
-    """A mini pack given as a reward (raids): like mini_pack, but from any set at level 1
-    (the reward packs: set 4500, "one Epic reward card from recent events")."""
+    """A mini pack given as a reward (an event claim's: game_api's _open_reward): like
+    mini_pack, but from any set at level 1 (the reward packs: set 4500, "one Epic reward
+    card from recent events")."""
     r = {k: v for k, v in mp["restrictions"].items() if k not in ("no_preview",)}
     faction = r.pop("type", None)
     set_id = r.pop("set", None)

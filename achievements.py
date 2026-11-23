@@ -28,7 +28,7 @@ rewards for finishing them. docs/protocol.md, "Achievements", has the evidence.
   completeAchievement), which pays it (ours: the client has the button for status 1,
   and nothing recorded shows which achievements used it). The next set comes when the
   23 hours are up.
-- Event objectives: everything else (docs/protocol.md, "Event objectives"):
+- Event objectives: everything else (docs/protocol.md, "Achievements"):
   - Mission levels (type 4 with a `level`, e.g. "Mesmerize Mutant Lv. 2"): win the
     mission that many times. Always on (the recorded login listed Mesmerize Mutant's).
   - Legendary Quests and PvP challenges (`legendary_quest`): a type-12 parent whose
@@ -410,6 +410,39 @@ def pay(a: Achievement, player, cap_sp: int) -> None:
         player.add_card(cid, n)
 
 
+def claim(defs: dict[int, Achievement], player, aid, cap_sp: int, now: int,
+          ctx: EventContext | None = None) -> Achievement:
+    """completeAchievement: pays a finished daily or PvP event objective."""
+    s = state(player)
+    d = s["daily"]
+    try:
+        aid = int(aid)
+    except (TypeError, ValueError):
+        raise ValueError("That objective doesn't exist.")
+    a = defs.get(aid)
+    ctx = ctx if ctx is not None else context(defs)
+    if a is not None and aid in ctx.on and a.type in PVP_TYPES and aid not in d.get("ids", []):
+        if aid in s["done"]:
+            raise ValueError(f"{a.name} has already been completed.")
+        if aid not in s["event"]["ready"] or not shown(a, player, set(s["done"])):
+            raise ValueError(f"{a.name} isn't finished yet.")
+        s["event"]["ready"].remove(aid)
+        s["done"].append(aid)
+        _count_done(player, a)
+        pay(a, player, cap_sp)
+        return a
+    if a is None or aid not in d.get("ids", []):
+        raise ValueError("That objective isn't on your list.")
+    if aid in d.get("claimed", []):
+        raise ValueError(f"{a.name} has already been completed.")
+    if aid not in d.get("ready", []):
+        raise ValueError(f"{a.name} isn't finished yet.")
+    d["claimed"].append(aid)
+    _count_done(player, a)
+    pay(a, player, cap_sp)
+    return a
+
+
 # ---- arena fights --------------------------------------------------------------------------------
 
 @dataclass
@@ -530,39 +563,6 @@ def record_fight(defs: dict[int, Achievement], player, stats: FightStats, now: i
             d["ready"].append(aid)
             ready.append(a)
     return ready
-
-
-def claim(defs: dict[int, Achievement], player, aid, cap_sp: int, now: int,
-          ctx: EventContext | None = None) -> Achievement:
-    """completeAchievement: pays a finished daily or PvP event objective."""
-    s = state(player)
-    d = s["daily"]
-    try:
-        aid = int(aid)
-    except (TypeError, ValueError):
-        raise ValueError("That objective doesn't exist.")
-    a = defs.get(aid)
-    ctx = ctx if ctx is not None else context(defs)
-    if a is not None and aid in ctx.on and a.type in PVP_TYPES and aid not in d.get("ids", []):
-        if aid in s["done"]:
-            raise ValueError(f"{a.name} has already been completed.")
-        if aid not in s["event"]["ready"] or not shown(a, player, set(s["done"])):
-            raise ValueError(f"{a.name} isn't finished yet.")
-        s["event"]["ready"].remove(aid)
-        s["done"].append(aid)
-        _count_done(player, a)
-        pay(a, player, cap_sp)
-        return a
-    if a is None or aid not in d.get("ids", []):
-        raise ValueError("That objective isn't on your list.")
-    if aid in d.get("claimed", []):
-        raise ValueError(f"{a.name} has already been completed.")
-    if aid not in d.get("ready", []):
-        raise ValueError(f"{a.name} isn't finished yet.")
-    d["claimed"].append(aid)
-    _count_done(player, a)
-    pay(a, player, cap_sp)
-    return a
 
 
 # ---- item drops (type 10) ------------------------------------------------------------------------

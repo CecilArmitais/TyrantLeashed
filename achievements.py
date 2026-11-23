@@ -51,13 +51,13 @@ rewards for finishing them. docs/protocol.md, "Achievements", has the evidence.
 
 from __future__ import annotations
 
-import json
-import os
 import random
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import jsonfile
 
 PERMANENT_TYPES = {1, 2, 3, 4, 5, 8}
 DAILY = 9
@@ -236,15 +236,12 @@ class ChallengeStore:
 
     def load(self) -> dict:
         try:
-            return json.loads(self.path.read_text("utf-8"))
-        except (OSError, ValueError):
+            return jsonfile.read(self.path, {})
+        except (OSError, ValueError):       # a broken file: the challenge starts over
             return {}
 
     def save(self, run: dict) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_name(self.path.name + ".part")
-        tmp.write_text(json.dumps(run, indent=1), "utf-8")
-        os.replace(tmp, self.path)
+        jsonfile.write(self.path, run)
 
     def current(self, defs: dict[int, Achievement], cid: int, now: int) -> dict | None:
         """The run of challenge `cid` going on now: started the first time it's needed, for

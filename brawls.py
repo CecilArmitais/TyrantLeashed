@@ -33,12 +33,12 @@ wars); the win streak is counted but not scored (the client never shows it).
 
 from __future__ import annotations
 
-import json
-import os
 import random
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
+
+import jsonfile
 
 # Recorded (brawl 345).
 CLAIM_WAIT = 1200
@@ -127,15 +127,10 @@ class BrawlStore:
         self.path = Path(path)
 
     def load(self) -> dict:
-        if not self.path.is_file():
-            return new_state()
-        return {**new_state(), **json.loads(self.path.read_text("utf-8"))}
+        return {**new_state(), **jsonfile.read(self.path, {})}
 
     def save(self, state: dict) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_name(self.path.name + ".part")
-        tmp.write_text(json.dumps(state, ensure_ascii=False, indent=1), "utf-8")
-        os.replace(tmp, self.path)
+        jsonfile.write(self.path, state)
 
 
 def new_state() -> dict:

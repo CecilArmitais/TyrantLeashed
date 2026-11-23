@@ -15,9 +15,10 @@ Standard library only.
 from __future__ import annotations
 
 import json
-import os
 import re
 from pathlib import Path
+
+import jsonfile
 
 FIRST_GUILD_ID = 900001
 MAX_MEMBERS = 50          # the client's default max_members (it doesn't enforce it)
@@ -60,16 +61,10 @@ class GuildStore:
     def __init__(self, root: Path):
         self.root = Path(root)
 
-    def _write(self, f: Path, data) -> None:
-        self.root.mkdir(parents=True, exist_ok=True)
-        tmp = f.with_name(f.name + ".part")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), "utf-8")
-        os.replace(tmp, f)
-
     def _counters(self) -> dict:
-        f = self.root / self.COUNTERS
-        if f.is_file():
-            return json.loads(f.read_text("utf-8"))
+        counters = jsonfile.read(self.root / self.COUNTERS)
+        if counters is not None:
+            return counters
         guilds = self.all()                             # a store from before counters.json
         return {"next_guild_id": max([g["id"] + 1 for g in guilds], default=FIRST_GUILD_ID),
                 "next_activity_id": max([e["activity_id"] + 1 for g in guilds for e in g.get("news", [])
@@ -80,7 +75,7 @@ class GuildStore:
         counters = self._counters()
         first = int(counters[key])
         counters[key] = first + n
-        self._write(self.root / self.COUNTERS, counters)
+        jsonfile.write(self.root / self.COUNTERS, counters)
         return first
 
     def path(self, guild_id) -> Path:
@@ -91,10 +86,7 @@ class GuildStore:
             gid = int(guild_id)
         except (TypeError, ValueError):
             return None
-        f = self.path(gid)
-        if not f.is_file():
-            return None
-        return json.loads(f.read_text("utf-8"))
+        return jsonfile.read(self.path(gid))
 
     def save(self, guild: dict) -> None:
         """Writes the guild, first giving its new news entries their ids."""
@@ -103,7 +95,7 @@ class GuildStore:
             first = self._take("next_activity_id", len(fresh))
             for i, e in enumerate(fresh):
                 e["activity_id"] = first + i
-        self._write(self.path(guild["id"]), guild)
+        jsonfile.write(self.path(guild["id"]), guild)
 
     def delete(self, guild_id) -> None:
         f = self.path(guild_id)
@@ -116,7 +108,7 @@ class GuildStore:
         out = []
         for f in sorted(self.root.glob("*.json")):
             if f.stem.isdigit():
-                out.append(json.loads(f.read_text("utf-8")))
+                out.append(jsonfile.read(f))
         return sorted(out, key=lambda g: g["id"])
 
     def of_member(self, user_id) -> dict | None:

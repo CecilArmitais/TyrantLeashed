@@ -16,10 +16,10 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import json
-import os
 import secrets
 from pathlib import Path
+
+import jsonfile
 
 FIRST_USER_ID = 1000001
 
@@ -41,15 +41,10 @@ class AccountStore:
         self.path = Path(path)
 
     def _load(self) -> dict:
-        if self.path.is_file():
-            return json.loads(self.path.read_text("utf-8"))
-        return {"next_user_id": FIRST_USER_ID, "accounts": {}}
+        return jsonfile.read(self.path, {"next_user_id": FIRST_USER_ID, "accounts": {}})
 
     def _save(self, data: dict) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.path.with_name(self.path.name + ".part")
-        tmp.write_text(json.dumps(data, indent=1), "utf-8")
-        os.replace(tmp, self.path)
+        jsonfile.write(self.path, data)
 
     def ids(self) -> list[int]:
         return sorted(int(u) for u in self._load()["accounts"])

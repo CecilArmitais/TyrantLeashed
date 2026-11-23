@@ -21,10 +21,10 @@ Standard library only.
 from __future__ import annotations
 
 import copy
-import json
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
+
+import jsonfile
 
 DEFAULT_MISSION_GOLD = 7
 DEFAULT_ARENA_GOLD = 3
@@ -75,19 +75,16 @@ class SettingsStore:
             return Settings()
         mtime = self.path.stat().st_mtime
         if self._settings is None or mtime != self._mtime:
-            data = json.loads(self.path.read_text("utf-8"))
+            data = jsonfile.read(self.path)
             self._settings = Settings(mission_gold=_bonus(data.get("mission_gold"), DEFAULT_MISSION_GOLD),
                                       arena_gold=_bonus(data.get("arena_gold"), DEFAULT_ARENA_GOLD))
             self._mtime = mtime
         return copy.deepcopy(self._settings)
 
     def save(self, settings: Settings) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         data = {name: {"multiplier": b.multiplier, "on": b.on}
                 for name, b in (("mission_gold", settings.mission_gold), ("arena_gold", settings.arena_gold))}
-        tmp = self.path.with_name(self.path.name + ".part")
-        tmp.write_text(json.dumps(data, indent=1), "utf-8")
-        os.replace(tmp, self.path)
+        jsonfile.write(self.path, data)
         self._settings, self._mtime = copy.deepcopy(settings), self.path.stat().st_mtime
 
 

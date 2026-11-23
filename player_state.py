@@ -47,13 +47,12 @@ Standard library only.
 from __future__ import annotations
 
 import copy
-import json
-import os
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import items
+import jsonfile
 
 SAVE_VERSION = 13         # 2: max_energy; 3: flags and missions; 4: decks, gold/cards earned;
                           # 5: stamina and the arena; 6: event boxes; 7: salvage points and card
@@ -345,7 +344,7 @@ class PlayerStore:
             return None
         mtime = self.path.stat().st_mtime
         if self._player is None or mtime != self._mtime:
-            data = json.loads(self.path.read_text("utf-8"))
+            data = jsonfile.read(self.path)
             version = data.get("version")
             if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, SAVE_VERSION):
                 raise ValueError(f"{self.path}: save version {version}, expected {SAVE_VERSION}")
@@ -394,11 +393,8 @@ class PlayerStore:
         return self._player
 
     def save(self, player: Player) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
         data = {"version": SAVE_VERSION, "saved": int(self.clock()), "player": asdict(player)}
-        tmp = self.path.with_name(self.path.name + ".part")
-        tmp.write_text(json.dumps(data, indent=1, sort_keys=True), "utf-8")
-        os.replace(tmp, self.path)
+        jsonfile.write(self.path, data, sort_keys=True)
         self._player, self._mtime = player, self.path.stat().st_mtime
 
     def delete(self) -> None:

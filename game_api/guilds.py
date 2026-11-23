@@ -166,8 +166,7 @@ class GuildCalls:
         client they must share a guild)."""
         target = str(params.get("target_user_id"))
         info = self._guild_info(target)
-        reply = self.envelope(params)
-        reply["result"] = True
+        reply = self._ok(params)
         if info is None or guild is None or target not in guild["members"]:
             reply["player_info"] = {"user_id": ""}
             return reply, f"profile of {target}: not in your guild"

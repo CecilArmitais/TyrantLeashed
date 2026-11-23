@@ -73,6 +73,11 @@ class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, Gu
         self._cards: CardDB | None = None
         self._missions: dict | None = None
         self._missions_by_file: dict = {}
+        # The game files, each read on first use by the part that needs it.
+        self._ach_defs = self._standing = self._bges = self._items = self._upgrade_data = None
+        self._brawls = self._conquests = self._raids = self._wars = None
+        self._scaling_pack = self._mini_pack_data = self._box_data = None
+        self._reset_objective_news()
         fixture_dir = paths.FIXTURE_DIR if fixture_dir is None else Path(fixture_dir)
         self.fixtures: dict[str, dict] = {}
         for name in LOGIN:
@@ -101,6 +106,10 @@ class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, Gu
         self._stores: dict[str, PlayerStore] = {}
         self._sessions: dict[str, Session] = {}
         self.migrated = False
+        # The recorded login the saves start from (none: the server refuses until it's made).
+        self._start: dict = {}
+        self._start_source: dict = {}
+        self.max_energy, self.energy_every, self.stamina_every = 250, 60, 900
         start = self.fixtures.get("init")
         if start is not None:
             body = start["body"]
@@ -180,6 +189,13 @@ class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, Gu
             except NotSupported:
                 return None
 
+    def _reset_objective_news(self) -> None:
+        """What a request's objectives did, for its reply: finished achievements to show,
+        whether the list changed, and objectives ready to complete. Reset per request."""
+        self._ach_news: list = []
+        self._ach_changed = False
+        self._ach_ready: list[str] = []
+
     def _dispatch(self, message: str, params: dict) -> tuple[dict, str]:
         """Answers a message; replies after something that moved the achievements also
         carry the list (user_achievements) and any just finished (completed_achievements),
@@ -191,7 +207,7 @@ class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, Gu
             if uid is None:
                 return self._refuse(params, NOT_LOGGED_IN), f"refused {message}: not logged in"
             self.use_player(uid)
-        self._ach_news, self._ach_changed, self._ach_ready = [], False, []
+        self._reset_objective_news()
         reply, how = self._dispatch_message(message, params)
         if self._ach_ready:
             how += "; objective finished (tap Complete): " + ", ".join(self._ach_ready)
@@ -295,11 +311,30 @@ class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, Gu
         reply["result_message"] = [message]
         return reply
 
+    def _ok(self, params: dict) -> dict:
+        """A reply that worked: the envelope, with result true."""
+        reply = self.envelope(params)
+        reply["result"] = True
+        return reply
+
+    def _start_parts(self, params: dict, keys) -> dict:
+        """The recorded login's parts `keys` (those it has), brought up to now with the save
+        applied (_prepare): the parts of a reply that show the player's state."""
+        parts = self._prepare({"time": self._start.get("time"),
+                               **{k: self._start[k] for k in keys if k in self._start}}, params)
+        return {k: parts[k] for k in keys if k in parts}
+
+    def _player_parts(self, params: dict, keys) -> dict:
+        """The save's user_data / user_cards / user_decks, in the recorded login's shape."""
+        start = {"time": self._start.get("time"), "user_data": self._start.get("user_data") or {},
+                 "user_cards": {}, "user_decks": {}}
+        prepared = self._prepare(start, params)
+        return {k: prepared[k] for k in keys if k in prepared}
+
     def current_user_data(self, params: dict) -> dict:
         """The player's user_data now: the starting data with the save applied. (Fields the
         save doesn't keep yet, like xp and level, are the starting ones.)"""
-        start = {"time": self._start.get("time"), "user_data": self._start.get("user_data") or {}}
-        return self._prepare(start, params)["user_data"]
+        return self._player_parts(params, ("user_data",))["user_data"]
 
     def _prepare(self, recorded: dict, params: dict) -> dict:
         body = copy.deepcopy(recorded)
@@ -358,7 +393,7 @@ class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, Gu
             player = self.player()
             if player is not None:
                 body["user_achievements"] = self._achievement_list(player)
-                body["completed_achievements"] = achievements.completed_json(getattr(self, "_ach_news", []))
+                body["completed_achievements"] = achievements.completed_json(self._ach_news)
         if isinstance(body.get("user_data"), dict) or isinstance(body.get("user_cards"), dict):
             player = self.player()
             if player is not None:

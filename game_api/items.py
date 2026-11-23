@@ -12,7 +12,7 @@ class ItemCalls:
     rewards pay."""
 
     def _item_defs(self) -> dict:
-        if getattr(self, "_items", None) is None:
+        if self._items is None:
             self._items = items.load(self._assets)
         return self._items
 
@@ -36,8 +36,7 @@ class ItemCalls:
     def _reward_reply(self, params: dict, player, got: list[int], gains: dict) -> dict:
         """A claim's reply, read like a pack purchase: the save's data, new_cards and
         new_items (shown together), and the inventory."""
-        reply = self.envelope(params)
-        reply["result"] = True
+        reply = self._ok(params)
         reply.update(self._player_parts(params, ("user_data", "user_cards")))
         reply["new_cards"] = [str(c) for c in got]
         reply["new_items"] = items.new_items_json(gains)
@@ -57,8 +56,7 @@ class ItemCalls:
         """getUserItems (the inventory) and consumeItem item_id (the inventory's Use)."""
         player = self.player()
         if message == "getUserItems":
-            reply = self.envelope(params)
-            reply["result"] = True
+            reply = self._ok(params)
             reply["user_items"] = items.user_items_json(player.items)
             return reply, f"items: {sum(player.items.values())} in {len(player.items)} kind(s)"
         defs = self._item_defs()
@@ -72,8 +70,7 @@ class ItemCalls:
             items.check_use(item, player.items)
             if pack is not None:
                 n = sum(count for _, count in pack.draws)
-                cap = player.max_cards or int(((self._start.get("user_data") or {}).get("caps") or {})
-                                              .get("max_cards") or 1600)
+                cap = self._card_cap(player)
                 if player.card_count + n > cap:
                     raise items.ItemError(f"Your inventory is full: {player.card_count} of {cap} cards.")
             if item.sp and (player.salvage or 0) >= self._cap_sp():
@@ -90,16 +87,13 @@ class ItemCalls:
                 player.add_card(cid)
             did.append(", ".join(cards[c].name for c in got))
         if item.sp:
-            before = player.salvage or 0
-            player.salvage = min(self._cap_sp(), before + item.sp)
-            shown[items.SALVAGE_POINTS] = player.salvage - before          # shown as "Salvage Points"
-            did.append(f"{player.salvage - before} SP")
+            shown[items.SALVAGE_POINTS] = gained = self._add_sp(player, item.sp)    # shown as "Salvage Points"
+            did.append(f"{gained} SP")
         if item.refill:
             self._refill_energy(player)
             did.append(f"+{player.max_energy} energy")
         self.player_store.save(player)
-        reply = self.envelope(params)
-        reply["result"] = True
+        reply = self._ok(params)
         reply.update(self._player_parts(params, ("user_data", "user_cards")))
         reply["new_cards"] = [str(c) for c in got]
         reply["new_items"] = items.new_items_json(shown)

@@ -22,7 +22,7 @@ class ConquestCalls:
         return f"; conquest: {event.name} ({event.id}), {event.length // 3600} hours"
 
     def _conquest_defs(self):
-        if getattr(self, "_conquests", None) is None:
+        if self._conquests is None:
             self._conquests = conquest.load(self._assets)
         return self._conquests
 
@@ -101,8 +101,7 @@ class ConquestCalls:
             rows, mine = (self._conquest_board_rows(state, which, guild, zone_id if in_zone else None)
                           if event else ([], None))
             board = conquest.board_json(key, title, rows, mine)
-            reply = self.envelope(params)
-            reply["result"] = True
+            reply = self._ok(params)
             if key == "rankings":
                 reply["conquest_zone_data"] = {"id": zone_id or 0, "rankings": board}
             else:
@@ -119,8 +118,7 @@ class ConquestCalls:
             reply["previous_conquest_top_leaderboard"] = rows
             return reply, f"last conquest's guilds: {len(rows)}"
         if message == "getConquestUpdate":
-            reply = self.envelope(params)
-            reply["result"] = True
+            reply = self._ok(params)
             reply["conquest_data"] = self._conquest_parts(guild).get("conquest_data", [])
             return reply, ("conquest update" if event else "conquest update: none set")
         if event is None or conquest.phase(state, now) is None:
@@ -151,8 +149,7 @@ class ConquestCalls:
         else:
             g["markers"].pop(str(zone_id), None)
         self.conquest_store.save(state)
-        reply = self.envelope(params)
-        reply["result"] = True
+        reply = self._ok(params)
         reply.update(self._conquest_parts(guild))
         return reply, f"conquest marker {marker} on {zones[zone_id].name} for {guild['name']}"
 
@@ -216,8 +213,7 @@ class ConquestCalls:
         session = BattleSession(battle, int(self.clock() * 1000), str(self.uid), host_is_attacker=False,
                                 extra={"enemy_name": foe_name, "enemy_id": str(foe), "battleground_effects": entries})
         rewards = [{"user_id": str(self.uid), "gold": 0, "sp": 0, "item": [], "conquest_influence": influence}]
-        reply = self.envelope(params)
-        reply["result"] = True
+        reply = self._ok(params)
         reply.update(self._player_parts(params, ("user_data",)))
         reply["battle_data"] = session.turn_data(battle.turns, rewards, end_time=now)
         g = state["guilds"][str(guild["id"])]

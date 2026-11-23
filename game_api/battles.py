@@ -110,8 +110,7 @@ class BattleCalls:
         session = BattleSession(battle, battle_id, str(self.uid), mid)
         turns = battle.start()
         self.battle = {"id": str(battle_id), "name": f"mission {mid}", "mission_id": mid, "engine": session}
-        reply = self.envelope(params)
-        reply["result"] = True
+        reply = self._ok(params)
         reply["user_data"] = self.current_user_data(params)
         reply["battle_data"] = session.start_data(turns)
         return reply, f"engine: started mission {mid} ({len(deck)} cards against {len(mission.deck)})" + charged
@@ -147,8 +146,7 @@ class BattleCalls:
             self.battle = None
         if battle.ignored_skills:
             how += "; skills not built yet: " + ", ".join(sorted(battle.ignored_skills))
-        reply = self.envelope(params)
-        reply["result"] = True
+        reply = self._ok(params)
         reply["battle_data"] = session.turn_data(turns, rewards, end_time=int(self.clock()))
         if battle.over:                      # the last reply carries the player's data, as recorded
             reply.update(self._arena_parts(params) if b.get("rival")
@@ -175,8 +173,7 @@ class BattleCalls:
         else:
             result = self._finish_mission(b["mission_id"], False) if b.get("mission_id") else None
             rewards = [result.reward if result else {"user_id": str(self.uid), "gold": 0}]
-        reply = self.envelope(params)
-        reply["result"] = True
+        reply = self._ok(params)
         if "engine" in b:
             session: BattleSession = b["engine"]
             session.battle.forfeit()
@@ -217,8 +214,7 @@ class BattleCalls:
                                                    cards, whose)
         rng = self.rng_factory()
         battle_id = int(self.clock() * 1000)
-        reply = self.envelope(params)
-        reply["result"] = True
+        reply = self._ok(params)
         if surge:
             battle = Battle(Setup(foe_commander, shuffled_deck(foe_deck, FIRST_UID[ATTACKER], rng), commander,
                                   shuffled_deck(deck, FIRST_UID[DEFENDER], rng), attacker_wins_stall=True),
@@ -283,9 +279,7 @@ class BattleCalls:
         if won:
             keys.append("mission_completions")
         keys.append("current_campaigns")
-        parts = self._prepare({"time": self._start.get("time"),
-                               **{k: self._start[k] for k in keys if k in self._start}}, params)
-        return {k: parts[k] for k in keys if k in parts}
+        return self._start_parts(params, keys)
 
     def _with_result(self, reply: dict, result: MissionResult | None, params: dict) -> dict:
         """A replayed mission's last reply with our rewards in place of the recorded ones
@@ -333,7 +327,7 @@ class BattleCalls:
         return None, f"; {cost} energy ({before} -> {player.energy})"
 
     def _bge_defs(self) -> dict:
-        if getattr(self, "_bges", None) is None:
+        if self._bges is None:
             self._bges = bge.load(self._assets)
         return self._bges
 

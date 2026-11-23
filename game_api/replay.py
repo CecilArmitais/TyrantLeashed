@@ -141,6 +141,13 @@ class ReplayCalls:
         """Battle name -> number of card plays in each recording of it."""
         return {scripts[0]["name"]: [len(s["plays"]) for s in scripts] for scripts in self.scripts.values()}
 
+    def _last_recorded(self, message: str, params: dict) -> dict | None:
+        """The last recorded reply to `message` (one without user_decks, if there's one),
+        brought up to now; None when it wasn't recorded. The store answers from these."""
+        recorded = [b for (m, _), bodies in self.replays.items() if m == message for b in bodies]
+        plain = [b for b in recorded if "user_decks" not in b] or recorded
+        return self._prepare(plain[-1], params) if plain else None
+
     def _start_battle(self, message: str, params: dict) -> tuple[dict, str]:
         if self.battle_engine and message == "startMission":
             return self._start_engine_battle(params)

@@ -28,7 +28,7 @@ class WarCalls:
                 + ("; the raid takes the Wars tab while it's set" if self._set_raid() is not None else ""))
 
     def _war_events(self) -> dict:
-        if getattr(self, "_wars", None) is None:
+        if self._wars is None:
             self._wars = wars.load(self._assets)
         return self._wars
 
@@ -248,8 +248,7 @@ class WarCalls:
         shown = -(-damage * 100 // wars.FORT_HEALTH)            # as the slot's health bar shows it
         rewards = [{"user_id": str(self.uid), "gold": gold, "sp": 0, "item": self._fight_drop(achievements.WAR, won),
                     "war_points": points, "slot_damage": shown}]
-        reply = self.envelope(params)
-        reply["result"] = True
+        reply = self._ok(params)
         reply.update(self._player_parts(params, ("user_data",)))
         reply["battle_data"] = session.turn_data(battle.turns, rewards, end_time=now)
         reply.update(self._war_parts(self._my_guild()))

@@ -19,13 +19,6 @@ class PlayerDataCalls:
     """GameApi's part for the player's own data: the crate, name, decks and flags,
     refreshes, energy refills, the SP cap."""
 
-    def _player_parts(self, params: dict, keys) -> dict:
-        """The save's user_data / user_cards / user_decks, in the recorded login's shape."""
-        start = {"time": self._start.get("time"), "user_data": self._start.get("user_data") or {},
-                 "user_cards": {}, "user_decks": {}}
-        prepared = self._prepare(start, params)
-        return {k: prepared[k] for k in keys if k in prepared}
-
     def _open_crate(self, params: dict) -> tuple[dict, str]:
         """useDailyBonus (no parameters): the home screen crate (daily_crate.py)."""
         player = self.player()
@@ -39,8 +32,7 @@ class PlayerDataCalls:
             return reply, f"refused {CRATE}: {e}"
         daily_crate.pay(reward, player, self._cap_sp())
         self.player_store.save(player)
-        reply = self.envelope(params)                      # daily_bonus_time: the next crate
-        reply["result"] = True
+        reply = self._ok(params)                      # daily_bonus_time: the next crate
         reply["daily_bonus"] = streak
         reply["bonus_result"] = daily_crate.bonus_result(reward)
         reply.update(self._player_parts(params, ("user_data", "user_cards") if reward.card else ("user_data",)))
@@ -58,8 +50,7 @@ class PlayerDataCalls:
         before, player.name = player.name, name
         player.name_changes += 1
         self.player_store.save(player)
-        reply = self.envelope(params)
-        reply["result"] = True
+        reply = self._ok(params)
         reply.update(self._player_parts(params, ("user_data",)))
         return reply, f"name: {before!r} -> {name!r}"
 
@@ -75,21 +66,30 @@ class PlayerDataCalls:
         which = "active_deck" if message == SET_ACTIVE else "defense_deck"
         setattr(player, which, did)
         self.player_store.save(player)
-        reply = self.envelope(params)
-        reply["result"] = True
+        reply = self._ok(params)
         reply.update(self._player_parts(params, ("user_data", "user_decks")))
         return reply, f"{'active' if message == SET_ACTIVE else 'defence'} deck: {did}"
 
     def _refresh(self, message: str, params: dict) -> tuple[dict, str]:
         """getUserData, getUserCards, getUserDecks, getCardData, getVersionNumber: what the
         game asks to see again, from the save."""
-        reply = self.envelope(params)
-        reply["result"] = True
+        reply = self._ok(params)
         keys = REFRESH[message]
         reply.update(self._player_parts(params, [k for k in keys if k != "card_data"]))
         if "card_data" in keys:
             reply["card_data"] = []                    # as the recorded login sent it
         return reply, f"answered from the save ({', '.join(keys) or 'the envelope'})"
+
+    def _card_cap(self, player) -> int:
+        """How many cards the player can hold: theirs (card slots raise it), else the login's."""
+        return player.max_cards or int(((self._start.get("user_data") or {}).get("caps") or {})
+                                       .get("max_cards") or 1600)
+
+    def _add_sp(self, player, sp: int) -> int:
+        """Gives the player SP, up to the cap: what they got."""
+        before = player.salvage or 0
+        player.salvage = min(self._cap_sp(), before + sp)
+        return player.salvage - before
 
     def _cap_sp(self) -> int:
         """The SP cap: the player's (an Elite Pack raises it), else the login's."""
@@ -114,8 +114,7 @@ class PlayerDataCalls:
             self._refill_energy(player)
             items.take(player.items, items.ENERGY_REFILL, 1)
             self.player_store.save(player)
-            reply = self.envelope(params)
-            reply["result"] = True
+            reply = self._ok(params)
             reply["user_data"] = self.current_user_data(params)
             reply["user_items"] = items.user_items_json(player.items)
             return reply, (f"energy refill: +{player.max_energy} ({before} -> {player.energy}), an Energy Refill "
@@ -132,8 +131,7 @@ class PlayerDataCalls:
         self._refill_energy(player)
         player.war_bonds -= cost
         self.player_store.save(player)
-        reply = self.envelope(params)
-        reply["result"] = True
+        reply = self._ok(params)
         reply["user_data"] = self.current_user_data(params)
         return reply, (f"energy refill: +{player.max_energy} ({before[0]} -> {player.energy}), "
                        f"{cost} war bonds ({before[1]} -> {player.war_bonds})")
@@ -182,11 +180,8 @@ class PlayerDataCalls:
             reply = self._prepare(recorded, params)
         else:
             keys = ("user_data", "user_cards", "user_decks")
-            reply = self.envelope(params)
-            reply["result"] = True
-            parts = self._prepare({"time": self._start.get("time"),
-                                   **{k: self._start[k] for k in keys if k in self._start}}, params)
-            reply.update({k: parts[k] for k in keys if k in parts})
+            reply = self._ok(params)
+            reply.update(self._start_parts(params, keys))
         return reply, f"saved deck {deck_id}: commander {commander}, {sum(cards.values())} cards"
 
     def _set_flag(self, params: dict) -> tuple[dict, str]:
@@ -214,8 +209,7 @@ class PlayerDataCalls:
         known = flag in player.flags
         player.flags[flag] = flag_value(raw)
         self.player_store.save(player)
-        reply = self.envelope(params)
-        reply["result"] = True
+        reply = self._ok(params)
         reply["user_data"] = self.current_user_data(params)
         how = f"saved {flag}={raw}"
         if flag == "tutorial":

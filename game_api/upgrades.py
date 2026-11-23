@@ -14,7 +14,7 @@ class UpgradeCalls:
     """GameApi's part for the Upgrade screen (upgrades.py): upgrades, salvage, locks and fusion."""
 
     def _recipes(self) -> dict:
-        if getattr(self, "_upgrade_data", None) is None:
+        if self._upgrade_data is None:
             self._upgrade_data = (upgrades.load_levels(self._assets), upgrades.load_recipes(self._assets))
         return self._upgrade_data[1]
 
@@ -70,12 +70,8 @@ class UpgradeCalls:
         if message != LOCK:
             self._track(player)              # "Rise to Power", "Scavenger", "Fusion Master"
         self.player_store.save(player)
-        start = {"time": self._start.get("time"), "user_data": self._start.get("user_data") or {},
-                 "user_cards": {}, "user_decks": {}}
-        reply = self.envelope(params)
-        reply["result"] = True
-        reply.update({k: v for k, v in self._prepare(start, params).items()
-                      if k in ("user_data", "user_cards", "user_decks")})
+        reply = self._ok(params)
+        reply.update(self._player_parts(params, ("user_data", "user_cards", "user_decks")))
         if new_id is not None:
             reply["new_card_id"] = str(new_id)
         else:

@@ -120,12 +120,12 @@ class StoreCalls:
         return offers, problems
 
     def _scaling(self):
-        if getattr(self, "_scaling_pack", None) is None:
+        if self._scaling_pack is None:
             self._scaling_pack = packs.load_scaling_pack(self._assets)
         return self._scaling_pack
 
     def _mini_packs(self) -> dict:
-        if getattr(self, "_mini_pack_data", None) is None:
+        if self._mini_pack_data is None:
             self._mini_pack_data = packs.load_mini_packs(self._assets)
         return self._mini_pack_data
 
@@ -172,7 +172,7 @@ class StoreCalls:
         have = player.gold if currency == "gold" else player.war_bonds
         problem = None
         expected = params.get("expected_cost")
-        cap = player.max_cards or int(((self._start.get("user_data") or {}).get("caps") or {}).get("max_cards") or 1600)
+        cap = self._card_cap(player)
         n = pack.size if n is None else n
         if expected not in (None, "") and str(expected).isdigit() and int(expected) != price:
             problem = f"The price has changed: the {pack.name} costs {price} {currency} now."
@@ -202,10 +202,8 @@ class StoreCalls:
             player.add_card(cid)
         extras, shown = [], {}
         if getattr(pack, "sp", 0):
-            before = player.salvage or 0
-            player.salvage = min(self._cap_sp(), before + pack.sp)
-            shown[items.SALVAGE_POINTS] = player.salvage - before
-            extras.append(f"{player.salvage - before} SP")
+            shown[items.SALVAGE_POINTS] = gained = self._add_sp(player, pack.sp)
+            extras.append(f"{gained} SP")
         if bundle is not None:
             player.war_bonds += bundle.war_bonds
             player.max_energy += bundle.max_energy
@@ -227,16 +225,10 @@ class StoreCalls:
                     deck["cards"][str(cid)] = deck["cards"].get(str(cid), 0) + 1
                     into_deck.append(cid)
         self.player_store.save(player)
-        recorded = [b for (m, _), bodies in self.replays.items() if m == template for b in bodies]
-        plain = [b for b in recorded if "user_decks" not in b] or recorded
-        if plain:
-            reply = self._prepare(plain[-1], params)
-        else:
-            reply = self.envelope(params)
-            reply["result"] = True
-            reply.update({k: v for k, v in self._prepare({"time": self._start.get("time"), **{
-                k: self._start[k] for k in ("user_data", "user_cards") if k in self._start}}, params).items()
-                if k in ("user_data", "user_cards")})
+        reply = self._last_recorded(template, params)
+        if reply is None:
+            reply = self._ok(params)
+            reply.update(self._start_parts(params, ("user_data", "user_cards")))
         reply["result"] = True
         reply["new_cards"] = [str(c) for c in new]
         if with_data:
@@ -290,7 +282,7 @@ class StoreCalls:
     # ---- event boxes -----------------------------------------------------------------------------
 
     def _boxes(self) -> dict:
-        if getattr(self, "_box_data", None) is None:
+        if self._box_data is None:
             self._box_data = boxes.load_boxes(self._assets)
         return self._box_data
 
@@ -395,16 +387,14 @@ class StoreCalls:
             return reply, f"refused {up.name}: {e}"
         self.player_store.save(player)
         if message == BUY_UPGRADE:
-            reply = self.envelope(params)
-            reply["result"] = True
+            reply = self._ok(params)
             reply.update(self._player_parts(params, ("user_data", "user_decks")))
             reply["store_upgrades"] = copy.deepcopy(self._start.get("store_upgrades") or {})
             reply["max_decks"] = player.max_decks
             store.apply_upgrades(reply, player, self._decks_limit())
         else:
-            recorded = [b for (m, _), bodies in self.replays.items() if m == PROMO_GOLD for b in bodies]
-            plain = [b for b in recorded if "user_decks" not in b] or recorded
-            reply = self._prepare(plain[-1], params) if plain else self.envelope(params)
+            reply = self._last_recorded(PROMO_GOLD, params)
+            reply = self._ok(params) if reply is None else reply
             reply["result"] = True
             for k in ("new_cards", "new_cards_data"):
                 reply.pop(k, None)

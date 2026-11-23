@@ -20,7 +20,7 @@ class RaidCalls:
     content.toml sets."""
 
     def _raid_defs(self) -> dict:
-        if getattr(self, "_raids", None) is None:
+        if self._raids is None:
             self._raids = raids.load(self._assets)
         return self._raids
 
@@ -53,7 +53,7 @@ class RaidCalls:
     def _raid_replay(self, params) -> dict | None:
         """The last raid fight's reply, if `params` name its battle: the client may send
         forfeitBattle while it plays the fight back (the Skip/Surrender button)."""
-        reply = getattr(self, "_last_raid_reply", None)
+        reply = self._last_raid_reply
         if reply is None or str(params.get("battle_id")) != str(reply["battle_data"]["battle_id"]):
             return None
         return {**reply, **self.envelope(params), "result": True}
@@ -69,16 +69,14 @@ class RaidCalls:
         if raid is None:
             return self._refuse(params, "There's no raid on."), f"refused {message}: no raid set in content.toml"
         if message == "getRaidLeaderboard":
-            reply = self.envelope(params)
-            reply["result"] = True
+            reply = self._ok(params)
             runs = [g for g in self.guild_store.all() if (g.get("raid") or {}).get("id") == raid.id]
             runs.sort(key=lambda g: (-g["raid"]["level"], g["id"]))
             reply["raid_leaderboard"] = [{"faction_id": str(g["id"]), "name": g["name"], "raid_level": g["raid"]["level"]}
                                          for g in runs]
             return reply, f"raid leaderboard: {len(runs)} guild(s)"
         if message == "getPreviousRaidTopLeaderboard":
-            reply = self.envelope(params)
-            reply["result"] = True
+            reply = self._ok(params)
             reply["previous_raid_top_leaderboard"] = []
             return reply, "previous raid leaderboard: none"
         guild = self._my_guild()
@@ -94,8 +92,7 @@ class RaidCalls:
         if message == "refillEventBattleEnergy":
             return self._raid_refill(params, guild, raid, run, m, scale)
         self.guild_store.save(guild)                                   # the member's part, if new
-        reply = self.envelope(params)
-        reply["result"] = True
+        reply = self._ok(params)
         reply.update(self._player_parts(params, ("user_data",)))
         reply["current_raids"] = raids.current_raids(raid, run, self._mini_packs())
         reply["raid_info"] = self._raid_info(state)
@@ -146,8 +143,7 @@ class RaidCalls:
                                 extra={"enemy_name": raid.name, "enemy_id": "0", "battleground_effects": entries})
         rewards = [{"user_id": str(self.uid), "gold": 0, "card": [], "raid_damage": damage,
                     "item": self._fight_drop(achievements.RAID, battle.winner == 1, level=level)}]
-        reply = self.envelope(params)
-        reply["result"] = True
+        reply = self._ok(params)
         reply.update(self._player_parts(params, ("user_data",)))
         reply["battle_data"] = session.turn_data(battle.turns, rewards, end_time=now)
         self._last_raid_reply = reply
@@ -175,8 +171,7 @@ class RaidCalls:
         m["energy"], m["energy_updated"] = raids.ENERGY_MAX, int(self.clock())
         self.player_store.save(player)
         self.guild_store.save(guild)
-        reply = self.envelope(params)
-        reply["result"] = True
+        reply = self._ok(params)
         reply.update(self._player_parts(params, ("user_data",)))
         reply["raid_info"] = self._raid_info((raid, run, scale))
         return reply, f"raid energy refilled: +{missing} for {cost} war bonds"
@@ -202,8 +197,7 @@ class RaidCalls:
         m["claimed"] = 1
         self.player_store.save(player)
         self.guild_store.save(guild)
-        reply = self.envelope(params)
-        reply["result"] = True
+        reply = self._ok(params)
         reply.update(self._player_parts(params, ("user_data", "user_cards")))
         reply["new_cards"] = [str(c) for c in got]
         reply["raid_info"] = self._raid_info((raid, run, scale))

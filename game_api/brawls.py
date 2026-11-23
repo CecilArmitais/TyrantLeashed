@@ -24,7 +24,7 @@ class BrawlCalls:
         return f"; brawl: {event.name} ({event.id}), {kind} of {event.length // 3600} hours"
 
     def _brawl_events(self) -> dict:
-        if getattr(self, "_brawls", None) is None:
+        if self._brawls is None:
             self._brawls = brawls.load(self._assets)
         return self._brawls
 
@@ -77,8 +77,7 @@ class BrawlCalls:
         now = int(self.clock())
         guild_event = bool(event and event.guild_event)
         if message in ("getBrawlLeaderboard", "getBrawlMemberLeaderboard", "getPreviousBrawlTopLeaderboard"):
-            reply = self.envelope(params)
-            reply["result"] = True
+            reply = self._ok(params)
             if message == "getPreviousBrawlTopLeaderboard":
                 reply["previous_brawl_leaderboard"] = brawls.board_json(state.get("previous") or [],
                                                                         bool(state.get("previous_guild_event")))
@@ -160,8 +159,7 @@ class BrawlCalls:
                                 extra={"enemy_name": foe_name, "enemy_id": foe, "battleground_effects": entries})
         rewards = [{"user_id": str(self.uid), "gold": 0, "sp": 0, "item": self._fight_drop(achievements.BRAWL, won),
                     "rating_change": 0, "pvp_points": points}]
-        reply = self.envelope(params)
-        reply["result"] = True
+        reply = self._ok(params)
         reply.update(self._player_parts(params, ("user_data",)))
         reply["battle_data"] = session.turn_data(battle.turns, rewards, end_time=now)
         reply.update(self._brawl_parts())

@@ -26,9 +26,7 @@ class ArenaCalls:
         """What an arena fight's last reply carries besides battle_data (recorded:
         user_data, arena_battle_info, hunting_targets, the limits)."""
         keys = ("user_data", "max_energy", "max_stamina")
-        parts = self._prepare({"time": self._start.get("time"),
-                               **{k: self._start[k] for k in keys if k in self._start}}, params)
-        out = {k: parts[k] for k in keys if k in parts}
+        out = self._start_parts(params, keys)
         out["arena_battle_info"] = self._arena_info()
         out["hunting_targets"] = self._targets(self.player())
         return out
@@ -81,8 +79,7 @@ class ArenaCalls:
         if recorded is not None:
             reply = self._prepare(recorded, params)
         else:
-            reply = self.envelope(params)
-            reply["result"] = True
+            reply = self._ok(params)
             reply["user_data"] = self.current_user_data(params)
         player = self.player()
         reply["hunting_targets"] = self._targets(player)
@@ -157,8 +154,7 @@ class ArenaCalls:
         kind = "revenge on" if revenge is not None else "arena"
         self.battle = {"id": str(battle_id), "name": f"{kind} {tid} ({rival['name']})", "mission_id": None,
                        "engine": session, "rival": rival, "revenge": revenge is not None}
-        reply = self.envelope(params)
-        reply["result"] = True
+        reply = self._ok(params)
         reply["user_data"] = self.current_user_data(params)
         reply["battle_data"] = session.start_data(turns)
         reply["hunting_targets"] = self._targets(player)
@@ -219,8 +215,7 @@ class ArenaCalls:
         a["stamina_updated"] = int(self.clock())   # at the max: the refill clock waits from now
         player.war_bonds -= cost
         self.player_store.save(player)
-        reply = self.envelope(params)
-        reply["result"] = True
+        reply = self._ok(params)
         reply["user_data"] = self.current_user_data(params)
         return reply, (f"stamina refill: {before[0]} -> {a['stamina']}, "
                        f"{cost} war bonds ({before[1]} -> {player.war_bonds})")
@@ -270,9 +265,7 @@ class ArenaCalls:
         reply = self.envelope(params)
         reply["new_commander"] = str(base)
         reply["new_cards"] = [str(c) for c in bonus]
-        parts = self._prepare({"time": self._start.get("time"),
-                               **{k: self._start[k] for k in keys if k in self._start}}, params)
-        reply.update({k: parts[k] for k in keys if k in parts})
+        reply.update(self._start_parts(params, keys))
         names = ", ".join(cards[c].name for c in bonus)
         return reply, (f"unlocked {cards[base].name} ({base}) for a promotion point "
                        f"({player.arena['promotion_points']} left), with {names}")

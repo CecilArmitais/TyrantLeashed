@@ -26,7 +26,7 @@ class AchievementCalls:
                 + (f"{length // 86400}-day runs" if length else "no end"))
 
     def _achievement_defs(self) -> dict:
-        if getattr(self, "_ach_defs", None) is None:
+        if self._ach_defs is None:
             self._ach_defs = achievements.load(self._assets)
         return self._ach_defs
 
@@ -34,7 +34,7 @@ class AchievementCalls:
         """The event objectives on now: the standing ones, and content.toml's challenge
         (its run, server-wide)."""
         defs = self._achievement_defs()
-        if getattr(self, "_standing", None) is None:
+        if self._standing is None:
             self._standing = achievements.standing_events(defs)
         run = self.challenge_store.current(defs, self.content().challenge, int(self.clock()))
         challenge = achievements.challenge_set(defs, run["id"]) if run else frozenset()
@@ -65,7 +65,7 @@ class AchievementCalls:
         """Finishes (and pays) every permanent achievement the player has now reached; the
         reply then carries them. Returns the ones finished."""
         done = achievements.complete_ready(self._achievement_defs(), player, self._cap_sp(), self._events())
-        self._ach_news = getattr(self, "_ach_news", []) + done
+        self._ach_news = self._ach_news + done
         self._ach_changed = True
         return done
 
@@ -91,8 +91,6 @@ class AchievementCalls:
         self._ach_news, self._ach_changed = [a], True
         self._track(player)                 # what it finishes in turn (a challenge's parent, a count)
         self.player_store.save(player)
-        start = {"time": self._start.get("time"), "user_data": self._start.get("user_data") or {}, "user_cards": {}}
-        reply = self.envelope(params)
-        reply["result"] = True
-        reply.update({k: v for k, v in self._prepare(start, params).items() if k in ("user_data", "user_cards")})
+        reply = self._ok(params)
+        reply.update(self._player_parts(params, ("user_data", "user_cards")))
         return reply, f"claimed {a.name} ({a.desc})"

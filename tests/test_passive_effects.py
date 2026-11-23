@@ -4,7 +4,7 @@ take the first candidate."""
 
 import pytest
 
-import game_api as ga
+import paths
 from battle import effects as fx
 from battle.cards import CardDB
 from battle.engine import DEFENDER, Battle, Setup
@@ -44,7 +44,7 @@ def actions(turns, turn, skill=None):
 
 @pytest.mark.needs_game
 def test_the_rule_effects_in_the_file():
-    effects = {e.name: e for e in fx.load(ga.ASSET_DIR).values()}
+    effects = {e.name: e for e in fx.load(paths.ASSET_DIR).values()}
     assert effects["Devour"].passive == ("devour", 4)            # <value>4</value>
     assert effects["Oath of Loyalty"].passive == ("oath_of_loyalty", 1)
     assert effects["Counterflux"].passive == ("counterflux", 4)  # no value: "X/4", its text

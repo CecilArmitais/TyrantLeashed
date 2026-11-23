@@ -19,16 +19,17 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from battle.cards import CardDB  # noqa: E402
-from battle.tuo_tests import TUO, Names, parse_deck, test_lines, win_rate  # noqa: E402
+from battle.tuo_tests import Names, parse_deck, test_lines, win_rate  # noqa: E402
+from paths import TUO_DIR  # noqa: E402
 
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("-n", type=int, default=100, help="battles per test line")
     args = ap.parse_args()
-    if not (TUO / "tests").is_dir():
-        sys.exit(f"The optimizer isn't in {TUO}.")
-    db = CardDB.load(TUO / "tests" / "sim" / "data")
+    if not (TUO_DIR / "tests").is_dir():
+        sys.exit(f"The optimizer isn't in {TUO_DIR}.")
+    db = CardDB.load(TUO_DIR / "tests" / "sim" / "data")
     names = Names(db)
     passed = run = 0
     for f, you, enemy, bge in test_lines():

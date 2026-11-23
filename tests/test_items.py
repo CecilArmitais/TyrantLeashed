@@ -4,13 +4,13 @@ items, the energy bar's refill with one, and the save."""
 import pytest
 import json
 
-import game_api as ga
 import items
+import paths
 from battle.cards import CardDB
 from player_state import SAVE_VERSION, PlayerStore
 from helpers import call, login, server
 
-DEFS = items.load(ga.ASSET_DIR)
+DEFS = items.load(paths.ASSET_DIR)
 
 
 # ---- the data and formats ------------------------------------------------------------------------
@@ -83,7 +83,7 @@ def test_the_login_and_inventory(tmp_path):
 @pytest.mark.needs_game
 def test_shards_open_packs(tmp_path):
     api, ann, store = setup(tmp_path, {2000: 750, 2002: 1000})
-    cards = CardDB.load(ga.ASSET_DIR)
+    cards = CardDB.load(paths.ASSET_DIR)
     r, how = call(api, ann, "consumeItem", item_id="2000")
     assert r["result"] is True, how
     assert len(r["new_cards"]) == 4 and cards[int(r["new_cards"][-1])].rarity >= 3     # one Epic+

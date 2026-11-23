@@ -6,6 +6,7 @@ import json
 import random
 
 import game_api as ga
+import paths
 from helpers import T, ask, init_body
 
 pytestmark = pytest.mark.needs_game        # every test here needs the game files
@@ -15,7 +16,7 @@ DAY = 86400
 
 def game(tmp_path, bonds=2000, gold=50000):
     clock = [T]
-    api = ga.GameApi(fixture_dir=ga.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: clock[0])
+    api = ga.GameApi(fixture_dir=paths.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: clock[0])
     api.rng_factory = lambda: random.Random(1)
     ask(api, "init")
     p = api.player()

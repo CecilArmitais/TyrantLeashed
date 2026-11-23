@@ -111,7 +111,7 @@ def call(api, creds, message, **params):
 # ---- the store -----------------------------------------------------------------------------------
 
 def shop(tmp_path, engine=False, tutorial="-1", gold=1000, bonds=50):
-    api = ga.GameApi(fixture_dir=ga.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: T, battle_engine=engine)
+    api = ga.GameApi(fixture_dir=paths.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: T, battle_engine=engine)
     api.rng_factory = lambda: random.Random(3)
     ask(api, "init")
     p = api.player()
@@ -124,7 +124,7 @@ def shop(tmp_path, engine=False, tutorial="-1", gold=1000, bonds=50):
 # ---- the arena -----------------------------------------------------------------------------------
 
 def arena_api(tmp_path):
-    api = ga.GameApi(fixture_dir=ga.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: T + 100, battle_engine=True)
+    api = ga.GameApi(fixture_dir=paths.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: T + 100, battle_engine=True)
     # The tutorial fight is lost now and then (about 1 in 9 with the starting deck): fix the shuffle.
     api.rng_factory = lambda: random.Random(1)
     return api
@@ -181,7 +181,7 @@ def play_mission(api, mission):
 
 def objectives_game(tmp_path, engine=False):
     clock = [T + 100]
-    api = ga.GameApi(fixture_dir=ga.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: clock[0], battle_engine=engine)
+    api = ga.GameApi(fixture_dir=paths.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: clock[0], battle_engine=engine)
     api.rng_factory = lambda: random.Random(1)
     return api, clock
 
@@ -213,7 +213,7 @@ def raid_game(tmp_path, raid=161, bonds=2000, extra="health_percent = 2\n", guil
     if raid is not None:
         (tmp_path / "content.toml").write_text(f"[raids]\nraid = {raid}\n{extra}", "utf-8")
     clock = [T]
-    api = ga.GameApi(fixture_dir=ga.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: clock[0])
+    api = ga.GameApi(fixture_dir=paths.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: clock[0])
     api.rng_factory = lambda: random.Random(1)
     ask(api, "init")
     p = api.player()

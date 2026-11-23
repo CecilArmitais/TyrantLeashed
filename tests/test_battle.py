@@ -4,7 +4,7 @@ attacks, the replies, the server wiring, and the check against recorded battles.
 
 import pytest
 
-import game_api as ga
+import paths
 from battle.cards import ASSAULT, COMMANDER, STRUCTURE, CardDB, card_type
 from battle.engine import TURN_LIMIT, Battle, BattleError, Setup
 from battle.missions import parse_missions
@@ -204,8 +204,8 @@ def test_without_the_engine_missions_replay(tmp_path):
 
 # ---- against the recordings ----------------------------------------------------------------------
 
-ASSETS = ga.ASSET_DIR
-REPLAY = ga.FIXTURE_DIR / "replay.json"
+ASSETS = paths.ASSET_DIR
+REPLAY = paths.FIXTURE_DIR / "replay.json"
 
 
 @pytest.mark.skipif(not (ASSETS.is_dir() and REPLAY.is_file()), reason="needs the archive and the recordings")

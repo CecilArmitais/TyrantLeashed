@@ -3,7 +3,7 @@ plus the reporting rules the recordings showed. Random picks take the first cand
 
 import pytest
 
-import game_api as ga
+import paths
 from battle.cards import CardDB
 from battle.engine import Battle, Setup
 from battle.recorded import compare, from_fixtures
@@ -206,8 +206,8 @@ def test_a_last_single_card_is_played_for_you():
     assert {"card_uid": "2", "status": []} in turns[3]["plays"]
 
 
-ASSETS = ga.ASSET_DIR
-REPLAY = ga.FIXTURE_DIR / "replay.json"
+ASSETS = paths.ASSET_DIR
+REPLAY = paths.FIXTURE_DIR / "replay.json"
 
 
 @pytest.mark.skipif(not (ASSETS.is_dir() and REPLAY.is_file()), reason="needs the archive and the recordings")

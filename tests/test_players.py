@@ -11,6 +11,7 @@ import pytest
 
 import game_api as ga
 import offline_server as srv
+import paths
 import player as cli
 from helpers import server, login, call, T, ask
 
@@ -206,7 +207,7 @@ def test_players_playing_at_once_over_http(tmp_path):
 # ---- the admin tool ------------------------------------------------------------------------------
 
 def run_cli(monkeypatch, capsys, tmp_path, *args):
-    monkeypatch.setattr(sys, "argv", ["player.py", "--fixtures", str(ga.FIXTURE_DIR), "--state", str(tmp_path), *args])
+    monkeypatch.setattr(sys, "argv", ["player.py", "--fixtures", str(paths.FIXTURE_DIR), "--state", str(tmp_path), *args])
     monkeypatch.setattr(cli, "CLOCK", lambda: T)
     try:
         cli.main()

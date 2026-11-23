@@ -8,6 +8,7 @@ import pytest
 
 import arena
 import game_api as ga
+import paths
 from battle.engine import Battle, BattleError, RandomChooser, Setup, shuffled_deck
 from player_state import LEVELS, Player, PlayerStore, SAVE_VERSION, arena_from_start, level_for, level_info
 from helpers import arena_api, real_cards, DB, T, ask, mission_api, recorded_calls
@@ -99,7 +100,7 @@ def test_levels_follow_the_rating():
 
 
 def test_the_save_keeps_the_arena_and_refills_stamina(tmp_path):
-    start = json.loads((ga.FIXTURE_DIR / "init.json").read_text("utf-8"))["body"]
+    start = json.loads((paths.FIXTURE_DIR / "init.json").read_text("utf-8"))["body"]
     clock = [T]
     store = PlayerStore(tmp_path / "p.json", clock=lambda: clock[0])
     p = store.current(start, 60)
@@ -297,7 +298,7 @@ def test_surrendering_an_arena_fight(tmp_path):
 
 @pytest.mark.needs_game
 def test_without_the_engine_the_arena_replays(tmp_path):
-    api = ga.GameApi(fixture_dir=ga.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: T + 100)
+    api = ga.GameApi(fixture_dir=paths.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: T + 100)
     ask(api, "init")
     assert ask(api, "getHuntingTargets")[1].startswith("replayed")
     assert ask(api, "startHuntingBattle", target_user_id="-1")[1].startswith("replayed")

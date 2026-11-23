@@ -8,6 +8,7 @@ import random
 import pytest
 
 import game_api as ga
+import paths
 import raids
 from battle.engine import ATTACKER, DEFENDER, FIRST_UID, Battle, RandomChooser, Setup, shuffled_deck
 from helpers import raid_game as game, raid_run as run_of, raid_fight as fight, T, ask, real_cards
@@ -18,7 +19,7 @@ HOUR = 3600
 
 @pytest.fixture(scope="module")
 def all_raids():
-    return raids.load(ga.ASSET_DIR)
+    return raids.load(paths.ASSET_DIR)
 
 
 @pytest.fixture(scope="module")
@@ -261,7 +262,7 @@ def test_a_raid_fight(tmp_path):
     info = r["raid_info"][0]
     assert (info["status"], info["raid_level_start"], info["raid_level_end"]) == (0, T, T + 8 * HOUR)
     assert info["members"][0]["damage"] == damage and info["energy"]["battle_energy"] == 12
-    again = ga.GameApi(fixture_dir=ga.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: clock[0])
+    again = ga.GameApi(fixture_dir=paths.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: clock[0])
     assert again._my_guild()["raid"] == run                                  # kept in the guild's file
     assert "raid" not in json.loads((tmp_path / "player.json").read_text("utf-8"))["player"]
 

@@ -168,12 +168,13 @@ def test_valor_and_allegiance():
 
 import pytest  # noqa: E402
 
+import paths  # noqa: E402
 from battle import tuo_tests as tt  # noqa: E402
 
 
-@pytest.mark.skipif(not (tt.TUO / "tests" / "sim" / "data").is_dir(), reason="needs reference/tuo")
+@pytest.mark.skipif(not (paths.TUO_DIR / "tests" / "sim" / "data").is_dir(), reason="needs reference/tuo")
 def test_the_optimizers_test_decks_run_without_errors():
-    db = CardDB.load(tt.TUO / "tests" / "sim" / "data")
+    db = CardDB.load(paths.TUO_DIR / "tests" / "sim" / "data")
     names = tt.Names(db)
     ran = 0
     for f, a, b, bge in tt.test_lines():

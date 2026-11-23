@@ -48,16 +48,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import achievements  # noqa: E402
 import items  # noqa: E402
 from game_api import GameApi  # noqa: E402
-from paths import ASSET_DIR, FIXTURE_DIR, STATE_DIR  # noqa: E402
+import paths  # noqa: E402
 from player_state import level_info  # noqa: E402
 
-CARD_XML_DIR = ASSET_DIR
+CARD_XML_DIR = None   # the card files (None: paths.ASSET_DIR); tests point it elsewhere
 CLOCK = time.time  # replaced in tests
 
 
 def card_names(ids: set[str], xml_dir: Path | None = None) -> dict[str, str]:
     """id -> "Name" or "Name (level N)" for the given card ids, from cards_section_*.xml."""
-    xml_dir = CARD_XML_DIR if xml_dir is None else xml_dir
+    xml_dir = xml_dir or CARD_XML_DIR or paths.ASSET_DIR
     wanted, found = set(ids), {}
     files = sorted(xml_dir.glob("cards_section_*.xml"), key=lambda p: int(re.findall(r"\d+", p.stem)[0]))
     for f in files:
@@ -203,7 +203,7 @@ def list_players(api: GameApi) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--fixtures", default=str(FIXTURE_DIR), help=argparse.SUPPRESS)
+    ap.add_argument("--fixtures", default=str(paths.FIXTURE_DIR), help=argparse.SUPPRESS)
     ap.add_argument("--state", help=argparse.SUPPRESS)
     ap.add_argument("--user", help="the player's user id (multi-player servers; `players` lists them)")
     sub = ap.add_subparsers(dest="cmd")
@@ -234,8 +234,7 @@ def main() -> None:
     args = ap.parse_args()
 
     fixtures = Path(args.fixtures)
-    state = Path(args.state) if args.state else (STATE_DIR if fixtures.resolve() == FIXTURE_DIR.resolve()
-                                                 else fixtures.parent / "state")
+    state = Path(args.state) if args.state else paths.state_dir_for(fixtures)
     multi = (state / "accounts.json").is_file() or (state / "players").is_dir()
     api = GameApi(fixture_dir=fixtures, state_dir=state, clock=lambda: CLOCK(), single_player=not multi)
     if args.cmd == "players":

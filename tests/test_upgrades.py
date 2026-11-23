@@ -5,6 +5,7 @@ against the recorded upgradeCard / salvageL1CommonCards replies."""
 import pytest
 
 import game_api as ga
+import paths
 import upgrades
 from player_state import PlayerStore
 from helpers import T, ask, recorded_calls
@@ -30,7 +31,7 @@ def deck_of(user_decks):
 
 def workshop(tmp_path, cards, sp=15, deck=None, commander=1000):
     """A save with these cards, SP and deck (the active deck)."""
-    api = ga.GameApi(fixture_dir=ga.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: T)
+    api = ga.GameApi(fixture_dir=paths.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: T)
     ask(api, "init")
     p = api.player()
     p.cards = {str(k): {"num_owned": n, "num_used": 0} for k, n in cards.items()}
@@ -42,7 +43,7 @@ def workshop(tmp_path, cards, sp=15, deck=None, commander=1000):
 
 
 def test_the_levels_file_matches_the_wiki():
-    levels = upgrades.load_levels(ga.ASSET_DIR)
+    levels = upgrades.load_levels(paths.ASSET_DIR)
     costs = {r: [levels[(r, l)].sp_cost for l in range(1, 7) if (r, l) in levels] for r in (1, 2, 3, 4)}
     assert costs == {1: [5, 15, None], 2: [5, 15, 30, None], 3: [5, 15, 30, 75, 150, None],
                      4: [5, 15, 30, 75, 150, None]}

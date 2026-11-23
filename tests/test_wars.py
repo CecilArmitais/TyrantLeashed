@@ -7,10 +7,11 @@ import json
 import pytest
 
 import game_api as ga
+import paths
 import wars
 from helpers import call, login, server
 
-EVENTS = wars.load(ga.ASSET_DIR)
+EVENTS = wars.load(paths.ASSET_DIR)
 TESLA, CANNON = 2700, 2736          # a defensive fortress, a siege fortress (level 1)
 T0 = 1_800_000_000
 
@@ -40,7 +41,7 @@ def test_the_war_events():
 
 
 def test_the_event_matches_the_recorded_one(tmp_path):
-    recorded = json.loads((ga.FIXTURE_DIR / "init.json").read_text("utf-8"))["body"]["active_war_event"]
+    recorded = json.loads((paths.FIXTURE_DIR / "init.json").read_text("utf-8"))["body"]["active_war_event"]
     api = ga.GameApi(state_dir=tmp_path)   # never the real ../state
     start, end = int(recorded["start_time"]), int(recorded["end_time"])
     run = {"event": 94, "start": start, "end": end, "no_new": end - wars.NO_NEW_WARS,
@@ -120,7 +121,7 @@ def test_a_placement_brawl_seeds_the_matchmaking(seeds, pairs):
 @pytest.mark.needs_game
 def test_placement_seeds_come_from_the_placement_brawl():
     import brawls
-    events = brawls.load(ga.ASSET_DIR)
+    events = brawls.load(paths.ASSET_DIR)
     assert events[345].war and events[345].use_forts and not events[344].war
     state = brawls.new_state()
     brawls.start_run(state, events[345], T0)                         # Hypothermia Placements

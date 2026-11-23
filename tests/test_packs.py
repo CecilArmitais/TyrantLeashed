@@ -6,8 +6,8 @@ from collections import Counter
 
 import pytest
 
-import game_api as ga
 import packs
+import paths
 from helpers import shop, ask, real_cards, init_body
 
 RECORDED_DRAWS = [9, 6763, 75, 4, 2024, 112, 109, 45, 314, 169, 2100, 9, 109, 172, 115, 100, 197, 104,
@@ -49,7 +49,7 @@ def test_the_store_packs():
 
 
 def test_the_gold_bundles_come_from_the_mini_pack_file():
-    mini = packs.load_mini_packs(ga.ASSET_DIR)
+    mini = packs.load_mini_packs(paths.ASSET_DIR)
     x4, x20 = packs.promo_pack(init_body(), mini, 49), packs.promo_pack(init_body(), mini, 48)
     assert (x4.name, x4.draws, x4.gold) == ("Basic Pack x4", (("basic", 4),), 400)
     assert (x20.draws, x20.gold) == ((("basic", 20),), 2000)
@@ -127,7 +127,7 @@ def test_a_faction_pool_and_its_epic_column():
 
 
 def test_the_blight_pack_is_mini_pack_23():
-    mini = packs.load_mini_packs(ga.ASSET_DIR)
+    mini = packs.load_mini_packs(paths.ASSET_DIR)
     blight = packs.promo_pack(init_body(), mini, 23)
     assert (blight.name, blight.draws, blight.war_bonds, blight.gold, blight.faction) == \
         ("Blight Pack", (("epic", 2),), 5, None, 3)

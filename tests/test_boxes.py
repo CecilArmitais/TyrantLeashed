@@ -9,7 +9,7 @@ import pytest
 
 import boxes
 import content
-import game_api as ga
+import paths
 from helpers import T, ask, init_body, real_cards, shop
 
 HOUR13 = 8099
@@ -25,7 +25,7 @@ def rarity(cid):
 
 @pytest.fixture(scope="module")
 def all_boxes():
-    return boxes.load_boxes(ga.ASSET_DIR)
+    return boxes.load_boxes(paths.ASSET_DIR)
 
 
 @pytest.mark.needs_game

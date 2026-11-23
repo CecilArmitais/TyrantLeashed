@@ -7,15 +7,15 @@ from pathlib import Path
 import pytest
 
 import content
-import game_api as ga
 import packs
+import paths
 import upgrades
 from helpers import ask, real_cards, shop
 
 
 @pytest.fixture(scope="module")
 def data():
-    return real_cards(), packs.load_mini_packs(Path(ga.ASSET_DIR)), upgrades.load_recipes(Path(ga.ASSET_DIR))
+    return real_cards(), packs.load_mini_packs(Path(paths.ASSET_DIR)), upgrades.load_recipes(Path(paths.ASSET_DIR))
 
 
 def opened(data, mid, seed=1):
@@ -53,7 +53,7 @@ def test_each_kind_of_pack(data):
 def test_rising_prices():
     tabitha = {"purchase1": "80", "purchase2": "110", "purchase3": "140", "purchase4": "170", "scalar": "30"}
     assert [packs.scaling_price(tabitha, n) for n in range(6)] == [80, 110, 140, 170, 200, 230]
-    table, cards = packs.load_scaling_pack(Path(ga.ASSET_DIR))
+    table, cards = packs.load_scaling_pack(Path(paths.ASSET_DIR))
     assert table[6] == tabitha and table[3]["purchase1"] == "10" and 70584 in cards and len(cards) == 25
 
 

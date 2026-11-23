@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import pytest
 
 import achievements as ach
-import game_api as ga
+import paths
 from helpers import arena_fight, ask, objectives_game, raid_fight, raid_game, recorded_fight
 
 pytestmark = pytest.mark.needs_game        # every test here needs the game files
@@ -18,7 +18,7 @@ LIVING_MIRRORS, EXTREME = 3580, 3450
 
 @pytest.fixture(scope="module")
 def defs():
-    return ach.load(ga.ASSET_DIR)
+    return ach.load(paths.ASSET_DIR)
 
 
 def player(missions=(), wins=None):

@@ -7,6 +7,7 @@ import random
 import pytest
 
 import game_api as ga
+import paths
 from settings import Bonus, Settings, SettingsStore, apply_to_login
 from helpers import T, ask, mission_api, play_mission, run_player_cli, init_body
 
@@ -67,7 +68,7 @@ def test_missions_pay_by_the_setting(tmp_path):
 
 @pytest.mark.needs_game
 def test_rivals_pay_by_the_setting(tmp_path):
-    api = ga.GameApi(fixture_dir=ga.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: T, battle_engine=True)
+    api = ga.GameApi(fixture_dir=paths.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: T, battle_engine=True)
     api.rng_factory = lambda: random.Random(1)                           # a shuffle that wins the tutorial fight
     ask(api, "init")
     assert ask(api, "getHuntingTargets")[0]["hunting_targets"]["-1"]["gold"] == 75     # 25 x 3, as recorded

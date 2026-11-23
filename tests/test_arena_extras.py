@@ -18,7 +18,7 @@ ENVELOPE = {"time", "version", "daily_bonus_time", "guild_donations_enabled", "g
 
 
 def api_with(tmp_path, engine=True, **arena_values):
-    api = ga.GameApi(fixture_dir=ga.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: T + 100, battle_engine=engine)
+    api = ga.GameApi(fixture_dir=paths.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: T + 100, battle_engine=engine)
     ask(api, "init")
     p = api.player()
     p.arena.update(arena_values)

@@ -22,7 +22,6 @@ import wars
 from accounts import AccountStore
 from battle.cards import CardDB
 from content import Content, ContentStore
-from paths import FIXTURE_DIR
 from player_state import PlayerStore
 from rewards import RewardRules
 from settings import Settings, SettingsStore, apply_to_login
@@ -55,11 +54,11 @@ class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, Gu
     """Answers the client's messages. Each base is one feature's calls (its own file in
     this package); they all work on this object's state, set up in __init__."""
 
-    def __init__(self, fixture_dir: Path = FIXTURE_DIR, clock=time.time, state_dir: Path | None = None,
+    def __init__(self, fixture_dir: Path | None = None, clock=time.time, state_dir: Path | None = None,
                  asset_dir: Path | None = None, battle_engine: bool = False, single_player: bool = True) -> None:
-        """state_dir: where the saves live (default: STATE_DIR, or <fixture_dir>/../state
-        for other fixtures).
-        asset_dir: the game data files (default: the archive's ASSET_DIR).
+        """fixture_dir: the recorded login and replies (default: paths.FIXTURE_DIR).
+        state_dir: where the saves live (default: paths.state_dir_for(fixture_dir)).
+        asset_dir: the game data files (default: paths.ASSET_DIR).
         battle_engine: missions are real battles from the battle engine instead of
         replayed recordings (battle/).
         single_player: every login is the offline player (1000001), saved in
@@ -74,7 +73,7 @@ class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, Gu
         self._cards: CardDB | None = None
         self._missions: dict | None = None
         self._missions_by_file: dict = {}
-        fixture_dir = Path(fixture_dir)
+        fixture_dir = paths.FIXTURE_DIR if fixture_dir is None else Path(fixture_dir)
         self.fixtures: dict[str, dict] = {}
         for name in LOGIN:
             f = fixture_dir / f"{name}.json"
@@ -87,10 +86,7 @@ class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, Gu
         # The saved player starts from the recorded init (gold, war bonds, energy, cards).
         self.player_store: PlayerStore | None = None
         self.reward_rules = RewardRules()
-        if state_dir is not None:
-            state = Path(state_dir)
-        else:
-            state = paths.STATE_DIR if fixture_dir.resolve() == FIXTURE_DIR.resolve() else fixture_dir.parent / "state"
+        state = paths.state_dir_for(fixture_dir) if state_dir is None else Path(state_dir)
         self.settings_store = SettingsStore(state / "settings.json")     # the gold bonuses
         self.content_store = ContentStore(state / "content.toml")        # the store and event boxes
         self.guild_store = guilds.GuildStore(state / "guilds")            # the server's guilds

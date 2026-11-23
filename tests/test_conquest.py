@@ -6,9 +6,10 @@ import random
 
 import conquest
 import game_api as ga
+import paths
 from helpers import call, login, server
 
-EVENTS, ZONES = conquest.load(ga.ASSET_DIR)
+EVENTS, ZONES = conquest.load(paths.ASSET_DIR)
 T0 = 1_800_000_000
 PHOBOS, NEXUS = 11, 12
 

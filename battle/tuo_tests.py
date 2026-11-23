@@ -20,7 +20,6 @@ from .cards import COMMANDER, STRUCTURE, Card, CardDB
 from .engine import Battle, RandomChooser, Setup, shuffled_deck, FIRST_UID, ATTACKER, DEFENDER
 from paths import TUO_DIR   # the optimizer's source, beside the workspace
 
-TUO = TUO_DIR
 TEST_FILES = ("test_sinlge_units.csv", "test_multi_units.csv", "test_whole_decks.csv", "test_crash.csv")
 
 
@@ -83,7 +82,7 @@ def custom_decks() -> dict[str, list[str]]:
     """The optimizer's named decks (tests/sim/data/customdecks.txt): name -> deck
     strings. A name whose value is /regex/ stands for every deck matching it."""
     plain, groups = {}, {}
-    f = TUO / "tests" / "sim" / "data" / "customdecks.txt"
+    f = TUO_DIR / "tests" / "sim" / "data" / "customdecks.txt"
     if not f.is_file():
         return {}
     for line in f.read_text("utf-8").splitlines():
@@ -106,7 +105,7 @@ def test_lines(files=TEST_FILES) -> list[tuple[str, str, str, str]]:
     named = custom_decks()
     out = []
     for name in files:
-        for line in (TUO / "tests" / name).read_text("utf-8").splitlines():
+        for line in (TUO_DIR / "tests" / name).read_text("utf-8").splitlines():
             line = line.strip()
             if not line or line.startswith("//"):
                 continue

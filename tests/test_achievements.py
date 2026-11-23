@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 import achievements as ach
-import game_api as ga
+import paths
 from player_state import PlayerStore
 from helpers import objectives_game as game, recorded_fight, T, arena_fight, ask, init_body, recorded_calls
 
@@ -18,7 +18,7 @@ DAILY_KEYS = {"achievement_id", "progress", "status", "name", "description", "ic
 
 @pytest.fixture(scope="module")
 def defs():
-    return ach.load(ga.ASSET_DIR)
+    return ach.load(paths.ASSET_DIR)
 
 
 def test_the_permanent_chains_start_where_the_recording_did(defs):

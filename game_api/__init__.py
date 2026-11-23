@@ -86,25 +86,13 @@ Standard library only.
 The package: core.py holds GameApi and the dispatcher, joining one part per feature
 (sessions, replay, battles, arena, store, guilds, wars, conquest, brawls, raids,
 player_data, achievements, upgrades, items: each an XCalls class in its own file);
-base.py, messages.py and replay.py hold what they share; their public names are
-importable from game_api itself.
+base.py, messages.py and replay.py hold what they share.
 """
 
 from __future__ import annotations
 
-from paths import ASSET_DIR, FIXTURE_DIR, GAME_DIR, ROOT_DIR, STATE_DIR  # noqa: F401
-
-from .base import (NAME_LENGTH, DEFAULT_STAMINA_REFILL_COST, DEFAULT_REFRESH_COST, ARENA_FIELDS,
-                   DEFAULT_REFILL_COST, INVALID_FLAG, OFFLINE_USER_ID, OFFLINE_PASSWORD, OFFLINE_SYNCODE,
-                   OFFLINE_NAME, DEFAULT_ENVELOPE, Session, NOT_LOGGED_IN, NotSupported, flag_value,
-                   BASIC_MISSIONS, FULL_MISSIONS, BASIC_LAST, mission_costs, tutorial_names)  # noqa: F401
-from .messages import (LOGIN, SET_FLAG, ENERGY_REFILL, SET_DECK, FORFEIT, TARGETS, RIVALS_REFRESH,
-                       STAMINA_REFILL, UNLOCK, REPORTS, PACK_GOLD, PACK_WB, PROMO_GOLD, PROMO_WB, UPGRADE,
-                       SALVAGE, SALVAGE_ALL, LOCK, FUSE, CLAIM, CRATE, PRACTICE, GUILD_MESSAGES,
-                       CONQUEST_MESSAGES, BRAWL_MESSAGES, WAR_MESSAGES, ITEM_MESSAGES, RAID_MESSAGES,
-                       BUY_UPGRADE, SET_NAME, SET_ACTIVE, SET_DEFENSE, REFRESH, ARENA_START, REVENGE_START,
-                       BATTLE_STARTS, BATTLE_TURN)  # noqa: F401
-from .replay import (VOLATILE_PARAMS, NOT_REPLAYED, SHIFT_WINDOW_S, NO_SHIFT_UNDER, shift_times,
-                     with_battle_id, battle_name, battle_over, battle_won, encode, personalize, echo,
-                     request_key)  # noqa: F401
+# GameApi, and the few names the tools and tests use; the rest stays in its own file
+# (game_api.messages, game_api.base...).
+from .base import NOT_LOGGED_IN, OFFLINE_NAME, OFFLINE_PASSWORD, OFFLINE_SYNCODE, OFFLINE_USER_ID  # noqa: F401
 from .core import GameApi  # noqa: F401
+from .replay import NOT_REPLAYED, VOLATILE_PARAMS, encode, personalize, shift_times  # noqa: F401

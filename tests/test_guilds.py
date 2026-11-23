@@ -7,6 +7,7 @@ import pytest
 
 import game_api as ga
 import guilds as gd
+import paths
 from helpers import T, ask, real_cards
 
 NAMES = {"1": "Ann", "2": "Bo", "3": "Cy", "4": "Di"}
@@ -252,7 +253,7 @@ def game(tmp_path, content="", gold=5000):
     if content:
         (tmp_path / "content.toml").write_text(content, "utf-8")
     clock = [T]
-    api = ga.GameApi(fixture_dir=ga.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: clock[0])
+    api = ga.GameApi(fixture_dir=paths.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: clock[0])
     api.rng_factory = lambda: random.Random(1)
     ask(api, "init")
     p = api.player()

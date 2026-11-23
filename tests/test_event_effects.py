@@ -6,7 +6,7 @@ first candidate."""
 
 import pytest
 
-import game_api as ga
+import paths
 from battle import effects as fx
 from battle.cards import CardDB
 from battle.engine import ATTACKER, Battle, Setup
@@ -59,7 +59,7 @@ def ids(targets):
 
 @pytest.mark.needs_game
 def test_the_file_names_them():
-    effects = {e.name: e for e in fx.load(ga.ASSET_DIR).values()}
+    effects = {e.name: e for e in fx.load(paths.ASSET_DIR).values()}
     assert effects["Taste of Blood"].passive == ("bloodlust", 3)          # <value>3</value>
     assert effects["Fervorous Revenge"].passive == ("revenge", 3)         # from its text: "by 3"
     assert effects["Devotion"].passive == ("devotion", 4)                 # 25%: a quarter

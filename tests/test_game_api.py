@@ -231,7 +231,7 @@ REAL_SANITIZED = REAL_CAPTURES.parent / "api-sanitized"
 
 def _fixture_session() -> str:
     try:
-        return json.loads((ga.FIXTURE_DIR / "init.json").read_text("utf-8"))["source"]["session"]
+        return json.loads((paths.FIXTURE_DIR / "init.json").read_text("utf-8"))["source"]["session"]
     except (OSError, ValueError, KeyError):
         return ""
 
@@ -241,7 +241,7 @@ def _fixture_session() -> str:
 def test_the_real_fixtures_can_be_rebuilt_from_the_sanitized_recordings(tmp_path):
     mf.build(REAL_SANITIZED / _fixture_session(), tmp_path / "fx")
     for name in ("getUserAccount", "init", "replay"):
-        assert (tmp_path / "fx" / f"{name}.json").read_bytes() == (ga.FIXTURE_DIR / f"{name}.json").read_bytes(), name
+        assert (tmp_path / "fx" / f"{name}.json").read_bytes() == (paths.FIXTURE_DIR / f"{name}.json").read_bytes(), name
 
 
 @pytest.mark.skipif(not REAL_CAPTURES.is_dir(), reason="no recorded sessions on this machine")

@@ -4,7 +4,7 @@ import random
 
 import pytest
 
-import game_api as ga
+import paths
 from battle import effects as fx
 from battle.engine import ATTACKER, DEFENDER, FIRST_UID, Battle, RandomChooser, Setup, shuffled_deck
 from helpers import real_cards
@@ -14,7 +14,7 @@ pytestmark = pytest.mark.needs_game        # every test here needs the game file
 
 @pytest.fixture(scope="module")
 def all_effects():
-    return fx.load(ga.ASSET_DIR)
+    return fx.load(paths.ASSET_DIR)
 
 
 def test_the_effects_file(all_effects):

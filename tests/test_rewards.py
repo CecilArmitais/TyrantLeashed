@@ -34,7 +34,7 @@ def player(**kw) -> Player:
 # ---- the rules -----------------------------------------------------------------------------------
 
 def test_rules_from_the_login_data():
-    start = json.loads((ga.FIXTURE_DIR / "init.json").read_text("utf-8"))["body"]
+    start = json.loads((paths.FIXTURE_DIR / "init.json").read_text("utf-8"))["body"]
     r = RewardRules.from_start(start)
     assert (r.loss_mult, r.mastered_mult) == (0.25, 0.5)
     assert r.star_gold == (("2", 100), ("3", 200))
@@ -113,7 +113,7 @@ def test_star_conditions_come_from_the_mission_file():
     m = parse_missions(ET.fromstring(xml))["1"]
     assert (m.gold, m.reward_cards, m.star_wins) == (10, (6,), (("2", 5), ("3", 10)))   # unknown kinds left out
     assert m.location == -1                                            # no <location_id>
-    real = load_missions(ga.ASSET_DIR, "missions_basic.xml")
+    real = load_missions(paths.ASSET_DIR, "missions_basic.xml")
     assert len(real) == 56 and {m.star_wins for m in real.values()} == {(("2", 5), ("3", 10))}
     assert [mid for mid, m in real.items() if m.location == 0] == ["1", "2", "3", "4", "5"]
 
@@ -127,7 +127,7 @@ def check_recorded_endings(calls, start) -> int:
     pl = Player(gold=0, war_bonds=0, energy=0, energy_updated=NOW, cards={}, flags={}, missions=None)
     fill_from_start(pl, start)
     rules = RewardRules(**{**RewardRules.from_start(start).__dict__, "gold_multiplier": 7})   # the recordings' x7
-    missions = load_missions(ga.ASSET_DIR, start.get("mission_file") or "missions_basic.xml")
+    missions = load_missions(paths.ASSET_DIR, start.get("mission_file") or "missions_basic.xml")
     deck_id = str(start["user_data"]["active_deck"])
     mission, n = None, 0
     for message, params, body in calls:
@@ -183,8 +183,8 @@ def check_recorded_endings(calls, start) -> int:
 
 
 def test_every_recorded_mission_ending_pays_the_same():
-    calls = json.loads((ga.FIXTURE_DIR / "replay.json").read_text("utf-8"))["calls"]
-    start = json.loads((ga.FIXTURE_DIR / "init.json").read_text("utf-8"))["body"]
+    calls = json.loads((paths.FIXTURE_DIR / "replay.json").read_text("utf-8"))["calls"]
+    start = json.loads((paths.FIXTURE_DIR / "init.json").read_text("utf-8"))["body"]
     # missions 1-7 won (5, 6 and 7 twice), and mission 7 lost twice
     assert check_recorded_endings([(c["message"], c["key"], c["body"]) for c in calls], start) == 12
 

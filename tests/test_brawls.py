@@ -7,6 +7,7 @@ import random
 
 import brawls
 import game_api as ga
+import paths
 from helpers import call, login, server, init_body
 
 T0 = 1_800_000_000
@@ -15,7 +16,7 @@ T0 = 1_800_000_000
 @lru_cache(maxsize=None)
 def events():
     """The brawl events (read on first use)."""
-    return brawls.load(ga.ASSET_DIR)
+    return brawls.load(paths.ASSET_DIR)
 
 
 def a_state(event_id=344, now=T0):

@@ -377,7 +377,7 @@ def test_tutorial_status(flag, expected):
 def test_the_full_campaign_after_mission_56(tmp_path):
     """missions_basic.xml (locations 0-4, missions 1-56) until mission 56 is won, then
     missions.xml: its mission 57 is at location 5, with the side and mutant missions."""
-    api = ga.GameApi(fixture_dir=ga.FIXTURE_DIR, state_dir=tmp_path, battle_engine=True)
+    api = ga.GameApi(fixture_dir=paths.FIXTURE_DIR, state_dir=tmp_path, battle_engine=True)
     r, _ = ask(api, "init")
     assert r["mission_file"] == "missions_basic.xml" and "57" not in api._mission_data()
     p = api.player()

@@ -216,3 +216,18 @@ def test_a_guild_brawl(tmp_path):
     assert [(b["name"], b["points"]) for b in r["brawl_leaderboard"]] == [("Player1000001", str(points)),
                                                                           ("Player1000002", "0")]
     assert call(api, bob, "init")[0]["player_brawl_data"]["current_rank"] == 1   # the guild's rank
+
+
+def test_a_rule_effect_works_in_brawl_fights(tmp_path, monkeypatch):
+    seen = []
+
+    class Watched(ga.Battle):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            seen.append(self.passive)
+    monkeypatch.setattr(ga, "Battle", Watched)
+    api, clock, (ann, bob, cid) = players(tmp_path, content="[brawls]\nbrawl = 10\n")   # Harvest Brawl
+    r, _ = call(api, ann, "fightBrawlBattle")
+    assert r["battle_data"]["battleground_effects"]["global"][0]["name"] == "Scent of Blood"
+    assert {side: {name: value for name, (value, _) in rules.items()} for side, rules in seen[-1].items()} == \
+        {0: {"bloodlust": 2}, 1: {"bloodlust": 2}}

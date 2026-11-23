@@ -38,7 +38,7 @@ import random
 from collections import Counter
 from dataclasses import dataclass, replace
 
-from .cards import ASSAULT, COMMANDER, STRUCTURE, Card
+from .cards import ASSAULT, COMMANDER, STRUCTURE, Card, SkillSpec
 
 # Skill groups, as in the optimizer's tyrant.h
 HOSTILE = ("enfeeble", "jam", "besiege", "siege", "strike", "sunder", "weaken")
@@ -252,6 +252,8 @@ class Battle:
         self._shown: set = set()                    # cards whose health this reply has reported (see _own_health)
         self._section_name = "actions"
         self._in_bge = False                        # during a battleground effect's skills
+        self._bloodlust = 0                         # Bloodlust: extra attack damage this assault phase
+        self._bloodlusted: set = set()              # the assaults that have added to it
         self.bge_casters: dict[int, list[Unit]] = {ATTACKER: [], DEFENDER: []}
         self.passive: dict[int, dict[str, tuple[int, Unit]]] = {ATTACKER: {}, DEFENDER: {}}
         for uid, scope, card, *rest in effects:
@@ -409,6 +411,7 @@ class Battle:
             if unit.alive and across is not None and across.alive:
                 self._instant_debuffs(unit, across)
         self._end_action()
+        self._heroism_protect(side)
         self._bge_phase(side)
         if not self.over:
             self._act(side.commander)
@@ -417,6 +420,7 @@ class Battle:
                 break
             if unit.active:
                 self._act(unit)
+        self._bloodlust, self._bloodlusted = 0, set()
         i = 0
         while i < len(side.assaults) and not self.over:
             unit = side.assaults[i]
@@ -485,9 +489,12 @@ class Battle:
             self._valor(unit)
         if unit.has("absorb"):
             unit.absorption = unit.base_skill("absorb")
+        self._cold_sleep(side, unit)
         if not unit.is_structure:
             self._allegiance(side, unit)
             self._stasis(side, unit)
+        if played:
+            self._devotion(side, unit)
         for spec in card.skills:
             if spec.trigger == "play" and not self._in_bge:
                 self._triggered(unit, spec)
@@ -629,13 +636,16 @@ class Battle:
                 return True
         damage = att.attack_power()
         on_assault = target.is_assault
+        brigade = 0
         if not att.sundered:                                            # extra damage
             damage += target.marked
             legion = att.skill("legion")
             if legion:
                 side = self.sides[att.side]
-                damage += legion * sum(1 for u in side.assaults if u is not att and u.alive
+                brigade = legion * sum(1 for u in side.assaults if u is not att and u.alive
                                        and u.card.faction == att.card.faction)
+                damage += brigade
+            damage += self._bloodlust
             coalition = att.skill("coalition")
             if coalition:
                 damage += coalition * len({u.card.faction for u in self.sides[att.side].assaults if u.alive})
@@ -643,6 +653,10 @@ class Battle:
             if att.skill("venom") and target.poisoned > 0:
                 damage += att.skill("venom")
             damage += target.enfeebled
+        rule = self._passive("brigade")
+        if rule and brigade and att.alive and att.hp < att.max_hp:    # Legion's bonus heals it too
+            self._heal_hp(att, brigade)
+            self._action(rule[1], "heal", [att], brigade, [self._health(att)])
         armor = target.skill("armored") if on_assault else 0
         fort = self._passive("fortification")
         if fort and on_assault:                             # the best Armor among it and its neighbours
@@ -657,6 +671,10 @@ class Battle:
         protect_left = max(0, protect - cancel)
         armor_left = max(0, armor - max(0, cancel - protect))
         dealt = max(0, damage - protect_left - armor_left)
+        rule = self._passive("bloodlust")
+        if rule and dealt and att not in self._bloodlusted:               # once per assault a turn
+            self._bloodlust += rule[0]
+            self._bloodlusted.add(att)
         if target.is_commander:                         # the rest of the attack still follows
             target.hp -= dealt
             self._action(att, 0, [target], dealt, self._own_health(att))
@@ -713,9 +731,8 @@ class Battle:
                                                       self._health(att)] + self._own_health(att))
         swipe, drain = att.skill("swipe"), att.skill("drain")
         if (swipe or drain) and on_assault:
-            i = self.slot(target)
-            hit = [u for u in (foe.assaults[i - 1] if i > 0 else None,
-                               foe.assaults[i + 1] if i + 1 < len(foe.assaults) else None) if u and u.alive]
+            i, reach = self.slot(target), self._reach()
+            hit = [u for j, u in enumerate(foe.assaults) if j != i and abs(j - i) <= reach and u.alive]
             drained = dealt
             for u in hit:
                 d = max(0, self._absorb(u, swipe + drain + u.enfeebled) - u.protection)
@@ -737,6 +754,13 @@ class Battle:
             att.perm_attack += berserk
             self._action(att, "berserk", [att], berserk,
                          [self._status(att, "perm_max_attack", att.perm_attack)] + self._own_health(att))
+            rule = self._passive("enduring_rage")
+            if rule:                                                    # heals and protects for X/2
+                value = -(-berserk // rule[0])
+                self._heal_hp(att, value)
+                att.protected += value
+                self._action(rule[1], "protect", [att], value,
+                             [self._status(att, "protect", att.protected), self._health(att)])
         poison = target.skill("poison")
         if poison and att.alive:
             att.poisoned += poison
@@ -756,6 +780,11 @@ class Battle:
             self._action(devour[1], "berserk", [att], value,
                          [self._status(att, "perm_max_attack", att.perm_attack),
                           self._status(att, "perm_max_health", att.perm_health), self._health(att)])
+        rule = self._passive("heroism")
+        valor = att.skill("valor") + att.skill("bravery")
+        if rule and valor and dealt and on_assault and not target.alive and att.alive and not att.sundered:
+            att.perm_attack += valor                                    # a kill: +Valor attack
+            self._action(rule[1], "berserk", [att], valor, [self._status(att, "perm_max_attack", att.perm_attack)])
         hunt = att.skill("hunt")
         if hunt and not target.is_commander:      # not after hitting the commander (recorded)
             prey = next((u for u in foe.assaults if u.alive), None)
@@ -788,7 +817,7 @@ class Battle:
     def _candidates(self, unit: Unit, spec, hostile: bool, kind: str = "assaults") -> list[Unit]:
         side = self.sides[1 - unit.side if hostile else unit.side]
         units = side.structures if kind == "structures" else side.assaults
-        if spec.y:
+        if spec.y and not self._no_factions():
             units = [u for u in units if u.card.faction in (spec.y, PROGENITOR)]
         return units
 
@@ -812,7 +841,8 @@ class Battle:
 
     # hostile: evaded (Evade) and paid back (Payback / Revenge)
 
-    def _hostile(self, unit: Unit, spec, cands: list[Unit], apply, statuses, damage: bool = False) -> bool:
+    def _hostile(self, unit: Unit, spec, cands: list[Unit], apply, statuses, damage: bool = False,
+                 after_hit=None) -> bool:
         picked = self._pick(unit, spec, cands)
         if not picked:
             return False
@@ -834,6 +864,8 @@ class Battle:
         for t in evaded:
             self._action(t, "evade", [t], 1, [])
         self._after_damage()
+        if after_hit is not None and hit:
+            after_hit()
         result = bool(hit)                                   # all evaded: no cooldown
         if unit.is_assault:                                  # Payback / Revenge send it back
             for t in hit:
@@ -895,26 +927,32 @@ class Battle:
     def _skill_jam(self, unit: Unit, spec) -> bool:
         def apply(src, t, x):
             t.jammed = True
-        cands = [u for u in self._candidates(unit, spec, True) if self._will_act(u, unit)]
+        cands = [u for u in self._candidates(unit, spec, True) if self._will_act(u, unit) and not self._iron_will(u)]
         return self._hostile(unit, spec, cands, apply,
                              lambda ts: [self._status(t, "jammed", 1) for t in ts] + self._shown_health(ts))
 
     def _skill_weaken(self, unit: Unit, spec) -> bool:
-        def apply(src, t, x):
-            t.temp_attack -= min(x, t.attack_power())
-        cands = [u for u in self._candidates(unit, spec, True) if u.attack_power() > 0 and self._will_act(u, unit)]
-        return self._hostile(unit, spec, cands, apply,
-                             lambda ts: [self._status(t, "attack_boost", t.temp_attack) for t in ts]
-                             + self._shown_health(ts))
+        return self._weaken(unit, spec, sunder=False)
 
     def _skill_sunder(self, unit: Unit, spec) -> bool:
+        return self._weaken(unit, spec, sunder=True)
+
+    def _weaken(self, unit: Unit, spec, sunder: bool) -> bool:
+        """Weaken, or Sunder (Weaken that also stops attack bonuses). With Turning Tides,
+        the most attack taken from one card Rallies the caster's side."""
+        taken = [0]
+
         def apply(src, t, x):
-            t.sundered = True
-            t.temp_attack -= min(x, t.attack_power())
-        cands = [u for u in self._candidates(unit, spec, True) if u.attack_power() > 0 and self._will_act(u, unit)]
+            before = t.attack_power()
+            if sunder:
+                t.sundered = True
+            t.temp_attack -= min(x, before)
+            taken[0] = max(taken[0], before - t.attack_power())
+        cands = [u for u in self._candidates(unit, spec, True) if u.attack_power() > 0 and self._will_act(u, unit)
+                 and not self._iron_will(u)]
         return self._hostile(unit, spec, cands, apply,
                              lambda ts: [self._status(t, "attack_boost", t.temp_attack) for t in ts]
-                             + self._shown_health(ts))
+                             + self._shown_health(ts), after_hit=lambda: self._turning_tides(unit, spec, taken[0]))
 
     # helpful: blocked by Inhibit, shared by Tribute
 
@@ -939,8 +977,15 @@ class Battle:
     def _skill_heal(self, unit: Unit, spec) -> bool:
         ok = lambda u: u.alive and u.hp < u.max_hp                    # noqa: E731
         targets = self._pick(unit, spec, [u for u in self._candidates(unit, spec, False) if ok(u)])
-        return self._helpful(unit, spec, targets, lambda s, t, x: self._heal_hp(t, x),
-                             lambda ts: [self._health(t) for t in ts], ok)
+        zeal = self._passive("zealots_preservation") if unit.is_assault else None
+
+        def apply(s, t, x):
+            self._heal_hp(t, x)
+            if zeal:                                     # an assault's Heal X also Protects X/2
+                t.protected += -(-x // zeal[0])
+        return self._helpful(unit, spec, targets, apply,
+                             lambda ts: [self._health(t) for t in ts]
+                             + ([self._status(t, "protect", t.protected) for t in ts] if zeal else []), ok)
 
     def _skill_rally(self, unit: Unit, spec) -> bool:
         def ok(u):
@@ -968,10 +1013,9 @@ class Battle:
     def _adjacent_allies(self, unit: Unit, spec, ok) -> list[Unit]:
         if not unit.is_assault:
             return []
-        side, i = self.sides[unit.side], self.slot(unit)
-        return [u for u in (side.assaults[i - 1] if i > 0 else None,
-                            side.assaults[i + 1] if i + 1 < len(side.assaults) else None)
-                if u and ok(u) and (not spec.y or u.card.faction in (spec.y, PROGENITOR))]
+        side, i, reach = self.sides[unit.side], self.slot(unit), self._reach()
+        return [u for j, u in enumerate(side.assaults) if j != i and abs(j - i) <= reach and ok(u)
+                and (not spec.y or self._no_factions() or u.card.faction in (spec.y, PROGENITOR))]
 
     def _skill_fortify(self, unit: Unit, spec) -> bool:
         """Adjacent allies: +x max health (and health), no random pick."""
@@ -1115,9 +1159,10 @@ class Battle:
         Oath of Loyalty (the optimizer's), the card itself, if it has Allegiance X, gains X
         for each other card of its faction on its side: assaults, and structures other
         than the dominion and fortresses. Summoned cards get the Oath, not the allies'."""
+        mega = self._passive("megamorphosis", side.index)
         for ally in side.assaults if not played.summoned else ():
             value = ally.skill("allegiance")
-            if ally is played or not ally.alive or not value or ally.card.faction != played.card.faction:
+            if ally is played or not ally.alive or not value or not (mega or ally.card.faction == played.card.faction):
                 continue
             if not ally.sundered:
                 ally.perm_attack += value
@@ -1130,8 +1175,8 @@ class Battle:
         value = played.skill("allegiance")
         if oath and value and played.alive:
             faction = played.card.faction
-            same = sum(1 for u in side.assaults if u is not played and u.alive and u.card.faction == faction)
-            same += sum(1 for u in side.structures if u.alive and u.card.faction == faction
+            same = sum(1 for u in side.assaults if u is not played and u.alive and (mega or u.card.faction == faction))
+            same += sum(1 for u in side.structures if u.alive and (mega or u.card.faction == faction)
                         and u.uid != FIRST_UID[side.index] - 1 and u.uid not in self._fortress_uids)
             if same:                                       # not the dominion or fortresses
                 gain = value * same
@@ -1143,19 +1188,24 @@ class Battle:
                              + self._own_health(played))
 
     def _stasis(self, side: Side, played: Unit) -> None:
-        """A delayed assault of a faction with Stasis in play is protected until it acts."""
+        """A delayed assault of a faction with Stasis in play is protected until it acts.
+        Temporal Backlash: Counter X counts as Stasis X/2. Megamorphosis: every faction's."""
         faction = played.card.faction
-        if played.skill("stasis"):
+        backlash = self._passive("temporal_backlash", side.index)
+        mega = self._passive("megamorphosis", side.index)
+        if played.skill("stasis") or (backlash and played.skill("counter")):
             side.stasis_factions.add(faction)
-        if played.delay <= 0 or not played.is_assault or faction not in side.stasis_factions:
+        if played.delay <= 0 or not played.is_assault or not (mega or faction in side.stasis_factions):
             return
-        total = side.commander.skill("stasis") if side.commander.card.faction == faction else 0
-        total += sum(u.skill("stasis") for u in side.structures + side.assaults
-                     if u.alive and u.card.faction == faction)
+        same = lambda u: mega or u.card.faction == faction           # noqa: E731
+        total = side.commander.skill("stasis") if same(side.commander) else 0
+        total += sum(u.skill("stasis") for u in side.structures + side.assaults if u.alive and same(u))
+        if backlash:
+            total += sum(-(-u.skill("counter") // backlash[0]) for u in side.assaults if u.alive and same(u))
         played.protected_stasis = total
         if total:
             self._action(played, "stasis", [played], total, [self._status(played, "stasis", total)])
-        else:
+        elif not mega:
             side.stasis_factions.discard(faction)
 
     def _summon_on(self, unit: Unit, trigger: str) -> None:
@@ -1179,6 +1229,7 @@ class Battle:
         while self._pending_deaths:
             dead = self._pending_deaths.pop(0)
             if self._in_bge:                                     # death_from_bge: only Summon goes off
+                self._revenge(dead)                              # (and Revenge, a rule, as in the optimizer)
                 for spec in dead.card.skills:
                     if spec.trigger == "death" and spec.id == "summon" and not self.over:
                         self._summon_on(dead, "death")
@@ -1208,6 +1259,7 @@ class Battle:
                                   self._status(ally, "perm_max_health", ally.perm_health),
                                   self._health(ally)] + self._own_health(ally), block=[])
             self._virulence(dead, spread)
+            self._revenge(dead)
             for spec in dead.card.skills:
                 if spec.trigger == "death" and not self.over:
                     if spec.id == "summon":
@@ -1239,6 +1291,81 @@ class Battle:
     def _spread_poison(self, caster: Unit, unit: Unit, amount: int) -> None:
         unit.poisoned += amount
         self._action(caster, "venom", [unit], amount, [self._status(unit, "poison", unit.poisoned)])
+
+    def _caster_for(self, rule: str, side: int) -> Unit | None:
+        """The effect's stand-in acting for a side (a global effect has one each)."""
+        own = self.passive[side].get(rule)
+        if own:
+            return own[1]
+        other = self.passive[1 - side].get(rule)
+        return Unit(other[1].uid, other[1].card, side) if other else None
+
+    def _no_factions(self) -> bool:
+        """Metamorphosis / Megamorphosis: skills ignore their faction restrictions."""
+        return bool(self._passive("metamorphosis") or self._passive("megamorphosis"))
+
+    def _reach(self) -> int:
+        """How far Swipe, Drain, Mend and Fortify reach: 1, more with Critical Reach."""
+        rule = self._passive("critical_reach")
+        return 1 + (rule[0] if rule else 0)
+
+    def _iron_will(self, unit: Unit) -> bool:
+        """Iron Will: a card with Armor can't be Jammed, Weakened or Sundered."""
+        return bool(self._passive("iron_will")) and unit.has("armored")
+
+    def _turning_tides(self, unit: Unit, spec, taken: int) -> None:
+        """Turning Tides: Weaken / Sunder Rally the caster's side by the most attack taken."""
+        if not taken or self.over or not self._passive("turning_tides"):
+            return
+        self._skill_rally(self._caster_for("turning_tides", unit.side), SkillSpec("rally", taken, all=spec.all))
+
+    def _revenge(self, dead: Unit) -> None:
+        """Revenge (Furious, Spiteful, Fervorous): a death Heals and Rallies all its allies."""
+        rule = self._passive("revenge")
+        if not rule or self.over:
+            return
+        caster = self._caster_for("revenge", dead.side)
+        self._skill_heal(caster, SkillSpec("heal", rule[0], all=True))
+        self._skill_rally(caster, SkillSpec("rally", rule[0], all=True))
+
+    def _heroism_protect(self, side: Side) -> None:
+        """Heroism: each assault Protects itself for (Valor + Bravery) / 2, rounded up,
+        after the instant debuffs, Inhibit permitting."""
+        rule = self._passive("heroism")
+        if not rule:
+            return
+        for u in list(side.assaults):
+            value = -(-(u.skill("valor") + u.skill("bravery")) // rule[0])
+            if self.over or not value or not u.alive:
+                continue
+            self._begin_action()
+            if not self._inhibits(rule[1], u):
+                u.protected += value
+                self._action(rule[1], "protect", [u], value,
+                             [self._status(u, "protect", u.protected)] + self._shown_health([u]))
+            self._end_action()
+
+    def _cold_sleep(self, side: Side, played: Unit) -> None:
+        """Cold Sleep: a card played; each ally under Stasis heals half its Stasis."""
+        rule = self._passive("cold_sleep", side.index)
+        if not rule:
+            return
+        for u in side.assaults:
+            if u is not played and u.alive and u.protected_stasis and u.hp < u.max_hp:
+                value = -(-u.protected_stasis // rule[0])
+                self._heal_hp(u, value)
+                self._action(rule[1], "heal", [u], value, [self._health(u)])
+
+    def _devotion(self, side: Side, played: Unit) -> None:
+        """Devotion: a card played of its commander's faction gains a quarter of its
+        health as max health (rounded up)."""
+        rule = self._passive("devotion", side.index)
+        if not rule or played.card.faction != side.commander.card.faction or not played.alive:
+            return
+        value = -(-played.card.health // rule[0])
+        self._ext_hp(played, value)
+        self._action(rule[1], "heal", [played], value,
+                     [self._status(played, "perm_max_health", played.perm_health), self._health(played)])
 
     def _passive(self, rule: str, side: int | None = None):
         """(value, caster) for a rule effect working for a side (the side whose turn it is,

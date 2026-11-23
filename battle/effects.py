@@ -39,6 +39,28 @@ PASSIVE = {
     "Virulence": ("virulence", 1),            # a poisoned assault's death spreads its poison
     "Devour": ("devour", 4),                  # Leech/Refresh X hitting an assault: +X/4 attack and max health
     "Oath of Loyalty": ("oath_of_loyalty", 1),   # Allegiance on play, once per other card of its faction
+    # brawls' and wars' (values from the texts where the file has none)
+    "Scent of Blood": ("bloodlust", 2),       # +X attack damage for each assault that dealt some this turn
+    "Taste of Blood": ("bloodlust", 3),
+    "Bathe in Blood": ("bloodlust", 4),
+    "Furious Revenge": ("revenge", 1),        # a death: Heal and Rally all of its allies by X
+    "Spiteful Revenge": ("revenge", 2),
+    "Fervorous Revenge": ("revenge", 3),
+    "Brigade": ("brigade", 1),                # Legion's extra damage also heals the attacker
+    "Cold Sleep": ("cold_sleep", 2),          # a card played: allies under Stasis heal Stasis/X
+    "Critical Reach": ("critical_reach", 1),  # Swipe, Drain, Mend, Fortify reach X more cards each way
+    "Devotion": ("devotion", 4),              # a card of its commander's faction played: +health/X max health
+    "Enduring Rage": ("enduring_rage", 2),    # Berserk X also heals and protects for X/2
+    "Heroism": ("heroism", 2),                # Protect (Valor+Bravery)/X each turn; kills give attack
+    "Iron Will": ("iron_will", 4),            # cards with Armor can't be Jammed, Weakened or Sundered
+    "Megamorphosis": ("megamorphosis", 1),    # no faction restrictions, also for Allegiance and Stasis
+    "Metamorphosis": ("metamorphosis", 1),    # skills lose their faction restrictions
+    "Temporal Backlash": ("temporal_backlash", 2),   # Counter X adds X/2 to its faction's Stasis
+    "Turning Tides": ("turning_tides", 1),    # Weaken/Sunder: Rally an ally by the attack taken away
+    "Zealot's Preservation": ("zealots_preservation", 2),   # an assault's Heal X also Protects X/2
+    # Blood Vengeance ("Avenge triggers at half strength whenever any non-adjacent allied
+    # assault dies") needs nothing either: that's how Avenge works here already, as in
+    # the optimizer.
     # Halted Orders ("Inactive Assaults with Inhibit will Inhibit the Assault across from
     # them") needs nothing: every live assault inhibits the card across already, active or
     # not, as in the optimizer, whose own Halted Orders rule is commented out.

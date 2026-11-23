@@ -123,7 +123,7 @@ def test_energy_refills(tmp_path):
 def test_the_save(tmp_path):
     _, _, store = setup(tmp_path, {2001: 10})
     saved = json.loads(store.path.read_text("utf-8"))
-    assert saved["version"] == SAVE_VERSION == 12 and saved["player"]["items"] == {"2001": 10}
+    assert saved["version"] == SAVE_VERSION == 13 and saved["player"]["items"] == {"2001": 10}
     saved["version"], saved["player"]["items"] = 11, None                     # an older save
     del saved["player"]["items"]
     store.path.write_text(json.dumps(saved), "utf-8")

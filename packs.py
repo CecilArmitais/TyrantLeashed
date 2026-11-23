@@ -23,6 +23,16 @@ likely (ours: the page gives rarities only).
 
 During the tutorial the bought card also goes into the deck: the recorded tutorial
 purchase did, the account's later ones didn't.
+
+Any other mini pack opens the same way from its own data (mini_pack): restrictions
+narrow the pool (set, level, faction `type`, delay `cost`, fusion level), or a card list
+is the pool (the "exclusive possible" packs: a listed card at its rarity's rate, ours);
+`number` gives that many copies of each card drawn (the Quadra packs);
+`fusion_components` gives a drawn fused card's recipe instead (the "Complete" packs: "two
+or three cards that can be fused together"); a pack with no slots gives its listed
+cards (single-card packs); `<sp>` gives salvage points (the Salvage Coins). Single-card
+packs (type 13) and the scaling pack's cards get dearer with each purchase
+(scaling_price).
 """
 
 from __future__ import annotations
@@ -60,6 +70,21 @@ class Pack:
     war_bonds: int | None = None             # ...or in war bonds
     faction: int | None = None               # a faction pack's faction (restrictions type='3')
     set_id: int = BASE_SET                   # the set it draws from (reward packs: 4500)
+    level: int = 1                           # the cards' level (Level Packs: 4)
+    fusion: int = 0                          # their fusion level (Fused Pack: 1)
+    delay: int | None = None                 # restrictions cost: their delay ("Cooldown: 1")
+    listed: tuple[int, ...] = ()             # a card list as the pool (exclusive packs)
+    copies: int = 1                          # restrictions number: copies of each card drawn
+    components: bool = False                 # fusion_components: the drawn fused card's recipe
+    fixed: tuple[int, ...] = ()              # no draw: these cards (single-card packs)
+    sp: int = 0                              # salvage points it gives (Salvage Coins)
+
+    @property
+    def size(self) -> int:
+        """How many cards a purchase can give at most (for the inventory check)."""
+        if self.fixed:
+            return len(self.fixed)
+        return sum(n for _, n in self.draws) * self.copies * (3 if self.components else 1)
 
 
 class PackError(Exception):
@@ -83,6 +108,35 @@ def base_pool(cards: CardDB, faction: int | None = None, set_id: int = BASE_SET)
     return pools[key]
 
 
+def pack_pool(cards: CardDB, pack: Pack, recipes: dict | None = None) -> dict[int, list[int]]:
+    """rarity -> the cards a pack draws from: its card list, or the cards its restrictions
+    allow (assaults and structures of the set, level, fusion level, faction and delay; a
+    fusion_components pack: fused cards with a recipe)."""
+    if pack.listed:
+        pool: dict[int, list[int]] = {}
+        for cid in dict.fromkeys(pack.listed):
+            c = cards.get(cid)
+            if c is not None:
+                pool.setdefault(c.rarity, []).append(cid)
+        return pool
+    if (pack.level, pack.fusion, pack.delay, pack.components) == (1, 0, None, False):
+        return base_pool(cards, pack.faction, pack.set_id)
+    pools = getattr(cards, "_pack_pools", None)
+    if pools is None:
+        pools = cards._pack_pools = {}
+    key = (pack.faction, pack.set_id, pack.level, pack.fusion, pack.delay, pack.components)
+    if key not in pools:
+        pool = {}
+        for c in cards.cards.values():
+            if c.set == pack.set_id and c.level == pack.level and c.fusion_level == pack.fusion \
+                    and c.type in (ASSAULT, STRUCTURE) and (pack.faction is None or c.faction == pack.faction) \
+                    and (pack.delay is None or c.delay == pack.delay) \
+                    and (not pack.components or (recipes or {}).get(c.id)):
+                pool.setdefault(c.rarity, []).append(c.id)
+        pools[key] = {r: sorted(ids) for r, ids in pool.items()}
+    return pools[key]
+
+
 def rates(distribution: str, pool: dict[int, list[int]]) -> tuple[tuple[int, float], ...]:
     """The column's rarities that the pool has, with their shares. A rarity the pool
     lacks (a faction pack's Vindicator: the base set's only one is Progenitor) is left
@@ -98,9 +152,56 @@ def draw(cards: CardDB, distribution: str, rng: random.Random, faction: int | No
     return rng.choice(pool[rarity])
 
 
-def open_pack(pack: Pack, cards: CardDB, rng: random.Random) -> list[int]:
+def open_pack(pack: Pack, cards: CardDB, rng: random.Random, recipes: dict | None = None) -> list[int]:
     """The cards in one pack, in order (the Epic Pack's guaranteed card last)."""
-    return [draw(cards, dist, rng, pack.faction, pack.set_id) for dist, n in pack.draws for _ in range(n)]
+    if pack.fixed:
+        return list(pack.fixed)
+    pool = pack_pool(cards, pack, recipes)
+    out = []
+    for dist, n in pack.draws:
+        for _ in range(n):
+            rarities, weights = zip(*rates(dist, pool))
+            cid = rng.choice(pool[rng.choices(rarities, weights=weights)[0]])
+            got = [r for r, k in recipes[cid] for _ in range(k)] if pack.components else [cid]
+            out += [c for c in got for _ in range(pack.copies)]
+    return out
+
+
+def openable(pack: Pack | None, cards: CardDB, recipes: dict | None = None) -> bool:
+    """Whether every slot of the pack has some card to give."""
+    if pack is None:
+        return False
+    if pack.fixed:
+        return all(cards.get(c) is not None for c in pack.fixed)
+    if pack.sp and not pack.draws:
+        return True
+    pool = pack_pool(cards, pack, recipes)
+    return bool(pack.draws) and all(rates(dist, pool) for dist, _ in pack.draws)
+
+
+def scaling_price(pricing: dict, bought: int) -> int:
+    """A single-card promo's price after `bought` earlier purchases: purchase1-4 in turn,
+    then `scalar` more each time (ours: the data stops at purchase4)."""
+    steps = [int(pricing[f"purchase{i}"]) for i in range(1, 5) if pricing.get(f"purchase{i}") not in (None, "")]
+    if not steps:
+        return 0
+    if bought < len(steps):
+        return steps[bought]
+    return steps[-1] + int(pricing.get("scalar") or 0) * (bought - len(steps) + 1)
+
+
+def load_scaling_pack(asset_dir: Path, file_name: str = "mini_packs_36i.xml") -> tuple[dict[int, dict], list[int]]:
+    """The file's <scaling_pack>: rarity -> {purchase1..4, scalar} (war bonds), and its
+    cards (25: single copies sold with those rising prices, Tabitha's Trooper among them)."""
+    f = Path(asset_dir) / file_name
+    if not f.is_file():
+        return {}, []
+    sp = ET.parse(f).getroot().find("scaling_pack")
+    if sp is None:
+        return {}, []
+    prices = {int(e.tag[len("rarity"):-len("scaling")]): dict(e.attrib) for e in sp
+              if e.tag.startswith("rarity") and e.tag.endswith("scaling")}
+    return prices, [int(c.text) for c in sp.findall("card") if (c.text or "").strip().isdigit()]
 
 
 def store_pack(start: dict, pack_id) -> Pack | None:
@@ -138,22 +239,42 @@ def load_mini_packs(asset_dir: Path, file_name: str = "mini_packs_36i.xml") -> d
         dist = mp.find("distribution")
         out[mid] = {"name": (mp.findtext("name") or "").strip(),
                     "restrictions": dict(r.attrib) if r is not None else {},
-                    "distribution": {d.tag: int(d.text or 0) for d in (dist if dist is not None else [])}}
-        for k in ("type", "desc", "picture", "web_picture", "banner_picture", "icon", "gold_cost", "wb_cost"):
+                    "distribution": {d.tag: int(d.text or 0) for d in (dist if dist is not None else [])},
+                    "cards": [int(c.text) for c in mp.iter("card") if (c.text or "").strip().isdigit()]}
+        for k in ("type", "desc", "picture", "web_picture", "banner_picture", "icon", "gold_cost", "wb_cost", "sp"):
             if (mp.findtext(k) or "").strip():
                 out[mid][k] = mp.findtext(k).strip()
+        scaling = mp.find("scaling_pricing")
+        if scaling is not None:
+            out[mid]["scaling_pricing"] = dict(scaling.attrib)
     return out
 
 
+KNOWN_RESTRICTIONS = {"set", "level", "type", "cost", "fusion_level", "fusion_components", "number", "no_preview"}
+
+
 def mini_pack(mp: dict, gold: int | None = None, war_bonds: int | None = None) -> Pack | None:
-    """A mini pack as a Pack, if it's one we can open: limited to the base set at level 1,
-    perhaps to one faction (type 1-5), with basic/rare/epic/legendary counts only."""
-    r = {k: v for k, v in mp["restrictions"].items() if k != "no_preview"}
-    faction = r.pop("type", None)
-    if r != {"set": str(BASE_SET), "level": "1"} or (faction is not None and faction not in "12345")             or not mp["distribution"] or any(d not in RATES for d in mp["distribution"]):
+    """A mini pack as a Pack, or None if its data has something we don't know (see the
+    module's notes). Without a price given, the file's own (gold_cost / wb_cost)."""
+    r = mp["restrictions"]
+    if set(r) - KNOWN_RESTRICTIONS or any(d not in RATES for d in mp["distribution"]) \
+            or (r.get("type") is not None and r["type"] not in ("1", "2", "3", "4", "5")) \
+            or any(not str(v).isdigit() for k, v in r.items()):
         return None
-    return Pack(mp["name"], tuple(mp["distribution"].items()), gold=gold, war_bonds=war_bonds,
-                faction=int(faction) if faction else None)
+    if gold is None and war_bonds is None:
+        gold = int(mp["gold_cost"]) if str(mp.get("gold_cost", "")).isdigit() else None
+        war_bonds = int(mp["wb_cost"]) if str(mp.get("wb_cost", "")).isdigit() else None
+    common = dict(name=mp["name"], gold=gold, war_bonds=war_bonds, sp=int(mp.get("sp") or 0))
+    listed = tuple(mp.get("cards") or ())
+    if not mp["distribution"]:
+        if listed:
+            return Pack(draws=(), fixed=listed, **common)          # single-card packs
+        return Pack(draws=(), **common) if common["sp"] else None   # Salvage Coins
+    return Pack(draws=tuple(mp["distribution"].items()), faction=int(r["type"]) if r.get("type") else None,
+                set_id=int(r.get("set") or BASE_SET), level=int(r.get("level") or 1),
+                fusion=int(r.get("fusion_level") or 0), delay=int(r["cost"]) if r.get("cost") else None,
+                listed=listed, copies=int(r.get("number") or 1), components=r.get("fusion_components") == "1",
+                **common)
 
 
 def reward_pack(mp: dict) -> Pack | None:
@@ -172,16 +293,20 @@ def reward_pack(mp: dict) -> Pack | None:
 STORE_PACK_DRAWS = {1: (("basic", 1),), 100: (("basic", 1), ("rare", 1)), 1000: (("basic", 3), ("epic", 1))}
 
 
+PREVIEW_MAX = 100      # ours: a bigger pool (the 1,071 event cards) isn't listed
+
+
 def preview_cards(cards: CardDB, mp: dict) -> list[int] | None:
     """A promo's available_cards: every card the pack can give, highest rarity first (the
     recorded Blight Pack listed its faction's legendary, then its 5 epics by id), or None
-    for no_preview packs."""
+    for no_preview packs, single-card packs and pools over PREVIEW_MAX."""
     pack = mini_pack(mp)
-    if pack is None or mp["restrictions"].get("no_preview") == "1":
+    if pack is None or mp["restrictions"].get("no_preview") == "1" or pack.fixed or not pack.draws:
         return None
-    pool = base_pool(cards, pack.faction)
+    pool = pack_pool(cards, pack)
     rarities = {r for dist, _ in pack.draws for r, _ in rates(dist, pool)}
-    return [c for r in sorted(rarities, reverse=True) for c in pool[r]]
+    shown = [c for r in sorted(rarities, reverse=True) for c in pool[r]]
+    return shown if len(shown) <= PREVIEW_MAX else None
 
 
 def promo_pack(start: dict, mini_packs: dict, item_id) -> Pack | None:

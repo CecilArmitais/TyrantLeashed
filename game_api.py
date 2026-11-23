@@ -115,6 +115,7 @@ import boxes
 import content as store_content
 import daily_crate
 import store_upgrades
+import promos
 import packs
 import upgrades
 from player_state import Player, PlayerStore, deck_from_json, decks_json, level_info
@@ -596,19 +597,11 @@ class GameApi:
         box entries, problems: what in the file can't be offered, and why). The boxes'
         progress is `player`'s, or the save's (from_save) or none."""
         c = self.content()
-        problems = list(c.problems)
-        mini = self._mini_packs()
-        promos = []
-        for promo in c.promos:
-            mp = mini.get(str(promo.mini_pack))
-            if mp is None or packs.mini_pack(mp) is None:
-                problems.append(f"store.promos: mini pack {promo.mini_pack} " + (
-                    "doesn't exist" if mp is None else "can't be opened offline yet (only base-set packs can)"))
-                continue
-            preview = packs.preview_cards(self._engine_data()[0], mp)
-            promos.append(store_content.promo_entry(promo.mini_pack, mp, promo, preview))
         if player is None and from_save:
             player = self.player()
+        offers, problems = self._promo_offers(player)
+        problems = list(c.problems) + problems
+        promo_entries = [o["entry"] for o in offers]
         now = int(self.clock())
         box_entries = []
         for bid in c.boxes:
@@ -623,7 +616,109 @@ class GameApi:
             box_entries.append(store_content.tiered_box_entry(box, state, now, boxes.tier(box, state))
                                if box.tiered else
                                store_content.box_entry(box, state, now, boxes.next_deal(box, state)))
-        return c, promos, box_entries, problems
+        return c, promo_entries, box_entries, problems
+
+    def _promo_offers(self, player) -> tuple[list[dict], list[str]]:
+        """What the content file's promos offer `player` now (their entries' prices are the
+        player's next ones): [{"entry", "pack", "key", "bundle"}], and the problems."""
+        cards = self._engine_data()[0]
+        mini, recipes = self._mini_packs(), self._recipes()
+        scaling_table, _ = self._scaling()
+        bought = (lambda key: player.promo_buys.get(key, 0)) if player is not None else (lambda key: 0)
+        offers, problems = [], []
+        for promo in self.content().promos:
+            if promo.kind == "card":
+                card = cards.get(promo.card)
+                table = scaling_table.get(card.rarity) if card is not None else None
+                if card is None:
+                    problems.append(f"store.promos: there's no card {promo.card}")
+                    continue
+                if table is None and promo.gold is None and promo.war_bonds is None:
+                    problems.append(f"store.promos: card {promo.card} ({card.name}) needs a price: the scaling "
+                                    "table only prices Epic to Mythic cards")
+                    continue
+                key = promos.card_key(card.id)
+                entry = promos.card_entry(card, table or {}, bought(key))
+                if promo.gold is not None or promo.war_bonds is not None:     # a fixed price instead
+                    entry.pop("wb_cost")
+                    entry.pop("scaling_pricing")
+                    entry.update({"gold_cost": str(promo.gold), "sub_item_id": "gold"} if promo.gold is not None
+                                 else {"wb_cost": str(promo.war_bonds)})
+                pack = packs.Pack(card.name, (), gold=promo.gold, fixed=(card.id,),
+                                  war_bonds=int(entry["wb_cost"]) if "wb_cost" in entry else None)
+                offers.append({"entry": entry, "pack": pack, "key": key, "bundle": None})
+            elif promo.kind == "bundle":
+                bundle = promos.BUNDLES.get(promo.bundle)
+                if bundle is None:
+                    problems.append(f"store.promos: there's no bundle {promo.bundle} (the recorded ones: "
+                                    + ", ".join(map(str, promos.BUNDLES)) + ")")
+                    continue
+                key = promos.bundle_key(bundle.id)
+                if bundle.once and bought(key):
+                    continue                                        # bought once: it leaves the store
+                pack = packs.Pack(bundle.name, (), gold=promo.gold, war_bonds=promo.war_bonds,
+                                  fixed=(bundle.card,) if bundle.card else (), sp=bundle.sp)
+                offers.append({"entry": promos.bundle_entry(bundle, promo.gold, promo.war_bonds), "pack": pack,
+                               "key": key, "bundle": bundle})
+            else:
+                mp = mini.get(str(promo.mini_pack))
+                pack = packs.mini_pack(mp, gold=promo.gold, war_bonds=promo.war_bonds) if mp else None
+                if mp is None or not packs.openable(pack, cards, recipes):
+                    problems.append(f"store.promos: mini pack {promo.mini_pack} " + (
+                        "doesn't exist" if mp is None else "can't be opened: the card files lack its cards"
+                        if pack is not None else "has data we don't know how to open"))
+                    continue
+                key = promos.pack_key(promo.mini_pack)
+                scaling = mp.get("scaling_pricing")
+                if scaling and promo.gold is None and promo.war_bonds is None:
+                    pack = dataclasses.replace(pack, war_bonds=packs.scaling_price(scaling, bought(key)))
+                if pack.gold is None and pack.war_bonds is None:
+                    problems.append(f"store.promos: mini pack {promo.mini_pack} ({mp['name']}) has no price in "
+                                    "the file: give it one, gold or war_bonds")
+                    continue
+                entry = store_content.promo_entry(promo.mini_pack, mp, store_content.Promo(
+                    promo.mini_pack, gold=pack.gold, war_bonds=pack.war_bonds if pack.gold is None else None),
+                    packs.preview_cards(cards, mp))
+                if pack.fixed:
+                    entry["card"] = str(pack.fixed[0])
+                if scaling:
+                    entry["scaling_pricing"] = dict(scaling)
+                offers.append({"entry": entry, "pack": pack, "key": key, "bundle": None})
+        return offers, problems
+
+    def _scaling(self):
+        if getattr(self, "_scaling_pack", None) is None:
+            self._scaling_pack = packs.load_scaling_pack(self._assets)
+        return self._scaling_pack
+
+    def _recipes(self) -> dict:
+        if getattr(self, "_upgrade_data", None) is None:
+            self._upgrade_data = (upgrades.load_levels(self._assets), upgrades.load_recipes(self._assets))
+        return self._upgrade_data[1]
+
+    def _buy_promo(self, message: str, params: dict):
+        """buyStorePromoGold / buyStorePromoTokens item_type=3 or 7 item_id: a promo the
+        content file offers (a mini pack, a single card, a bundle), or None for others."""
+        player = self.player()
+        offers, _ = self._promo_offers(player)
+        item_id, item_type = str(params.get("item_id")), str(params.get("item_type"))
+        offer = next((o for o in offers if str(o["entry"]["item_id"]) == item_id
+                      and str(o["entry"]["item_type"]) == item_type), None)
+        if offer is None:
+            bundle = promos.BUNDLES.get(int(item_id)) if item_id.isdigit() else None
+            if bundle is not None and item_type == str(promos.BUNDLE_ITEM_TYPE) \
+                    and player.promo_buys.get(promos.bundle_key(bundle.id)):
+                return self._refuse(params, f"You already bought the {bundle.name}: it's one time only."), \
+                    f"refused {message}: {bundle.name} already bought"
+            return None
+        pack = offer["pack"]
+        currency = "gold" if message == PROMO_GOLD else "war bonds"
+        price = pack.gold if message == PROMO_GOLD else pack.war_bonds
+        if price is None:
+            return self._refuse(params, f"The {pack.name} isn't sold for {currency}."), \
+                f"refused {message}: no {currency} price"
+        return self._sell_pack(params, pack, price, currency, PROMO_GOLD, with_data=True, count_key=offer["key"],
+                               bundle=offer["bundle"])
 
     def store_report(self) -> str:
         """One line on what the store offers, then any problems in the content file."""
@@ -815,15 +910,11 @@ class GameApi:
                                                                     str(store_content.TIERED_ITEM_TYPE)) \
                 and self.player() is not None:
             return self._buy_box_deal(params) if params.get("box_discount_id") not in (None, "")                 else self._buy_box(params)
-        if message in (PROMO_GOLD, PROMO_WB) and self.player() is not None:
-            pack = packs.promo_pack({"store_promos": self._store()[1]}, self._mini_packs(), params.get("item_id"))
-            if pack is not None and str(params.get("item_type")) == "3":
-                currency = "gold" if message == PROMO_GOLD else "war bonds"
-                price = pack.gold if message == PROMO_GOLD else pack.war_bonds
-                if price is None:
-                    return self._refuse(params, f"The {pack.name} isn't sold for {currency}."), \
-                        f"refused {message}: no {currency} price"
-                return self._sell_pack(params, pack, price, currency, PROMO_GOLD, with_data=True)
+        if message in (PROMO_GOLD, PROMO_WB) and self.player() is not None \
+                and str(params.get("item_type")) in ("3", str(promos.BUNDLE_ITEM_TYPE)):
+            sold = self._buy_promo(message, params)
+            if sold is not None:
+                return sold
             # other promos: replayed if recorded, as before
         if message == RIVALS_REFRESH and self.battle_engine and self.player() is not None:
             return self._refresh_rivals(params)
@@ -1424,24 +1515,29 @@ class GameApi:
         return self._sell_pack(params, pack, price, currency, PACK_GOLD)
 
     def _sell_pack(self, params: dict, pack, price: int, currency: str, template: str,
-                   with_data: bool = False, open_cards=None, n: int | None = None) -> tuple[dict, str]:
+                   with_data: bool = False, open_cards=None, n: int | None = None,
+                   count_key: str | None = None, bundle=None) -> tuple[dict, str]:
         """Takes the price, opens the pack into the inventory (and, during the tutorial,
         the deck), and answers in the recorded reply's shape: the recorded reply for
         `template` with the save's data, plus new_cards (and new_cards_data for promos).
         open_cards(player) -> card ids replaces opening `pack` (an event box: then `pack`
-        only needs a name); n is how many cards it gives."""
+        only needs a name); n is how many cards it gives. count_key: the purchase is
+        counted (rising prices, one-time bundles); bundle: its other contents are added
+        (war bonds, upgrades). A pack's SP shows in new_items as "Salvage Points"."""
         player = self.player()
         have = player.gold if currency == "gold" else player.war_bonds
         problem = None
         expected = params.get("expected_cost")
         cap = player.max_cards or int(((self._start.get("user_data") or {}).get("caps") or {}).get("max_cards") or 1600)
-        n = sum(count for _, count in pack.draws) if n is None else n
+        n = pack.size if n is None else n
         if expected not in (None, "") and str(expected).isdigit() and int(expected) != price:
             problem = f"The price has changed: the {pack.name} costs {price} {currency} now."
         elif have < price:
             problem = f"Not enough {currency}: the {pack.name} costs {price}, and you have {have}."
         elif player.card_count + n > cap:
             problem = f"Your inventory is full: {player.card_count} of {cap} cards."
+        elif getattr(pack, "sp", 0) and not pack.draws and not pack.fixed and (player.salvage or 0) >= self._cap_sp():
+            problem = f"Your SP is full: {player.salvage} of {self._cap_sp()}."
         cards, _ = self._engine_data()
         if not problem and open_cards is not None:
             try:
@@ -1449,7 +1545,7 @@ class GameApi:
             except boxes.BoxError as e:
                 problem = str(e)
         elif not problem:
-            new = packs.open_pack(pack, cards, self.rng_factory())
+            new = packs.open_pack(pack, cards, self.rng_factory(), self._recipes())
         if problem:
             reply = self._refuse(params, problem)
             reply["user_data"] = self.current_user_data(params)
@@ -1460,6 +1556,25 @@ class GameApi:
             player.war_bonds -= price
         for cid in new:
             player.add_card(cid)
+        extras, shown = [], {}
+        if getattr(pack, "sp", 0):
+            before = player.salvage or 0
+            player.salvage = min(self._cap_sp(), before + pack.sp)
+            shown[items.SALVAGE_POINTS] = player.salvage - before
+            extras.append(f"{player.salvage - before} SP")
+        if bundle is not None:
+            player.war_bonds += bundle.war_bonds
+            player.max_energy += bundle.max_energy
+            player.max_cards = (player.max_cards or cap) + bundle.card_slots
+            player.max_salvage = (player.max_salvage or self._cap_sp()) + bundle.max_salvage
+            if bundle.max_stamina and player.arena is not None:
+                player.arena["max_stamina"] += bundle.max_stamina
+            extras += [f"{v} {what}" for v, what in ((bundle.war_bonds, "war bonds"), (bundle.max_energy, "max energy"),
+                                                     (bundle.card_slots, "card slots"),
+                                                     (bundle.max_stamina, "max stamina"),
+                                                     (bundle.max_salvage, "max SP")) if v]
+        if count_key:
+            player.promo_buys[count_key] = player.promo_buys.get(count_key, 0) + 1
         into_deck = []
         deck = (player.decks or {}).get(self._active_deck_id())
         if self._in_tutorial(player) and deck is not None:
@@ -1486,9 +1601,22 @@ class GameApi:
             reply.pop("new_cards_data", None)
         if into_deck:
             reply["user_decks"] = decks_json(player.decks)
+        if shown:
+            reply["new_items"] = items.new_items_json(shown)
+        if bundle is not None:
+            reply.update(self._player_parts(params, ("user_data",)))
+            if bundle.max_energy:
+                reply["max_energy"] = player.max_energy           # where the client reads the cap
+            if bundle.max_stamina and player.arena is not None:
+                reply["max_stamina"] = player.arena["max_stamina"]
+        if count_key or bundle is not None:                   # the next price, and a one-time bundle gone
+            parts = self._prepare({"time": self._start.get("time"),
+                                   "store_promos": copy.deepcopy(self._start.get("store_promos") or [])}, params)
+            reply["store_promos"] = parts.get("store_promos", [])
         names = ", ".join(f"{cards[c].name} ({'?CRELVM'[cards[c].rarity] if 0 < cards[c].rarity < 7 else '?'})"
                           for c in new)
-        return reply, (f"bought {pack.name} for {price} {currency} ({have} -> {have - price}): {names}"
+        return reply, (f"bought {pack.name} for {price} {currency} ({have} -> {have - price}): "
+                       + "; ".join(x for x in (names, *extras) if x)
                        + ("; into the deck (tutorial)" if into_deck else ""))
 
     def _offered_box(self, params: dict):
@@ -2858,6 +2986,10 @@ class GameApi:
         return gains
 
     def _cap_sp(self) -> int:
+        """The SP cap: the player's (an Elite Pack raises it), else the login's."""
+        player = self.player() if self.player_store is not None else None
+        if player is not None and player.max_salvage:
+            return player.max_salvage
         caps = (self._start.get("user_data") or {}).get("caps") or {}
         return int(caps.get("max_salvage") or upgrades.DEFAULT_MAX_SALVAGE)
 
@@ -2900,13 +3032,11 @@ class GameApi:
     # ---- the Upgrade screen ---------------------------------------------------------------------
 
     def _upgrade_rules(self) -> upgrades.Rules:
-        if getattr(self, "_upgrade_data", None) is None:
-            self._upgrade_data = (upgrades.load_levels(self._assets), upgrades.load_recipes(self._assets))
-        levels, recipes = self._upgrade_data
-        caps = (self._start.get("user_data") or {}).get("caps") or {}
+        recipes = self._recipes()
+        levels = self._upgrade_data[0]
         return upgrades.Rules(self._engine_data()[0], levels, recipes,
                               commander_mult=int(self._start.get("com_sp_mult") or upgrades.DEFAULT_COMMANDER_MULT),
-                              max_salvage=int(caps.get("max_salvage") or upgrades.DEFAULT_MAX_SALVAGE))
+                              max_salvage=self._cap_sp())
 
     def _upgrade_screen(self, message: str, params: dict) -> tuple[dict, str]:
         """upgradeCard card_id in_deck, salvageCard card_id, salvageL1CommonCards,

@@ -38,17 +38,36 @@ TEMPLATE = '''# What's on offer in this Tyrant Unleashed server: the store, even
 # "epic" (Epic Pack, four cards with one Epic or better, 20 war bonds).
 packs = ["basic", "epic"]
 
-# Promos made from mini packs (mini_packs_36i.xml): its id, and a price in gold or war_bonds.
-# Packs limited to the base set at level 1 can be opened: faction packs and boxes
-# (ids 11-15, 21-25), the Basic Pack bundles (48, 49), Legendary Base (97, 98)...
+# The store's promos, each one of:
+#   { mini_pack = <id> }   a mini pack (mini_packs_36i.xml) at the file's own price, or
+#                          with your own: gold = N or war_bonds = N. 389 of its 394 open:
+#                          faction boxes and packs (11-15, 21-25), level packs (52, 72-76),
+#                          event and reward card packs (53, 66-70, 78-82, 91-93), the
+#                          "exclusive" packs (Triton Pack 59...), Quadras (2000...), the
+#                          Fusion, Fused and Complete packs (50, 88, 83, 100-104), Salvage
+#                          Coins (51, 84, 90, 99), single cards (type 13, 1001-1050: their
+#                          price rises with each purchase)...
+#   { card = <id> }        one copy of a card for war bonds, dearer with each purchase:
+#                          the file's table for its rarity (an Epic 10, 15, 20, 25, then
+#                          +5; Legendary 30-60, +10; Vindicator 50-110, +20; Mythic
+#                          80-170, +30). The recorded store sold Tabitha's Trooper so.
+#   { bundle = <id>, gold = N }  (or war_bonds = N) one of the recorded real-money
+#                          bundles, sold for gold or war bonds instead (there's no
+#                          Kongregate to pay through offline):
+#                          191 Platinum Crate (250 war bonds, Kronus, 50 SP);
+#                          200080 Elite Pack (100 war bonds, +50 max energy, +150 card
+#                          slots, +10 max stamina, +350 max SP; once);
+#                          201607 New Buyer Surge (400 war bonds; once);
+#                          202122 550 WB Surge Pack (550 war bonds; once).
 promos = [
     { mini_pack = 23, war_bonds = 5 },     # Blight Pack: two Bloodthirsty cards, Epic or better
     { mini_pack = 49, gold = 400 },        # Basic Pack x4
     { mini_pack = 48, gold = 2000 },       # Basic Pack x20
+    { card = 70584 },                      # Tabitha's Trooper: 80 war bonds, then 110, 140...
 ]
 
-# Keep the other recorded store items: Tabitha's Trooper, the upgrades and the
-# real-money bundles (they're shown as recorded; buying them isn't supported yet).
+# Keep the recorded store's other items: the store upgrades, and the real-money
+# bundles not set above (those are shown as recorded and can't be bought).
 recorded_extras = true
 
 [boxes]
@@ -175,15 +194,22 @@ rewards = [
 
 @dataclass(frozen=True)
 class Promo:
-    mini_pack: int
+    mini_pack: int | None = None
     gold: int | None = None
     war_bonds: int | None = None
+    card: int | None = None          # one copy of a card, its price rising with each purchase
+    bundle: int | None = None        # a recorded real-money bundle (promos.BUNDLES)
+
+    @property
+    def kind(self) -> str:
+        return "card" if self.card is not None else "bundle" if self.bundle is not None else "mini_pack"
 
 
 @dataclass
 class Content:
     packs: tuple[str, ...] = ("basic", "epic")
-    promos: tuple[Promo, ...] = (Promo(23, war_bonds=5), Promo(49, gold=400), Promo(48, gold=2000))
+    promos: tuple[Promo, ...] = (Promo(23, war_bonds=5), Promo(49, gold=400), Promo(48, gold=2000),
+                                 Promo(card=70584))
     recorded_extras: bool = True
     boxes: tuple[int, ...] = ()
     raid: int = 0
@@ -216,14 +242,21 @@ def parse(text: str) -> Content:
     c.packs = tuple(p for p in packs if p in PACK_IDS)
     problems += [f"store.packs: unknown pack {p!r} (use basic or epic)" for p in packs if p not in PACK_IDS]
     promos = []
-    for i, p in enumerate(store.get("promos", [{"mini_pack": x.mini_pack, "gold": x.gold, "war_bonds": x.war_bonds}
-                                                for x in c.promos])):
+    defaults = [{k: v for k, v in (("mini_pack", x.mini_pack), ("card", x.card), ("bundle", x.bundle),
+                                   ("gold", x.gold), ("war_bonds", x.war_bonds)) if v is not None} for x in c.promos]
+    for i, p in enumerate(store.get("promos", defaults)):
+        kinds = [k for k in ("mini_pack", "card", "bundle") if k in p]
         gold, wb = p.get("gold"), p.get("war_bonds")
-        if not isinstance(p.get("mini_pack"), int) or (gold is None) == (wb is None) \
-                or not isinstance(gold if gold is not None else wb, int) or (gold if gold is not None else wb) < 0:
-            problems.append(f"store.promos[{i}]: needs a mini_pack id and one price, gold or war_bonds")
+        price_ok = all(v is None or (isinstance(v, int) and v >= 0) for v in (gold, wb)) \
+            and not (gold is not None and wb is not None)
+        if len(kinds) != 1 or not isinstance(p[kinds[0]], int) or not price_ok:
+            problems.append(f"store.promos[{i}]: needs one of mini_pack, card or bundle (an id), and at most one "
+                            "price, gold or war_bonds")
             continue
-        promos.append(Promo(p["mini_pack"], gold=gold, war_bonds=wb))
+        if kinds == ["bundle"] and gold is None and wb is None:
+            problems.append(f"store.promos[{i}]: a bundle needs a price, gold or war_bonds")
+            continue
+        promos.append(Promo(**{kinds[0]: p[kinds[0]]}, gold=gold, war_bonds=wb))
     c.promos = tuple(promos)
     c.recorded_extras = bool(store.get("recorded_extras", True))
     on_offer = boxes.get("on_offer", [])
@@ -415,15 +448,26 @@ def apply_to_store(body: dict, content: Content, promo_entries: list[dict], box_
         keep = {PACK_IDS[p] for p in content.packs}
         body["store_packs"] = {k: v for k, v in body["store_packs"].items() if k in keep}
     if isinstance(body.get("store_promos"), list):
-        # The recorded order, with each recorded mini pack promo replaced by the content
-        # file's (or dropped); new promos follow the last one, boxes come first.
+        # The recorded order, with each recorded promo we sell replaced by ours (a mini
+        # pack's by its id; a single card's, like Tabitha's Trooper, by its card; a
+        # bundle's by its id), and the recorded mini packs we don't sell dropped; new
+        # promos follow the last one, boxes come first.
         fresh = {str(e["item_id"]): e for e in promo_entries}
+        by_card = {str(e["card"]): str(e["item_id"]) for e in promo_entries if str(e.get("type")) == "13"}
         promos, last = [], 0
         for p in body["store_promos"]:
-            if isinstance(p, dict) and str(p.get("item_type")) == "3" and str(p.get("item_id")) in mini_pack_ids:
-                if str(p.get("item_id")) in fresh:
-                    promos.append(fresh.pop(str(p.get("item_id"))))
-                    last = len(promos)
+            if not isinstance(p, dict):
+                continue
+            key, kind = str(p.get("item_id")), str(p.get("item_type"))
+            if kind == "3" and str(p.get("type")) == "13" and str(p.get("card")) in by_card:
+                key = by_card[str(p.get("card"))]
+            if key in fresh and kind == str(fresh[key]["item_type"]):
+                promos.append(fresh.pop(key))
+                last = len(promos)
+            elif kind == "3" and key in mini_pack_ids:
+                continue
+            elif kind == "7" and key in {str(x.bundle) for x in content.promos if x.bundle is not None}:
+                continue                                      # ours, bought once: gone for good
             elif content.recorded_extras:
                 promos.append(p)
         rest = [e for e in promo_entries if str(e["item_id"]) in fresh]

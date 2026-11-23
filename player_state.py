@@ -55,11 +55,12 @@ from pathlib import Path
 
 import items
 
-SAVE_VERSION = 12         # 2: max_energy; 3: flags and missions; 4: decks, gold/cards earned;
+SAVE_VERSION = 13         # 2: max_energy; 3: flags and missions; 4: decks, gold/cards earned;
                           # 5: stamina and the arena; 6: event boxes; 7: salvage points and card
                           # locks; 8: achievements; 9: the daily crate, store upgrades, name and
                           # active deck; 10: raids; 11: the raid moved to the guild (guilds.py);
-                          # 12: items (older saves are upgraded on load)
+                          # 12: items; 13: promo purchases and the SP cap (older saves are
+                          # upgraded on load)
 FIRST_CRATE_AFTER = 1799  # recorded: a new account's crate opened 1799 s after its login
 DEFAULT_MAX_ENERGY = 250
 DEFAULT_MAX_STAMINA = 15
@@ -119,6 +120,8 @@ class Player:
     active_deck: str | None = None           # user_data.active_deck
     defense_deck: str | None = None          # user_data.defense_deck
     items: dict[str, int] = field(default_factory=dict)   # item id -> how many (items.py)
+    promo_buys: dict[str, int] = field(default_factory=dict)   # promos.*_key -> times bought (rising prices)
+    max_salvage: int | None = None           # user_data.caps.max_salvage (6000, +350 from the Elite Pack)
 
     @property
     def card_count(self) -> int:
@@ -286,6 +289,9 @@ def fill_from_start(player: Player, start: dict, now: int | None = None) -> bool
     if player.max_cards is None:
         player.max_cards = int((ud.get("caps") or {}).get("max_cards") or 1600)
         changed = True
+    if player.max_salvage is None:
+        player.max_salvage = int((ud.get("caps") or {}).get("max_salvage") or 6000)
+        changed = True
     if player.max_decks is None:
         player.max_decks = int(start.get("max_decks") or 1)
         changed = True
@@ -341,7 +347,7 @@ class PlayerStore:
         if self._player is None or mtime != self._mtime:
             data = json.loads(self.path.read_text("utf-8"))
             version = data.get("version")
-            if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, SAVE_VERSION):
+            if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, SAVE_VERSION):
                 raise ValueError(f"{self.path}: save version {version}, expected {SAVE_VERSION}")
             p = data["player"]
             self._player = Player(
@@ -379,6 +385,8 @@ class PlayerStore:
                 active_deck=None if p.get("active_deck") is None else str(p["active_deck"]),
                 defense_deck=None if p.get("defense_deck") is None else str(p["defense_deck"]),
                 items={str(k): int(v) for k, v in (p.get("items") or {}).items() if int(v) > 0},
+                promo_buys={str(k): int(v) for k, v in (p.get("promo_buys") or {}).items()},
+                max_salvage=None if p.get("max_salvage") is None else int(p["max_salvage"]),
             )
             self._mtime = mtime
             if version != SAVE_VERSION:
@@ -454,6 +462,8 @@ class PlayerStore:
                     ud[key] = _like(ud[key], getattr(player, key)) if key != "name" else player.name
             if isinstance(ud.get("caps"), dict) and player.max_cards is not None:
                 ud["caps"]["max_cards"] = _like(ud["caps"].get("max_cards"), player.max_cards)
+            if isinstance(ud.get("caps"), dict) and player.max_salvage is not None:
+                ud["caps"]["max_salvage"] = _like(ud["caps"].get("max_salvage"), player.max_salvage)
             a = player.arena
             if a is not None:
                 name, base, nxt = level_info(a["level"])

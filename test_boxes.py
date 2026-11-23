@@ -118,11 +118,12 @@ def test_the_content_file_is_written_with_the_defaults(tmp_path):
     c = store.load()
     assert (tmp_path / "content.toml").read_text("utf-8") == content.TEMPLATE
     assert (c.packs, c.boxes, c.recorded_extras, c.problems) == (("basic", "epic"), (), True, [])
-    assert [(p.mini_pack, p.gold, p.war_bonds) for p in c.promos] == [(23, None, 5), (49, 400, None), (48, 2000, None)]
+    assert [(p.mini_pack, p.gold, p.war_bonds, p.card) for p in c.promos] == [
+        (23, None, 5, None), (49, 400, None, None), (48, 2000, None, None), (None, None, None, 70584)]
 
 
 def test_problems_in_the_content_file(tmp_path):
-    c = content.parse('[store]\npacks = ["basic", "gold"]\npromos = [{ mini_pack = 23 }]\n'
+    c = content.parse('[store]\npacks = ["basic", "gold"]\npromos = [{ mini_pack = 23, gold = 1, war_bonds = 2 }]\n'
                       '[boxes]\non_offer = [8099, "x"]\n')
     assert c.packs == ("basic",) and c.promos == () and c.boxes == (8099,)
     assert len(c.problems) == 3

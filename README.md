@@ -1,5 +1,12 @@
 # Tyrant Unleashed offline server
 
+> **Made with AI.** This server was written by Claude, an AI model made by Anthropic,
+> working at the direction of this repository's owner. That covers the code, its tests,
+> its documentation, and the reverse engineering of the game's protocol from recordings
+> the owner made. The owner decided what to build and made the calls along the way.
+> Every commit says so with a `Co-Authored-By: Claude` line. If you'd rather not use
+> AI-written software, this project isn't for you.
+
 Plays the Kongregate web version of Tyrant Unleashed (client 2.30.80) with no
 connection to Kongregate or Synapse Games: it serves the game's own client and files
 from your machine and answers its API calls itself, including real battles from a
@@ -125,8 +132,9 @@ python server/battle_check.py         # replays the recorded battles through the
 `battle_tuo_check.py` runs the optimizer's own test decks through the engine as a crash
 test; it needs the optimizer's source in `reference/tuo/` beside the server.
 
-## Credits
+## License and credits
 
-The battle engine follows the rules of the Tyrant Unleashed Optimizer, rewritten in
-Python (MIT license: `battle/LICENSE-tuo.md`). Tyrant Unleashed belongs to Synapse
-Games; none of its files are in this repository.
+This project is under the MIT license (`LICENSE`). The battle engine follows the rules
+of the Tyrant Unleashed Optimizer, rewritten in Python; the optimizer's own MIT notice
+is in `battle/LICENSE-tuo.md`. Tyrant Unleashed belongs to Synapse Games; none of its
+files are in this repository, and the license covers none of them.

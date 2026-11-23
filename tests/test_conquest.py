@@ -1,4 +1,4 @@
-"""Tests for conquest (conquest.py, game_api/conquest.py): the data, zone tiers, scoring rounds,
+"""Tests for conquest (conquest.py, game_api/conquest_calls.py): the data, zone tiers, scoring rounds,
 fortresses, energy, opponents, rewards, the replies, and a conquest through the server."""
 
 import random
@@ -254,11 +254,11 @@ def test_conquest_needs_a_guild(tmp_path):
 def test_a_zones_rule_effect_works_in_its_fights(tmp_path, monkeypatch):
     seen = []
 
-    class Watched(ga.conquest.Battle):
+    class Watched(ga.conquest_calls.Battle):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             seen.append(self.passive)
-    monkeypatch.setattr(ga.conquest, "Battle", Watched)    # the conquest fight's module (game_api/conquest.py)
+    monkeypatch.setattr(ga.conquest_calls, "Battle", Watched)    # the conquest fight's module (game_api/conquest_calls.py)
     api, clock, ann, bob, cid = setup(tmp_path)
     call(api, bob, "createFaction", faction_name="Bats")
     r, how = call(api, ann, "fightConquestBattle", zone_id="5")              # Infested Depot: Devour

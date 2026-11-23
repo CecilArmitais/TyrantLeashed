@@ -1,4 +1,4 @@
-"""Tests for mission rewards (battle engine phase 4) and saved decks: the reward rules,
+"""Tests for mission rewards and saved decks: the reward rules,
 the check against every recorded mission ending, the final playCard reply, and
 setDeckCards."""
 

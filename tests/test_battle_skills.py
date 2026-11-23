@@ -1,5 +1,5 @@
-"""Tests for the battle engine's skills (phase 2): each skill on small made-up cards,
-plus the reporting rules the recordings showed. Random picks take the first candidate."""
+"""Tests for the battle engine's skills the recordings show: each skill on small made-up
+cards, plus the reporting rules the recordings showed, and every recorded battle replayed. Random picks take the first candidate."""
 
 import pytest
 

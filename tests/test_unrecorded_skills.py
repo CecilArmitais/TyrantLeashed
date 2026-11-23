@@ -1,5 +1,5 @@
-"""Tests for the battle engine's phase 3 skills (never seen in recordings; rules from
-the optimizer, reference/tuo). Random picks take the first candidate."""
+"""Tests for the battle engine's skills never seen in the recordings (rules from the
+optimizer, reference/tuo), and the optimizer's own test decks as a crash test. Random picks take the first candidate."""
 
 import pytest
 
@@ -177,7 +177,7 @@ def test_the_optimizers_test_decks_run_without_errors():
     ran = 0
     for f, a, b, bge in tt.test_lines():
         if bge:
-            continue                                     # battleground effects: phase 5
+            continue                                     # battleground effects
         try:
             you, enemy = tt.parse_deck(a, names), tt.parse_deck(b, names)
         except (KeyError, AssertionError):

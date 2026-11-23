@@ -1,4 +1,4 @@
-"""Tests for guilds (guilds.py) and the guild calls in game_api/guilds.py."""
+"""Tests for guilds (guilds.py) and the guild calls in game_api/guild_calls.py."""
 
 import json
 import random

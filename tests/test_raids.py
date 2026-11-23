@@ -1,4 +1,4 @@
-"""Tests for raids (raids.py), the raid calls in game_api/raids.py and raid fortresses in the
+"""Tests for raids (raids.py), the raid calls in game_api/raid_calls.py and raid fortresses in the
 battle engine."""
 
 import json

@@ -1,17 +1,15 @@
-"""Tests for the battle engine (phase 1): card data, missions, the turn loop and plain
-attacks, the replies, the server wiring, and the check against recorded battles."""
+"""Tests for the battle engine: card data, missions, the turn loop and plain attacks,
+the replies and the server wiring."""
 
 
 import xml.etree.ElementTree as ET
 
 import pytest
 
-import paths
 from battle.cards import ASSAULT, COMMANDER, STRUCTURE, CardDB, card_type
 from battle.engine import TURN_LIMIT, Battle, BattleError, Setup
 from battle.missions import parse_missions
 from battle.protocol import BattleSession
-from battle.recorded import compare, from_fixtures
 from helpers import DB, T, make_api, ask
 
 
@@ -200,16 +198,3 @@ def test_without_the_engine_missions_replay(tmp_path):
     api = make_api(tmp_path, engine=False)
     ask(api, "init")
     assert "hasn't been recorded" in ask(api, "startMission", mission_id="2")[1]
-
-
-# ---- against the recordings ----------------------------------------------------------------------
-
-@pytest.mark.needs_game
-def test_recorded_battles_match_up_to_the_first_skill():
-    db = CardDB.load(paths.ASSET_DIR)
-    results = {}
-    for i, rec in enumerate(from_fixtures(paths.FIXTURE_DIR / "replay.json")):
-        r = compare(rec, db)
-        results[f"{i} {rec.name}"] = r
-        assert r.ok or r.needs_skill, f"{rec.name} differs in a plain attack: {r.difference}"
-    assert results["0 mission 1"].ok and results["12 arena -1"].ok

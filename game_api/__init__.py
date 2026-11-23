@@ -83,10 +83,10 @@ Anything else gets the real server's error shape,
 
 Standard library only.
 
-The package: core.py holds GameApi and the dispatcher, joining one part per feature
-(sessions, replay, battles, arena, store, guilds, wars, conquest, brawls, raids,
-events, player_data, achievements, upgrades, items: each an XCalls class in its own file);
-base.py, messages.py and replay.py hold what they share.
+The package: core.py holds GameApi and the dispatcher, joining one part per feature, each
+an XCalls class in x_calls.py (session_calls.py, store_calls.py, war_calls.py, ...: the
+calls; the feature's rules are the top-level module, store.py, wars.py, ...); base.py,
+messages.py and replay.py hold what they share.
 """
 
 from __future__ import annotations

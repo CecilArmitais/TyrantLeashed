@@ -1,5 +1,5 @@
-"""Tests for the rule battleground effects (the optimizer's passive BGEs): Fortification,
-Counterflux, Devour, Oath of Loyalty and Virulence, on small made-up cards. Random picks
+"""Tests for the rule battleground effects of conquest's zones (the optimizer's passive
+BGEs): Fortification, Counterflux, Devour, Oath of Loyalty and Virulence, on small made-up cards. Random picks
 take the first candidate."""
 
 import pytest

@@ -1,5 +1,5 @@
 """The store as the game gets it: what state/content.toml puts on offer (content.py), in
-the recorded store's shape, and the permanent upgrades. game_api/store.py answers the
+the recorded store's shape, and the permanent upgrades. game_api/store_calls.py answers the
 store's messages with this; packs.py and boxes.py open what's bought. docs/protocol.md
 ("Packs", "Store upgrades") has the evidence.
 

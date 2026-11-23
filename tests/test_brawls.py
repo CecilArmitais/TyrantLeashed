@@ -1,4 +1,4 @@
-"""Tests for brawls (brawls.py, game_api/brawls.py): the data, the replies against the recorded
+"""Tests for brawls (brawls.py, game_api/brawl_calls.py): the data, the replies against the recorded
 ones, energy, scoring, opponents, rewards, and brawls played through the server."""
 
 import random
@@ -238,11 +238,11 @@ def test_a_guild_brawl(tmp_path):
 def test_a_rule_effect_works_in_brawl_fights(tmp_path, monkeypatch):
     seen = []
 
-    class Watched(ga.brawls.Battle):
+    class Watched(ga.brawl_calls.Battle):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             seen.append(self.passive)
-    monkeypatch.setattr(ga.brawls, "Battle", Watched)      # the brawl fight's module (game_api/brawls.py)
+    monkeypatch.setattr(ga.brawl_calls, "Battle", Watched)      # the brawl fight's module (game_api/brawl_calls.py)
     api, clock, (ann, bob, cid) = players(tmp_path, content="[brawls]\nbrawl = 10\n")   # Harvest Brawl
     r, _ = call(api, ann, "fightBrawlBattle")
     assert r["battle_data"]["battleground_effects"]["global"][0]["name"] == "Scent of Blood"

@@ -1,5 +1,5 @@
-"""Tests for the daily crate (daily_crate.py), store upgrades (store.py), the
-player's name and decks, and the refresh calls."""
+"""Tests for the player's own data (game_api/player_data_calls.py): the daily crate
+(daily_crate.py), the deck slot and decks, the name, and the refresh calls."""
 
 import json
 import random
@@ -63,38 +63,7 @@ def test_the_crate_rewards_come_from_the_content_file(tmp_path):
     assert r["bonus_result"]["bonus"]["card"] == 2999
 
 
-# ---- store upgrades ------------------------------------------------------------------------------
-
-def promo(r, item_id):
-    return next((p for p in r["store_promos"] if str(p.get("item_type")) == "4" and str(p["item_id"]) == item_id), None)
-
-
-def test_max_energy(tmp_path):
-    api, _ = game(tmp_path)
-    r, _ = ask(api, "getStoreData")
-    assert promo(r, "1")["wb_cost"] == "250"                     # as recorded
-    cap = api.player().max_energy
-    for price, nxt in ((250, "350"), (350, "500"), (500, None)):
-        r, how = ask(api, "buyStorePromoTokens", item_id="1", item_type="4", expected_cost=str(price))
-        assert r["result"] and how.startswith(f"bought +50 Max Energy for {price} war bonds")
-        assert (promo(r, "1") or {}).get("wb_cost") == nxt
-    assert api.player().max_energy == cap + 150 and r["max_energy"] == cap + 150
-    assert api.player().war_bonds == 2000 - 1100
-    r, _ = ask(api, "buyStorePromoTokens", item_id="1", item_type="4", expected_cost="500")
-    assert r["result"] is False and r["result_message"] == ["You already have every +50 Max Energy upgrade."]
-
-
-def test_card_slots(tmp_path):
-    api, _ = game(tmp_path)
-    r, _ = ask(api, "buyStorePromoTokens", item_id="351", item_type="4", expected_cost="10")
-    assert promo(r, "351")["wb_cost"] == "15" and r["user_data"]["caps"]["max_cards"] == 1610
-    r, _ = ask(api, "buyStorePromoGold", item_id="300", item_type="4", expected_cost="1000")
-    assert promo(r, "300")["gold_cost"] == "5000" and api.player().max_cards == 1620
-    r, _ = ask(api, "buyStorePromoGold", item_id="300", item_type="4", expected_cost="1000")
-    assert r["result_message"] == ["The price has changed: +10 Card Slots costs 5000 gold now."]
-    r, _ = ask(api, "buyStorePromoGold", item_id="351", item_type="4", expected_cost="15")
-    assert r["result_message"] == ["That upgrade isn't for sale."]               # 351 is for war bonds
-
+# ---- the deck slot and decks ---------------------------------------------------------------------
 
 def test_deck_slots_and_the_active_deck(tmp_path):
     api, _ = game(tmp_path, bonds=1000)

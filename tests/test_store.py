@@ -1,5 +1,6 @@
-"""Tests for the store's other promos (packs.py, store.py): every mini pack kind, single
-cards with rising prices, and the real-money bundles sold for gold or war bonds."""
+"""Tests for the store (store.py, packs.py, game_api/store_calls.py): every mini pack kind,
+single cards with rising prices, the real-money bundles sold for gold or war bonds, and the
+store upgrades (+50 Max Energy, +10 Card Slots)."""
 
 import random
 from pathlib import Path
@@ -120,3 +121,38 @@ def test_bundles_for_gold(tmp_path):
     assert r["result_message"] == ["You already bought the Elite Pack: it's one time only."]
     r, _ = ask(api, "buyStorePromoGold", item_type="7", item_id="191", expected_cost="500")
     assert r["result"] is True                                                         # the crate isn't one-time
+
+
+# ---- store upgrades ------------------------------------------------------------------------------
+
+def promo(r, item_id):
+    return next((p for p in r["store_promos"] if str(p.get("item_type")) == "4" and str(p["item_id"]) == item_id), None)
+
+
+@pytest.mark.needs_game
+def test_max_energy(tmp_path):
+    api = shop(tmp_path, gold=50000, bonds=2000)
+    r, _ = ask(api, "getStoreData")
+    assert promo(r, "1")["wb_cost"] == "250"                     # as recorded
+    cap = api.player().max_energy
+    for price, nxt in ((250, "350"), (350, "500"), (500, None)):
+        r, how = ask(api, "buyStorePromoTokens", item_id="1", item_type="4", expected_cost=str(price))
+        assert r["result"] and how.startswith(f"bought +50 Max Energy for {price} war bonds")
+        assert (promo(r, "1") or {}).get("wb_cost") == nxt
+    assert api.player().max_energy == cap + 150 and r["max_energy"] == cap + 150
+    assert api.player().war_bonds == 2000 - 1100
+    r, _ = ask(api, "buyStorePromoTokens", item_id="1", item_type="4", expected_cost="500")
+    assert r["result"] is False and r["result_message"] == ["You already have every +50 Max Energy upgrade."]
+
+
+@pytest.mark.needs_game
+def test_card_slots(tmp_path):
+    api = shop(tmp_path, gold=50000, bonds=2000)
+    r, _ = ask(api, "buyStorePromoTokens", item_id="351", item_type="4", expected_cost="10")
+    assert promo(r, "351")["wb_cost"] == "15" and r["user_data"]["caps"]["max_cards"] == 1610
+    r, _ = ask(api, "buyStorePromoGold", item_id="300", item_type="4", expected_cost="1000")
+    assert promo(r, "300")["gold_cost"] == "5000" and api.player().max_cards == 1620
+    r, _ = ask(api, "buyStorePromoGold", item_id="300", item_type="4", expected_cost="1000")
+    assert r["result_message"] == ["The price has changed: +10 Card Slots costs 5000 gold now."]
+    r, _ = ask(api, "buyStorePromoGold", item_id="351", item_type="4", expected_cost="15")
+    assert r["result_message"] == ["That upgrade isn't for sale."]               # 351 is for war bonds

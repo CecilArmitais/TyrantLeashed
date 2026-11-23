@@ -28,7 +28,7 @@ From the wiki: since version 1.37.1 a loss doesn't lower the rating; a win again
 higher-rated rival gives more, up to +50 "when the opponent is around +1000 rating
 higher"; a loss pays a quarter of a win's gold; you're never demoted.
 
-Other players (a server with several, game_api/arena.py): the account's lists, at rating 735
+Other players (a server with several, game_api/arena_calls.py): the account's lists, at rating 735
 (rank 5), had real players of ranks 4 to 6 only (rated 366-1663), highest-rated first,
 some of them mixed with NPCs. A real player rated above you paid 25 gold plus 3% of the
 difference (times the arena gold bonus): 7 of the 8 recorded golds exactly, the eighth

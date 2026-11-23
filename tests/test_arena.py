@@ -1,4 +1,4 @@
-"""Tests for phase 5: Skip (skip=1), Surrender (forfeitBattle), stamina and the arena
+"""Tests for Skip (skip=1), Surrender (forfeitBattle), stamina and the arena
 (rivals, their decks, ratings, levels), checked against the recorded arena fights."""
 
 import json

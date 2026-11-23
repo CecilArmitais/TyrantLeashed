@@ -1,4 +1,4 @@
-"""Tests for items (items.py, game_api/items.py, player_state.py): the data, the formats, using
+"""Tests for items (items.py, game_api/item_calls.py, player_state.py): the data, the formats, using
 items, the energy bar's refill with one, and the save."""
 
 import json

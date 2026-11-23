@@ -1,6 +1,6 @@
 """The game API: GameApi answers the client's messages (handle / respond), from the engine,
 the saves and the server's state, or from the recordings. Each feature's calls are a part
-of it in its own file (sessions.py, store.py, wars.py...), joined here."""
+of it in its own file (session_calls.py, store_calls.py, war_calls.py...), joined here."""
 
 from __future__ import annotations
 
@@ -26,28 +26,29 @@ from player_state import PlayerStore
 from rewards import RewardRules
 from settings import Settings, SettingsStore, apply_to_login
 
-from .achievements import AchievementCalls
-from .arena import ArenaCalls
+from .achievement_calls import AchievementCalls
+from .arena_calls import ArenaCalls
 from .base import (DEFAULT_ENVELOPE, NOT_LOGGED_IN, NotSupported, OFFLINE_USER_ID, Session, mission_costs,
                    tutorial_names)
-from .battles import BattleCalls
-from .brawls import BrawlCalls
-from .conquest import ConquestCalls
-from .events import EventCalls
-from .guilds import GuildCalls
-from .items import ItemCalls
+from .battle_calls import BattleCalls
+from .brawl_calls import BrawlCalls
+from .conquest_calls import ConquestCalls
+from .event_calls import EventCalls
+from .guild_calls import GuildCalls
+from .item_calls import ItemCalls
 from .messages import (BATTLE_STARTS, BATTLE_TURN, BRAWL_MESSAGES, CLAIM, CONQUEST_MESSAGES, CRATE,
                        ENERGY_REFILL, FORFEIT, FUSE, GUILD_MESSAGES, ITEM_MESSAGES, LOCK, LOGIN, PRACTICE,
                        RAID_MESSAGES, REFRESH, REPORTS, RIVALS_REFRESH, SALVAGE, SALVAGE_ALL, SET_ACTIVE,
                        SET_DECK, SET_DEFENSE, SET_FLAG, SET_NAME, STAMINA_REFILL, STORE_MESSAGES, TARGETS,
                        UNLOCK, UPGRADE, WAR_MESSAGES)
-from .player_data import PlayerDataCalls
-from .raids import RaidCalls
-from .replay import ReplayCalls, _as_time, echo, personalize, request_key, shift_times
-from .sessions import SessionCalls
-from .store import StoreCalls
-from .upgrades import UpgradeCalls
-from .wars import WarCalls
+from .player_data_calls import PlayerDataCalls
+from .raid_calls import RaidCalls
+from .replay import _as_time, echo, personalize, request_key, shift_times
+from .replay_calls import ReplayCalls
+from .session_calls import SessionCalls
+from .store_calls import StoreCalls
+from .upgrade_calls import UpgradeCalls
+from .war_calls import WarCalls
 
 
 class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, GuildCalls, WarCalls,

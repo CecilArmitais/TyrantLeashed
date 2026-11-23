@@ -1,5 +1,5 @@
-"""Tests for event objectives (achievements.py, game_api/achievements.py): mission levels, challenges
-from content.toml and their runs, background progress, the new fight kinds, item drops,
+"""Tests for event objectives (achievements.py, game_api/achievement_calls.py): mission
+levels, challenges from content.toml and their runs, background progress, the new fight kinds, item drops,
 quest parents, the list's order and cap, and a challenge through the server."""
 
 import random

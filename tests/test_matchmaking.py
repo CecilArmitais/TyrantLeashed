@@ -1,4 +1,4 @@
-"""Tests for other players as arena rivals (arena.py, game_api/arena.py): who gets matched, what
+"""Tests for other players as arena rivals (arena.py, game_api/arena_calls.py): who gets matched, what
 they pay, their place on the list, fighting their defense deck, and their report of it."""
 
 import json

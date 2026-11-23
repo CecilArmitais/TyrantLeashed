@@ -1,4 +1,4 @@
-"""Tests for guild wars (wars.py, game_api/wars.py): the event data, the rules (scoring,
+"""Tests for guild wars (wars.py, game_api/war_calls.py): the event data, the rules (scoring,
 matchmaking, fortresses, rewards), the replies, and a war between two guilds played
 through the server."""
 

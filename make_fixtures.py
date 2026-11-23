@@ -33,10 +33,9 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from game_api import (FIXTURE_DIR, NOT_REPLAYED, OFFLINE_NAME, OFFLINE_PASSWORD,  # noqa: E402
+from game_api import (NOT_REPLAYED, OFFLINE_NAME, OFFLINE_PASSWORD,  # noqa: E402
                       OFFLINE_SYNCODE, OFFLINE_USER_ID, VOLATILE_PARAMS)
-
-ROOT = Path(__file__).resolve().parent.parent
+from paths import CAPTURES_DIR, FIXTURE_DIR  # noqa: E402
 KONG_PARAMS = ("kong_id", "kong_token", "kong_name")
 RECORDING_DIRS = ("api", "api-sanitized")   # under --captures: raw recordings, then the sanitized copy
 SANITIZED_INDEX = "sessions.json"           # the sanitized copy's list of sessions and their accounts
@@ -202,7 +201,7 @@ def build(session: Path, out_dir: Path = FIXTURE_DIR, allow_kongregate: bool = F
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--session", help="session folder (default: newest one that qualifies)")
-    ap.add_argument("--captures", default=str(ROOT / "captures"))
+    ap.add_argument("--captures", default=str(CAPTURES_DIR))
     ap.add_argument("--out", default=str(FIXTURE_DIR))
     ap.add_argument("--allow-kongregate", action="store_true",
                     help="also accept sessions signed in to Kongregate (a real account)")

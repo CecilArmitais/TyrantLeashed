@@ -47,7 +47,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import achievements  # noqa: E402
 import items  # noqa: E402
-from game_api import ASSET_DIR, FIXTURE_DIR, STATE_DIR, GameApi  # noqa: E402
+from game_api import GameApi  # noqa: E402
+from paths import ASSET_DIR, FIXTURE_DIR, STATE_DIR  # noqa: E402
 from player_state import level_info  # noqa: E402
 
 CARD_XML_DIR = ASSET_DIR

@@ -36,12 +36,9 @@ from urllib.parse import parse_qs, unquote, urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from game_api import GameApi  # noqa: E402
 from game_api import encode as encode_reply  # noqa: E402
-from game_api import GAME_DIR  # noqa: E402
+from paths import ARCHIVE_DIR, CLIENT_DIR, GAME_DIR, WEB_DIR  # noqa: E402,F401 (run.py imports them here)
 from archive_layout import safe_rel_path  # noqa: E402  (the capture tools' archive layout)
 
-CLIENT_DIR = GAME_DIR / "client" / "tyu-web-2.30.80"
-ARCHIVE_DIR = GAME_DIR / "assets"
-WEB_DIR = Path(__file__).resolve().parent / "web"
 ARCHIVE_HOSTS = {"mobile.tyrantonline.com", "cdn.synapsegames.com"}
 API_PATH = "/tu/mobile.tyrantonline.com/api.php"
 SHIM_TAG = '<script src="/tu-offline/shim.js"></script>'

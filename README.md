@@ -46,7 +46,7 @@ fought by a guild.
 ## Checking it
 
 ```
-python -m pytest server -q            # needs game/ beside it
+python -m pytest server -q            # without game/ beside it, tests that need it are skipped
 python server/battle_check.py         # replays the recorded battles through the engine
 ```
 

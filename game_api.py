@@ -54,7 +54,8 @@ every account identifier replaced):
   createFaction, joinFaction, leaveFaction, acceptFactionInvite, sendFactionInvite,
   kickFactionMember, setMemberRank, setAllFactionSettings, sendFactionMessage,
   updateFaction, getRecruitingFactions, getTopFactions, getUsersLFG, getProfileData,
-  donateFactionGold, buyFactionCard, removeFactionCard, updateFactionWar
+  donateFactionGold, buyFactionCard, removeFactionCard, updateFactionWar,
+  fightPracticeBattle    (a guild member's deck, for nothing)
                          real logic: guilds (guilds.py), kept by the server in
                          state/guilds/, apart from the player's save
   getRaidInfo,           real logic: raids (raids.py), set in content.toml: each guild's
@@ -151,6 +152,7 @@ LOCK = "setCardLock"                # the salvage lock on a card
 FUSE = "fuseCard"                   # a fusion recipe's cards into the fused card
 CLAIM = "completeAchievement"       # the Complete button of a finished daily objective
 CRATE = "useDailyBonus"             # the crate on the home screen
+PRACTICE = "fightPracticeBattle"    # a guild member profile's Battle / Surge buttons
 GUILD_MESSAGES = {"createFaction", "joinFaction", "acceptFactionInvite", "leaveFaction", "sendFactionInvite",
                   "kickFactionMember", "setMemberRank", "setAllFactionSettings", "sendFactionMessage", "updateFaction",
                   "getFactionNews", "getRecruitingFactions", "getTopFactions", "getUsersLFG", "getProfileData",
@@ -785,6 +787,8 @@ class GameApi:
         if message == CLAIM and self.player() is not None:
             return self._claim_achievement(params)
         if self.player() is not None:
+            if message == PRACTICE:
+                return self._practice_fight(params)
             if message in GUILD_MESSAGES:
                 return self._guild_message(message, params)
             if message in RAID_MESSAGES:
@@ -875,7 +879,9 @@ class GameApi:
         b = self.battle
         if b is None:
             raise NotSupported("there is no battle in progress.")
-        if params.get("battle_id") and str(params["battle_id"]) != b["id"]:
+        # A practice fight's playCard carries the deck flag (fight_attack_deck) as its
+        # battle_id: the client keeps both in the same field (CombatManager +32).
+        if params.get("battle_id") and str(params["battle_id"]) != b["id"] and not b.get("practice"):
             raise NotSupported("that isn't the battle in progress.")
         if "engine" in b:
             return self._play_engine_card(params)
@@ -1013,6 +1019,8 @@ class GameApi:
             if b.get("rival"):
                 result = self._finish_hunt(b["rival"], won, b["id"], battle, revenge=bool(b.get("revenge")))
                 rewards = result.rewards
+            elif b.get("practice"):
+                rewards = [{"user_id": str(self.uid), "gold": 0, "sp": 0}]
             else:
                 result = self._finish_mission(b["mission_id"], won)
                 rewards = [result.reward if result else {"user_id": str(self.uid), "gold": 0}]
@@ -1025,7 +1033,9 @@ class GameApi:
         reply["result"] = True
         reply["battle_data"] = session.turn_data(turns, rewards, end_time=int(self.clock()))
         if battle.over:                      # the last reply carries the player's data, as recorded
-            reply.update(self._arena_parts(params) if b.get("rival") else self._final_parts(result, won, params))
+            reply.update(self._arena_parts(params) if b.get("rival")
+                         else self._player_parts(params, ("user_data",)) if b.get("practice")
+                         else self._final_parts(result, won, params))
         return reply, how
 
     def _forfeit(self, params: dict) -> tuple[dict, str]:
@@ -1035,13 +1045,15 @@ class GameApi:
         b = self.battle
         if b is None:
             raise NotSupported("there is no battle in progress.")
-        if params.get("battle_id") and str(params["battle_id"]) != b["id"]:
+        if params.get("battle_id") and str(params["battle_id"]) != b["id"] and not b.get("practice"):
             raise NotSupported("that isn't the battle in progress.")
         self.battle = None
         if b.get("rival"):
             result = self._finish_hunt(b["rival"], False, b["id"], b["engine"].battle if "engine" in b else None,
                                        revenge=bool(b.get("revenge")))
             rewards = result.rewards
+        elif b.get("practice"):
+            result, rewards = None, [{"user_id": str(self.uid), "gold": 0, "sp": 0}]
         else:
             result = self._finish_mission(b["mission_id"], False) if b.get("mission_id") else None
             rewards = [result.reward if result else {"user_id": str(self.uid), "gold": 0}]
@@ -1055,9 +1067,68 @@ class GameApi:
             reply["battle_data"] = {"battle_id": b["id"], "host_id": str(self.uid), "turn": {},
                                     "end_time": int(self.clock()), "winner": 0, "rewards": rewards,
                                     **({"mission_id": b["mission_id"]} if b.get("mission_id") else {})}
-        reply.update(self._arena_parts(params) if b.get("rival") else self._final_parts(result, False, params))
+        reply.update(self._arena_parts(params) if b.get("rival")
+                     else self._player_parts(params, ("user_data",)) if b.get("practice")
+                     else self._final_parts(result, False, params))
         how = f"surrendered {b['name']}"
         return reply, how + (f"; paid {result.summary()}" if result else "")
+
+    def _practice_fight(self, params: dict) -> tuple[dict, str]:
+        """fightPracticeBattle target_user_id fight_attack_deck is_surge: a fight against a
+        guild member's deck (their attack deck with fight_attack_deck 1, the deck tab the
+        profile shows; else their defense deck), played by the AI, for nothing: no energy,
+        no rewards, no rating. Battle (is_surge 0): the player moves first, card by card,
+        as in the arena. Surge: the member's deck moves first, the whole fight in one
+        reply, as in guild wars. The rules are ours (nothing was recorded)."""
+        target = str(params.get("target_user_id") or "")
+        guild = self._my_guild()
+        other = self._player_of(target) if target else None
+        words = ("You must be in a guild to practice." if guild is None
+                 else "You can't practice against yourself." if target == str(self.uid)
+                 else "You can only practice against a member of your guild."
+                 if other is None or target not in [str(m) for m in guild["members"]] else None)
+        if words:
+            return self._refuse(params, words), f"refused practice fight: {words}"
+        attack_deck = str(params.get("fight_attack_deck", "0")) not in ("0", "", "false", "False")
+        surge = str(params.get("is_surge", "0")) not in ("0", "", "false", "False")
+        name = self._name_of(target)
+        whose = f"{name}'s {'attack' if attack_deck else 'defense'} deck"
+        cards, _ = self._engine_data()
+        commander, deck = self._player_deck(cards)
+        foe_commander, foe_deck = self._deck_cards(self._deck_of(other) if attack_deck else self._defense_deck_of(other),
+                                                   cards, whose)
+        rng = self.rng_factory()
+        battle_id = int(self.clock() * 1000)
+        reply = self.envelope(params)
+        reply["result"] = True
+        if surge:
+            battle = Battle(Setup(foe_commander, shuffled_deck(foe_deck, FIRST_UID[ATTACKER], rng), commander,
+                                  shuffled_deck(deck, FIRST_UID[DEFENDER], rng), attacker_wins_stall=True),
+                            chooser=RandomChooser(rng), cards=cards)
+            battle.start()
+            battle.play_out(oldest=True)
+            won = battle.winner == 0                   # the player is the battle's defender
+            session = BattleSession(battle, battle_id, str(self.uid), host_is_attacker=False,
+                                    extra={"enemy_name": name, "enemy_id": target})
+            reply.update(self._player_parts(params, ("user_data",)))
+            reply["battle_data"] = session.turn_data(battle.turns, [{"user_id": str(self.uid), "gold": 0, "sp": 0}],
+                                                     end_time=int(self.clock()))
+            how = f"practice surge vs {whose}: {'won' if won else 'lost'} in {battle.turn} turns"
+        else:
+            battle = Battle(Setup(commander, shuffled_deck(deck, FIRST_UID[ATTACKER], rng), foe_commander,
+                                  shuffled_deck(foe_deck, FIRST_UID[DEFENDER], rng)),
+                            chooser=RandomChooser(rng), cards=cards)
+            session = BattleSession(battle, battle_id, str(self.uid),
+                                    extra={**ARENA_FIELDS, "enemy_id": target, "enemy_name": name})
+            turns = battle.start()
+            self.battle = {"id": str(battle_id), "name": f"practice vs {name}", "mission_id": None,
+                           "engine": session, "practice": True}
+            reply["user_data"] = self.current_user_data(params)
+            reply["battle_data"] = session.start_data(turns)
+            how = f"engine: started a practice fight with {whose}: {len(deck)} cards against {len(foe_deck)}"
+        if battle.ignored_skills:
+            how += "; skills not built yet: " + ", ".join(sorted(battle.ignored_skills))
+        return reply, how
 
     # ---- the arena -----------------------------------------------------------------------
 
@@ -1777,7 +1848,8 @@ class GameApi:
                                {"target_faction_name": m["names"][other], "winner_faction_points": max(pa, pd),
                                 "loser_faction_points": min(pa, pd)}, now)
         made = wars.matchmake(state, now, self._war_members, self._war_names, c.war_min_members,
-                              c.war_point_gap_percent / 100, int(c.war_rematch_hours * 3600))
+                              c.war_point_gap_percent / 100, int(c.war_rematch_hours * 3600),
+                              seeds=brawls.placement_seeds(self.brawl_store.load(), self._brawl_events()))
         for m in made:
             changed = True
             for gid, other in ((m["a"], m["d"]), (m["d"], m["a"])):
@@ -2346,8 +2418,13 @@ class GameApi:
         if effect is not None:
             effects.append((bge.SCOPE_UID["global"], "global", effect.caster(1), effect.passive))
             entries["global"].append(effect.entry("global"))
+        mine, theirs = [], []
+        if event.use_forts:                            # a placement brawl: the guilds' fortresses, as in a war
+            mine = self._fortress_cards(guild, guilds.SIEGE_SLOTS, cards)
+            theirs = self._fortress_cards(self.guild_store.of_member(foe), guilds.DEFENSE_SLOTS, cards)
         battle = Battle(Setup(foe_commander, shuffled_deck(foe_deck, FIRST_UID[ATTACKER], rng), commander,
-                              shuffled_deck(deck, FIRST_UID[DEFENDER], rng), attacker_wins_stall=True),
+                              shuffled_deck(deck, FIRST_UID[DEFENDER], rng), attacker_fortresses=tuple(theirs),
+                              defender_fortresses=tuple(mine), attacker_wins_stall=True),
                         chooser=RandomChooser(rng), cards=cards, effects=effects)
         battle.start()
         battle.play_out(oldest=True)
@@ -2370,13 +2447,22 @@ class GameApi:
         reply.update(self._player_parts(params, ("user_data",)))
         reply["battle_data"] = session.turn_data(battle.turns, rewards, end_time=now)
         reply.update(self._brawl_parts())
-        how = (f"brawl fight vs {foe_name}'s defense deck: {'won' if won else 'lost'} in {battle.turn} turns"
+        how = (f"brawl fight vs {foe_name}'s defense deck"
+               + (f" with {len(theirs)} of their fortresses" if theirs else "")
+               + (f" and {len(mine)} of ours" if mine else "")
+               + f": {'won' if won else 'lost'} in {battle.turn} turns"
                + (f" ({destroyed} of their cards destroyed, {unplayed} of yours unplayed)" if won else "")
                + f", {points} points ({row['points']} in all, {row['wins']}/{row['battles']} won); "
                + f"brawl energy {brawls.energy_now(run, row, now)}/{brawls.ENERGY_MAX}")
         if battle.ignored_skills:
             how += "; skills not built yet: " + ", ".join(sorted(battle.ignored_skills))
         return reply, how
+
+    @staticmethod
+    def _fortress_cards(guild: dict | None, slots, cards) -> list:
+        """The fortress cards a guild has in some of its slots (guild["slots"])."""
+        found = [int((guild or {}).get("slots", {}).get(str(s), 0) or 0) for s in slots]
+        return [cards[c] for c in found if c and cards.get(c) is not None]
 
     def _brawl_claim(self, params: dict, event, state: dict) -> tuple[dict, str]:
         """claimBrawlRewards: every tier the player's rank (a guild brawl: the guild's rank

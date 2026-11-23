@@ -22,8 +22,7 @@ The attacker (the player, in a mission) has the odd turns, the defender the even
 ones. After turn 50 the battle is a stall, which the attacker loses.
 
 Random picks (which card a Strike hits...) go through `chooser`, so a recorded
-battle can be replayed with the picks the recording made. Mimic is not built yet
-(noted in `ignored_skills`).
+battle can be replayed with the picks the recording made.
 
 Each turn is recorded as the game client expects it (see protocol.py and the
 Battles section of docs/protocol.md). The 16 skills seen in recordings are checked
@@ -39,17 +38,18 @@ from collections import Counter
 from dataclasses import dataclass, replace
 
 from .cards import ASSAULT, COMMANDER, STRUCTURE, Card, SkillSpec
+from .effects import ARRIVAL, FILTERS
 
 # Skill groups, as in the optimizer's tyrant.h
-HOSTILE = ("enfeeble", "jam", "besiege", "siege", "strike", "sunder", "weaken")
+HOSTILE = ("enfeeble", "jam", "besiege", "siege", "strike", "sunder", "weaken", "mimic")
 HELPFUL = ("heal", "mend", "overload", "protect", "rally", "fortify", "enrage", "entrap", "rush", "evolve")
 ACTIVATION = HOSTILE + HELPFUL
-X_ACTIVATION = {"enfeeble", "besiege", "siege", "strike", "sunder", "weaken"}       # Sabotage lowers these
+X_ACTIVATION = {"enfeeble", "besiege", "siege", "strike", "sunder", "weaken", "mimic"}   # Sabotage lowers these
 DEFENSIVE = {"armored", "avenge", "scavenge", "corrosive", "counter", "evade", "subdue", "absorb", "flying",
              "payback", "revenge", "tribute", "refresh", "wall", "barrier"}
 INSTANT_DEBUFF = {"inhibit", "sabotage", "disease"}
 TRIGGERED = {"allegiance", "flurry", "valor", "stasis", "summon", "bravery", "enhance"}
-BUILT = set(ACTIVATION) | DEFENSIVE | INSTANT_DEBUFF | (TRIGGERED - {"mimic"}) | {
+BUILT = set(ACTIVATION) | DEFENSIVE | INSTANT_DEBUFF | TRIGGERED | {
     "pierce", "swipe", "hunt", "poison", "legion", "coalition", "rupture", "venom", "leech", "drain",
     "berserk", "mark"}
 
@@ -256,6 +256,7 @@ class Battle:
         self._bloodlusted: set = set()              # the assaults that have added to it
         self.bge_casters: dict[int, list[Unit]] = {ATTACKER: [], DEFENDER: []}
         self.passive: dict[int, dict[str, tuple[int, Unit]]] = {ATTACKER: {}, DEFENDER: {}}
+        self.arrival: dict[int, list] = {ATTACKER: [], DEFENDER: []}   # (caster, spec): Ballroom Blitz
         for uid, scope, card, *rest in effects:
             passive = rest[0] if rest else None
             for index in ((ATTACKER, DEFENDER) if scope == "global" else
@@ -264,6 +265,7 @@ class Battle:
                 self.bge_casters[index].append(caster)
                 if passive:
                     self.passive[index][passive[0]] = (passive[1], caster)
+                self.arrival[index] += [(caster, spec) for spec in card.skills if spec.id in ARRIVAL]
         for side, dominion in zip(self.sides, (setup.attacker_dominion, setup.defender_dominion)):
             if dominion is not None:
                 side.structures.append(Unit(FIRST_UID[side.index] - 1, dominion, side.index))
@@ -446,6 +448,8 @@ class Battle:
                     self._begin_action()
                     if spec.id == "enhance" and spec.s:
                         self._enhance_spec(caster, spec, from_field=False)
+                    elif spec.id in ARRIVAL:
+                        pass                                    # given on arrival (_arrive)
                     elif spec.id in ACTIVATION:
                         self._use(caster, spec)
                     else:
@@ -482,6 +486,7 @@ class Battle:
         if played or fortress:
             self._section("plays").append({"card_uid": self._ref(uid, "play"), "status": []})
         self._note_skills(unit)
+        self._arrive(unit)
         if unit.skill("barrier"):
             self._barrier(unit, unit.skill("barrier"))
         if unit.delay == 0:
@@ -954,6 +959,28 @@ class Battle:
                              lambda ts: [self._status(t, "attack_boost", t.temp_attack) for t in ts]
                              + self._shown_health(ts), after_hit=lambda: self._turning_tides(unit, spec, taken[0]))
 
+    def _skill_mimic(self, unit: Unit, spec) -> bool:
+        """Mimic X (the optimizer's): an enemy assault with an activation skill (its own or
+        "when attacked"; not Mimic, nor Mend/Fortify for a non-assault) is picked, then one
+        of those skills at random is used as the mimic's own, at X (plus the mimic's
+        Enhance of it), for any faction. It can't be evaded or paid back."""
+        def copyable(t: Unit) -> list:
+            return [s for s in t.card.skills if s.trigger in ("activate", "attacked") and s.id in ACTIVATION
+                    and s.id != "mimic" and (unit.is_assault or s.id not in ("mend", "fortify"))]
+        picked = self._pick(unit, spec, [u for u in self._candidates(unit, spec, True) if u.alive and copyable(u)])
+        if not picked:
+            return False
+        for t in picked:
+            if self.over or not unit.alive:
+                break
+            options = copyable(t)
+            chosen = options[self.rng.randrange(len(options))] if len(options) > 1 else options[0]
+            self._action(unit, "mimic", [t], spec.x, self._shown_health([t]) + self._own_health(unit))
+            copy = SkillSpec(chosen.id, spec.x + unit.enhanced.get(chosen.id, 0), 0, chosen.n, 0, chosen.s,
+                             chosen.s2, chosen.all, chosen.card_id)
+            getattr(self, "_skill_" + chosen.id)(unit, copy)
+        return True
+
     # helpful: blocked by Inhibit, shared by Tribute
 
     def _helpful(self, unit: Unit, spec, targets: list[Unit], apply, statuses, check) -> bool:
@@ -1291,6 +1318,23 @@ class Battle:
     def _spread_poison(self, caster: Unit, unit: Unit, amount: int) -> None:
         unit.poisoned += amount
         self._action(caster, "venom", [unit], amount, [self._status(unit, "poison", unit.poisoned)])
+
+    def _arrive(self, unit: Unit) -> None:
+        """Ballroom Blitz: the cards its filter takes gain attack and max health for good
+        as they arrive, shown as one action by the effect's stand-in."""
+        gains = {}
+        for caster, spec in self.arrival[unit.side]:
+            if spec.x and FILTERS.get(spec.filter, lambda card: not spec.filter)(unit.card):
+                gains[spec.id] = gains.get(spec.id, 0) + spec.x
+                actor = caster
+        if not gains:
+            return
+        unit.perm_attack += gains.get("perm_max_attack", 0)
+        if gains.get("perm_max_health"):
+            self._ext_hp(unit, gains["perm_max_health"])
+        self._action(actor, "berserk", [unit], gains.get("perm_max_attack", 0),
+                     [self._status(unit, "perm_max_attack", unit.perm_attack),
+                      self._status(unit, "perm_max_health", unit.perm_health), self._health(unit)])
 
     def _caster_for(self, rule: str, side: int) -> Unit | None:
         """The effect's stand-in acting for a side (a global effect has one each)."""

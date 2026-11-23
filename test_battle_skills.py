@@ -27,6 +27,7 @@ CARDS = """<root>
   <unit><id>24</id><name>Hitter</name><attack>2</attack><health>20</health></unit>
   <unit><id>25</id><name>Glass</name><attack>0</attack><health>1</health></unit>
   <unit><id>26</id><name>Mortar</name><attack>0</attack><health>5</health><skill id="besiege" x="3"/></unit>
+  <unit><id>28</id><name>Copycat</name><attack>0</attack><health>10</health><skill id="mimic" x="4"/></unit>
   <unit><id>27</id><name>Drainer</name><attack>2</attack><health>10</health><skill id="drain" x="3"/></unit>
   <unit><id>2100</id><name>Wall</name><health>6</health><skill id="wall"/></unit>
 </root>"""
@@ -126,6 +127,17 @@ def test_hunt_shows_as_swipe_and_swipe_hits_neighbours():
     turns = b.play(3)                                      # three Dummies; the Swiper lands across slot 1
     swipes = actions(turns, 6, "swipe")                    # one action per card hit
     assert [s["targets"] for s in swipes] == [["1"], ["3"]] and swipes[0]["value"] == 1
+
+
+def test_mimic_uses_an_enemy_skill_at_its_own_value():
+    b = battle(att=(28, 23, 23, 23), dfn=(13, 23, 23, 23))
+    b.start()
+    turns = b.play(1)                                     # nothing to copy yet
+    assert not actions(turns, 1, "mimic")
+    turns = b.play(2)                                     # the enemy Striker (Strike 3) is in play now
+    mimic, strike = actions(turns, 3, "mimic") + actions(turns, 3, "strike")
+    assert (mimic["card_uid"], mimic["targets"], mimic["value"]) == (1, [101], 4)
+    assert (strike["card_uid"], strike["targets"], strike["value"]) == (1, [101], 4)   # Mimic's 4, not 3
 
 
 def test_drain_heals_with_no_targets():

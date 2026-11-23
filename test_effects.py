@@ -64,3 +64,22 @@ def test_a_global_effect_works_for_both_sides(all_effects):
 def test_no_effects_changes_nothing():
     plain, again = fight([]), fight([])
     assert plain.turns == again.turns and plain.winner == again.winner
+
+
+def test_ballroom_blitz_raises_its_blitz_plates_on_arrival(all_effects):
+    blitz = all_effects[3000]
+    assert [(s.id, s.x, s.filter) for s in blitz.specs(5)][:2] == [
+        ("perm_max_attack", 5, "filterBallroomBlitz"), ("perm_max_health", 22, "filterBallroomBlitz")]  # .9, 4.35 x 5
+    cards = ta.real_cards()
+    plate = cards[4452]                                              # Blitz Plate: 3 attack, 7 health
+    rng = random.Random(1)
+    b = Battle(Setup(cards[1000], shuffled_deck([cards[i] for i in (12, 13, 2, 3, 4)], FIRST_UID[ATTACKER], rng),
+                     cards[1001], [(101 + i, plate) for i in range(5)]),
+               chooser=RandomChooser(random.Random(1)), cards=cards,
+               effects=[(fx.SCOPE_UID["defender"], "defender", blitz.caster(5), blitz.passive)])
+    b.start()
+    b.play(b.sides[ATTACKER].hand[0])
+    arrived, = [a for a in b.turns[2]["actions"] if a["card_uid"] == -5 and a["skill_id"] == "berserk"]
+    unit = b.sides[DEFENDER].assaults[0]
+    assert arrived["targets"] == [101] and (unit.perm_attack, unit.max_hp) == (5, 7 + 22)
+    assert not any("perm_max" in s for s in b.ignored_skills)

@@ -262,11 +262,13 @@ def _close_enough(state: dict, a: str, b: str, gap: float) -> bool:
 
 
 def matchmake(state: dict, now: int, members_of, names, min_members: int = MIN_MEMBERS,
-              gap: float = POINT_GAP, rematch_after: int = REMATCH_AFTER) -> list[dict]:
+              gap: float = POINT_GAP, rematch_after: int = REMATCH_AFTER, seeds: dict | None = None) -> list[dict]:
     """Pairs queued guilds that aren't in a match, longest-waiting first, within the
     rules (enough members, points within `gap`, not met in `rematch_after`). A guild
     that no longer exists, or is too small, leaves the queue. Returns the new matches.
-    members_of(gid): the guild's member ids, None when it's gone. names(gid): its name."""
+    members_of(gid): the guild's member ids, None when it's gone. names(gid): its name.
+    seeds: a placement brawl's guild points (brawls.placement_seeds): each guild then
+    meets the waiting guild closest to it in them (ours), the longest-waiting on a tie."""
     run = state.get("run")
     if phase(state, now) != "war" or now > run["no_new"]:
         return []
@@ -280,7 +282,8 @@ def matchmake(state: dict, now: int, members_of, names, min_members: int = MIN_M
     made = []
     while waiting:
         a = waiting.pop(0)
-        b = next((g for g in waiting if _close_enough(state, a, g, gap)
+        order = sorted(waiting, key=lambda g: abs(seeds.get(a, 0) - seeds.get(g, 0))) if seeds else waiting
+        b = next((g for g in order if _close_enough(state, a, g, gap)
                   and not _met_recently(state, a, g, now, rematch_after)), None)
         if b is None:
             continue

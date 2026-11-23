@@ -373,3 +373,38 @@ def test_the_fortress_in_the_game(tmp_path):
     assert how == "fortress: removed Lightning Cannon from slot 21" and r["fortress_slots"][2]["card_id"] == 0
     r, _ = tb.ask(api, "updateFaction", last_activity_id="0")
     assert [n["type"] for n in r["faction_news"]] == [1, 41, 21, 23]
+
+
+def test_practice_fights_against_a_guild_member(tmp_path):
+    from test_players import call, login, server
+    api, clock = server(tmp_path, engine=True)
+    creds = []
+    for _ in range(3):
+        _, c = login(api)
+        call(api, c, "init")
+        creds.append(c)
+    ann, bob, cid = creds
+    call(api, ann, "createFaction", faction_name="Owls")
+    call(api, cid, "joinFaction", faction_id=str(api.guild_store.by_name("Owls")["id"]))
+    before = api._store_for(ann["user_id"]).load()
+
+    r, how = call(api, ann, "fightPracticeBattle", target_user_id=bob["user_id"], fight_attack_deck="0", is_surge="0")
+    assert r["result_message"] == ["You can only practice against a member of your guild."], how
+    r, how = call(api, ann, "fightPracticeBattle", target_user_id=ann["user_id"], fight_attack_deck="0", is_surge="0")
+    assert r["result_message"] == ["You can't practice against yourself."]
+
+    r, how = call(api, ann, "fightPracticeBattle", target_user_id=cid["user_id"], fight_attack_deck="0", is_surge="1")
+    assert how.startswith("practice surge vs Player1000003's defense deck"), how
+    bd = r["battle_data"]
+    assert bd["host_is_attacker"] is False and bd["rewards"] == [{"user_id": ann["user_id"], "gold": 0, "sp": 0}]
+    assert bd["enemy_name"] == "Player1000003" and "winner" in bd
+
+    r, how = call(api, ann, "fightPracticeBattle", target_user_id=cid["user_id"], fight_attack_deck="1", is_surge="0")
+    assert how.startswith("engine: started a practice fight with Player1000003's attack deck"), how
+    hand = r["battle_data"]["turn"]["1"]["draws"] if "1" in r["battle_data"]["turn"] else None
+    r, how = call(api, ann, "playCard", card_uid=str((hand or [1])[0]), skip="1", battle_id="1")   # the deck flag
+    assert "(you won)" in how or "(you lost)" in how, how
+    assert r["battle_data"]["rewards"] == [{"user_id": ann["user_id"], "gold": 0, "sp": 0}] and "user_data" in r
+    after = api._store_for(ann["user_id"]).load()
+    assert (after.gold, after.arena["rating"], after.arena["stamina"]) == \
+        (before.gold, before.arena["rating"], before.arena["stamina"])          # nothing paid, nothing spent

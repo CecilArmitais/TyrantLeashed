@@ -105,6 +105,30 @@ def test_matchmaking():
     assert wars.matchmake(late, late["run"]["no_new"] + 1, members(groups), name, min_members=1) == []
 
 
+@pytest.mark.parametrize("seeds, pairs", [(None, [("1", "2")]), ({"1": 900, "2": 50, "3": 800}, [("1", "3")])])
+def test_a_placement_brawl_seeds_the_matchmaking(seeds, pairs):
+    state = a_state()
+    groups = {"1": ["a"], "2": ["b"], "3": ["c"]}
+    for gid in ("1", "2", "3"):
+        wars.queue(state, gid, T0)
+    made = wars.matchmake(state, T0, members(groups), str, min_members=1, seeds=seeds)
+    assert [(m["a"], m["d"]) for m in made] == pairs                # the longest-waiting meets its nearest seed
+
+
+def test_placement_seeds_come_from_the_placement_brawl():
+    import brawls
+    events = brawls.load(ga.ASSET_DIR)
+    assert events[345].war and events[345].use_forts and not events[344].war
+    state = brawls.new_state()
+    brawls.start_run(state, events[345], T0)                         # Hypothermia Placements
+    brawls.record_fight(state, brawls.player_row(state, "a", "A"), "900001", True, 60, "Owls")
+    assert brawls.placement_seeds(state, events) == {"900001": 60}
+    brawls.start_run(state, events[344], T0 + 10 ** 6)               # a solo brawl after it: its top still counts
+    assert brawls.placement_seeds(state, events) == {"900001": 60}
+    brawls.start_run(state, events[344], T0 + 2 * 10 ** 6)           # and no longer once it's gone
+    assert brawls.placement_seeds(state, events) == {}
+
+
 def test_a_match_ends_with_the_event():
     state = a_state(days=1)
     for gid in ("1", "2"):

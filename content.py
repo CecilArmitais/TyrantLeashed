@@ -130,6 +130,9 @@ days = 3
 # guilds more than point_gap_percent apart in the event's points aren't matched, nor
 # guilds that met in the last rematch_hours. With few guilds, loosen them (e.g. 1, 100
 # and 0), or two guilds may only meet once an event.
+# A war's placement brawl ([brawls] brawl, e.g. 345, Hypothermia Placements, a day
+# before war 94) seeds it: guilds meet the waiting guild closest to them in its points.
+# Its fights also bring each guild's fortresses, as war fights do.
 min_members = 5
 point_gap_percent = 20
 rematch_hours = 8

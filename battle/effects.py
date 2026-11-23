@@ -9,6 +9,8 @@ from the battlefield. docs/battle-engine.md, "Battleground effects", has the rul
   one for that side only (a raid's enemy_battleground_effect is the boss's).
 - <kv_mult>raid_level</kv_mult> (Silus' Pact, Octane's Cybernetics, Ballroom Blitz):
   each x is multiplied by the raid's level and rounded up (the optimizer's rule).
+- Ballroom Blitz's perm_max_attack and perm_max_health aren't cast: every card of its
+  side that its force_filter takes (FILTERS) gets them for good as it arrives.
 - Effects without an <effect> are rules written into the real server (Bloodlust,
   Virulence...) or just notes ("This Raid features the new skill Overload"). Those in
   PASSIVE are built (the optimizer's passive BGEs, battle/engine.py); the rest are shown
@@ -29,6 +31,11 @@ from pathlib import Path
 from battle.cards import COMMANDER, Card, SkillSpec
 
 SCOPE_UID = {"global": -3, "attacker": -4, "defender": -5}       # the actors' uids (ours; 0 or <= -3)
+
+# force_filter (the real server's code, not in the data): which cards a skill is for.
+# filterBallroomBlitz (raid 25, "Blitzplates are ready to rock"): its Blitz Plates.
+FILTERS = {"filterBallroomBlitz": lambda card: "Blitz" in card.name}
+ARRIVAL = ("perm_max_attack", "perm_max_health")      # given to cards as they arrive, not cast
 
 # Rule effects the engine plays (the optimizer's passive BGEs), by name -> (rule, the
 # value when the file gives none). The values follow the effects' own texts where the
@@ -77,6 +84,7 @@ class RawSkill:
     s: str = ""
     s2: str = ""
     all: bool = False
+    filter: str = ""                          # force_filter: which cards (Ballroom Blitz's)
 
 
 @dataclass(frozen=True)
@@ -98,7 +106,8 @@ class Effect:
     def specs(self, level: int = 1) -> tuple[SkillSpec, ...]:
         """The skills at a level: x times the level, rounded up, for kv_mult effects."""
         mult = max(1, level) if self.kv_mult == "raid_level" else 1
-        return tuple(SkillSpec(r.id, math.ceil(r.x * mult - 1e-9) if r.x else 0, r.y, r.n, r.c, r.s, r.s2, r.all)
+        return tuple(SkillSpec(r.id, math.ceil(r.x * mult - 1e-9) if r.x else 0, r.y, r.n, r.c, r.s, r.s2, r.all,
+                               filter=r.filter)
                      for r in self.skills)
 
     def entry(self, scope: str) -> dict:
@@ -124,7 +133,7 @@ def load(asset_dir: Path) -> dict[int, Effect]:
         except ValueError:
             continue
         skills = tuple(RawSkill(s.get("id"), num(s.get("x"), float), num(s.get("y")), num(s.get("n")), num(s.get("c")),
-                                s.get("s") or "", s.get("s2") or "", s.get("all") == "1")
+                                s.get("s") or "", s.get("s2") or "", s.get("all") == "1", s.get("force_filter") or "")
                        for s in b.findall("effect/skill") if s.get("id"))
         out[bid] = Effect(bid, (b.findtext("name") or "").strip(), (b.findtext("desc") or "").strip(),
                           (b.findtext("web_picture") or "").strip(), skills,

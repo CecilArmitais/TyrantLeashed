@@ -139,7 +139,8 @@ class BrawlStore:
 
 
 def new_state() -> dict:
-    return {"run": None, "players": {}, "guilds": {}, "previous": [], "previous_guild_event": False}
+    return {"run": None, "players": {}, "guilds": {}, "previous": [], "previous_guild_event": False,
+            "previous_event": None}
 
 
 def start_run(state: dict, event: BrawlEvent, now: int) -> None:
@@ -149,10 +150,24 @@ def start_run(state: dict, event: BrawlEvent, now: int) -> None:
         guild_event = bool(state["run"].get("guild_event"))
         state["previous"] = standings(state, guild_event)[:BOARD_SIZE]
         state["previous_guild_event"] = guild_event
+        state["previous_event"] = state["run"]["event"]
     end = now + event.length
     state.update(run={"event": event.id, "start": now, "end": end, "decay": end + DECAY_DAYS * 86400,
                       "guild_event": event.guild_event},
                  players={}, guilds={})
+
+
+def placement_seeds(state: dict, events: dict) -> dict[str, int]:
+    """A war placement brawl's guild points, by guild id (wars seed their matchmaking with
+    them): the current run's if it's a placement brawl, else the last run's top."""
+    run = state.get("run")
+    event = events.get(run["event"]) if run else None
+    if event is not None and event.war:
+        return {gid: row.get("points", 0) for gid, row in state.get("guilds", {}).items()}
+    last = events.get(state.get("previous_event"))
+    if last is not None and last.war and state.get("previous_guild_event"):
+        return {str(row["id"]): int(row["points"]) for row in state.get("previous", [])}
+    return {}
 
 
 def phase(state: dict, now: int) -> str | None:

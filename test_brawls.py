@@ -231,3 +231,16 @@ def test_a_rule_effect_works_in_brawl_fights(tmp_path, monkeypatch):
     assert r["battle_data"]["battleground_effects"]["global"][0]["name"] == "Scent of Blood"
     assert {side: {name: value for name, (value, _) in rules.items()} for side, rules in seen[-1].items()} == \
         {0: {"bloodlust": 2}, 1: {"bloodlust": 2}}
+
+
+def test_a_placement_brawl_brings_the_guilds_fortresses(tmp_path):
+    api, clock, (ann, bob, cid) = players(tmp_path, content="[brawls]\nbrawl = 345\n")   # Hypothermia Placements
+    call(api, ann, "createFaction", faction_name="Owls")
+    call(api, bob, "createFaction", faction_name="Bats")
+    for name, slot, card in (("Owls", 21, 2736), ("Bats", 11, 2700)):          # a siege fortress, a defense one
+        g = api.guild_store.by_name(name)
+        g["slots"][str(slot)] = card
+        api.guild_store.save(g)
+    r, how = call(api, ann, "fightBrawlBattle")
+    assert "with 1 of their fortresses and 1 of ours" in how, how
+    assert {"2736", "2700"} <= set(r["battle_data"]["card_map"].values())

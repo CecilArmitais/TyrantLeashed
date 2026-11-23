@@ -30,6 +30,7 @@ class SkillSpec:
     all: bool = False
     card_id: int = 0        # summon's card
     trigger: str = "activate"
+    filter: str = ""        # a battleground effect's force_filter: which cards it's for
 
 
 @dataclass(frozen=True)

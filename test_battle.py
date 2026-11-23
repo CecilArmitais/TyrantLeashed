@@ -151,12 +151,12 @@ def test_skills_not_built_yet_are_noted():
     b.start()
     b.play(1)
     assert b.ignored_skills == set()                     # flurry, strike on play, pierce, armored: all built
-    mimic = CardDB.from_xml("<root><unit><id>9</id><name>Copycat</name><attack>1</attack><health>3</health>"
-                            "<skill id=\"mimic\" x=\"1\"/></unit></root>")[9]
-    b = Battle(Setup(DB[1000], [(1, mimic), (2, DB[3]), (3, DB[3])], DB[1300], [(101, DB[3])]))
+    odd = CardDB.from_xml("<root><unit><id>9</id><name>Oddity</name><attack>1</attack><health>3</health>"
+                          "<skill id=\"teleport\" x=\"1\"/></unit></root>")[9]     # no card has it
+    b = Battle(Setup(DB[1000], [(1, odd), (2, DB[3]), (3, DB[3])], DB[1300], [(101, DB[3])]))
     b.start()
     b.play(1)
-    assert b.ignored_skills == {"mimic"}
+    assert b.ignored_skills == {"teleport"}
 
 
 # ---- the replies ----------------------------------------------------------------------------------

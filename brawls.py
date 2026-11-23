@@ -39,7 +39,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import event_runs
-import jsonfile
 
 # Recorded (brawl 345).
 CLAIM_WAIT = 1200
@@ -63,7 +62,6 @@ class BrawlError(Exception):
     """Why something can't be done, in words the player can read."""
 
 
-Tier = event_runs.Tier            # a reward tier (a tier without min_points sets none)
 
 
 @dataclass(frozen=True)
@@ -77,7 +75,7 @@ class BrawlEvent:
     guild_event: bool = False
     war: bool = False                 # a guild war's placement brawl
     use_forts: bool = False
-    tiers: tuple[Tier, ...] = ()
+    tiers: tuple[event_runs.Tier, ...] = ()
     effects: tuple[tuple[int, int], ...] = ()     # (day from 0, battleground effect id)
 
     @property
@@ -107,17 +105,11 @@ def load(asset_dir: Path, file_name: str | None = None) -> dict[int, BrawlEvent]
 
 # ---- the server's brawl state --------------------------------------------------------------------
 
-class BrawlStore:
+class BrawlStore(event_runs.StateStore):
     """state/brawls.json, written whole and atomically."""
 
     def __init__(self, path: Path):
-        self.path = Path(path)
-
-    def load(self) -> dict:
-        return {**new_state(), **jsonfile.read(self.path, {})}
-
-    def save(self, state: dict) -> None:
-        jsonfile.write(self.path, state)
+        super().__init__(path, new_state)
 
 
 def new_state() -> dict:
@@ -134,8 +126,7 @@ def start_run(state: dict, event: BrawlEvent, now: int) -> None:
         state["previous_guild_event"] = guild_event
         state["previous_event"] = state["run"]["event"]
     end = now + event.length
-    state.update(run={"event": event.id, "start": now, "end": end, "decay": end + DECAY_DAYS * 86400,
-                      "guild_event": event.guild_event},
+    state.update(run=event_runs.new_run(event.id, now, end, DECAY_DAYS, guild_event=event.guild_event),
                  players={}, guilds={})
 
 
@@ -169,10 +160,6 @@ def player_row(state: dict, uid, name: str = "") -> dict:
 # ---- energy (the client's own formula, EventEnergyBar.Refresh: event_runs.py) --------------------
 
 ENERGY = event_runs.Energy(ENERGY_MAX, ENERGY_EVERY, RECHARGE_STOPS, ENERGY_COST)
-recharge_stop = ENERGY.recharge_stop
-energy_now = ENERGY.current
-spend_energy = ENERGY.spend
-recharging = ENERGY.recharging
 
 
 # ---- fights --------------------------------------------------------------------------------------
@@ -202,10 +189,7 @@ def record_fight(state: dict, row: dict, gid, won: bool, points: int, guild_name
 def pick_opponent(candidates: list[tuple[str, int]], my_points: int, rng: random.Random,
                   nearest: int = NEAREST) -> str | None:
     """One of the `nearest` candidates (user id, brawl points) closest to my points."""
-    if not candidates:
-        return None
-    close = sorted(candidates, key=lambda c: (abs(c[1] - my_points), str(c[0])))[:nearest]
-    return rng.choice(sorted(c[0] for c in close))
+    return event_runs.pick_nearest(candidates, my_points, rng, nearest)
 
 
 def effect_on(event: BrawlEvent, run: dict, now: int) -> int | None:
@@ -232,14 +216,13 @@ def claimable(state: dict, now: int) -> bool:
     return event_runs.claimable(state, now, CLAIM_WAIT)
 
 
-def earned_tiers(event: BrawlEvent, rank: int, points: int) -> list[Tier]:
+def earned_tiers(event: BrawlEvent, rank: int, points: int) -> list[event_runs.Tier]:
     """The tiers a rank (and, where a tier sets one, the points) reach."""
     return event_runs.earned_tiers(event.tiers, rank, points)
 
 
 # ---- what the client gets ------------------------------------------------------------------------
 
-tier_json = event_runs.tier_json   # a reward tier as the recorded active_brawl_data had it
 
 
 def event_json(event: BrawlEvent, run: dict, mini_packs: dict) -> dict:
@@ -251,7 +234,7 @@ def event_json(event: BrawlEvent, run: dict, mini_packs: dict) -> dict:
     for flag in ("use_forts", "guild_event", "war"):
         if getattr(event, flag):
             out[flag] = "1"
-    out.update({"rewards": {"tier": [tier_json(t, mini_packs) for t in event.tiers]},
+    out.update({"rewards": {"tier": [event_runs.tier_json(t, mini_packs) for t in event.tiers]},
                 "decay_time": run["decay"], "battle_energy_cost": ENERGY_COST, "claim_reward_prevention": CLAIM_WAIT})
     return out
 
@@ -260,7 +243,7 @@ def player_json(state: dict, event: BrawlEvent, uid, rank: int, now: int) -> dic
     """player_brawl_data, complete (the client zeroes what's left out)."""
     run = state["run"]
     row = state["players"].get(str(uid))
-    energy = energy_now(run, row, now)
+    energy = ENERGY.current(run, row, now)
     return {"user_id": str(uid), "battle_event_id": event.id, "num_wins": row["wins"] if row else 0,
             "points": row["points"] if row else 0, "win_streak": row["win_streak"] if row else 0,
             "claimed_rewards": int(bool(row and row["claimed"])), "seeding": 0, "current_rank": rank,
@@ -268,7 +251,7 @@ def player_json(state: dict, event: BrawlEvent, uid, rank: int, now: int) -> dic
                        "battle_energy": energy if row else ENERGY_MAX,
                        "battle_energy_update_time": row["energy_updated"] if row else run["start"],
                        "battle_energy_recharge_start_time": run["start"],
-                       "battle_energy_recharge_stop_time": recharge_stop(run)}}
+                       "battle_energy_recharge_stop_time": ENERGY.recharge_stop(run)}}
 
 
 def board_json(rows: list[dict], guild_event: bool) -> list[dict]:

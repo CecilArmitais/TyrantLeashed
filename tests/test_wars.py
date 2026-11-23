@@ -6,6 +6,7 @@ import json
 
 import pytest
 
+import event_runs
 import game_api as ga
 import paths
 import wars
@@ -33,7 +34,7 @@ def test_the_war_events():
     assert len(EVENTS) == 94
     ev = EVENTS[94]
     assert (ev.name, len(ev.tiers), ev.repair_item) == ("Hypothermia War", 39, 11)
-    assert ev.tiers[0] == wars.Tier(1, 1, 11000, (("card", 17240, 1),))
+    assert ev.tiers[0] == event_runs.Tier(1, 1, 11000, (("card", 17240, 1),))
     assert [t.rank for t in ev.tiers] == sorted(t.rank for t in ev.tiers)
     with_effects = [e for e in EVENTS.values() if e.effects]
     assert len(with_effects) == 50

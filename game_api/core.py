@@ -33,6 +33,7 @@ from .base import (DEFAULT_ENVELOPE, NOT_LOGGED_IN, NotSupported, OFFLINE_USER_I
 from .battles import BattleCalls
 from .brawls import BrawlCalls
 from .conquest import ConquestCalls
+from .events import EventCalls
 from .guilds import GuildCalls
 from .items import ItemCalls
 from .messages import (BATTLE_STARTS, BATTLE_TURN, BRAWL_MESSAGES, BUY_UPGRADE, CLAIM, CONQUEST_MESSAGES,
@@ -50,7 +51,8 @@ from .wars import WarCalls
 
 
 class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, GuildCalls, WarCalls,
-              ConquestCalls, BrawlCalls, RaidCalls, PlayerDataCalls, AchievementCalls, UpgradeCalls, ItemCalls):
+              ConquestCalls, BrawlCalls, RaidCalls, EventCalls, PlayerDataCalls, AchievementCalls,
+              UpgradeCalls, ItemCalls):
     """Answers the client's messages. Each base is one feature's calls (its own file in
     this package); they all work on this object's state, set up in __init__."""
 
@@ -149,7 +151,8 @@ class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, Gu
         if self.player_store is None:
             return None
         bonuses = ("\nGold bonuses: " + self.settings().describe() + "\n" + self.store_report()
-                   + "\n" + self.guild_report() + "\n" + self.objectives_report())
+                   + "\n" + self.guild_report() + self._war_report() + self._brawl_report()
+                   + self._conquest_report() + "\n" + self.objectives_report())
         if not self.single_player:
             ids = self.player_ids()
             line = (f"Players: {len(ids) or 'none yet'}" + ("" if not ids else f" ({ids[0]}-{ids[-1]})")

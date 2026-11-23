@@ -15,15 +15,15 @@ class GuildCalls:
     """GameApi's part for guilds: membership, chat and news, donations and the fortress."""
 
     def guild_report(self) -> str:
-        """One line on the server's guilds, donations and the raid set."""
+        """The server's guilds, donations and the raid set (the startup report adds the other
+        events to the line)."""
         c, n = self.content(), len(self.guild_store.all())
         raid = self._set_raid()
         return (f"Guilds (state/{self.guild_store.root.name}/): {n or 'none yet'}"
                 + ("" if not n else f" guild{'s' * (n != 1)}") + "; donations "
                 + (f"on ({c.gold_per_point} gold a guild point)" if c.guild_donations else "off")
                 + (f"; raid: {raid.name} ({raid.id}), at {c.raid_health_percent:g}% of its health" if raid
-                   else "; raid: none")
-                + self._war_report() + self._brawl_report() + self._conquest_report())
+                   else "; raid: none"))
 
     def _my_guild(self) -> dict | None:
         return self.guild_store.of_member(self.uid)

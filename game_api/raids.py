@@ -3,12 +3,10 @@ Part of GameApi (core.py), as RaidCalls."""
 
 from __future__ import annotations
 
-import dataclasses
 import json
 
 import achievements
 import guilds
-import packs
 import raids
 from battle import effects as bge
 from battle.engine import ATTACKER, Battle, DEFENDER, FIRST_UID, RandomChooser, Setup, shuffled_deck
@@ -185,15 +183,8 @@ class RaidCalls:
         if not raids.claimable(run, m, now):
             return self._refuse(params, "The raid's reward can be claimed once it's over."), "refused raid claim: early"
         player = self.player()
-        cards, _ = self._engine_data()
-        rng = self.rng_factory()
         tiers = raids.earned_tiers(raid, m["damage"], run["level"])
-        got = []
-        for tier in tiers:
-            for kind, rid, amount in tier.rewards:
-                got += self._open_raid_reward(kind, rid, amount, cards, rng)
-        for cid in got:
-            player.add_card(cid)
+        got, _ = self._pay_tiers(player, tiers)                      # raid tiers pay cards and packs, no items
         m["claimed"] = 1
         self.player_store.save(player)
         self.guild_store.save(guild)
@@ -201,21 +192,4 @@ class RaidCalls:
         reply.update(self._player_parts(params, ("user_data", "user_cards")))
         reply["new_cards"] = [str(c) for c in got]
         reply["raid_info"] = self._raid_info((raid, run, scale))
-        names = ", ".join(cards[c].name for c in got[:8]) + (f" and {len(got) - 8} more" if len(got) > 8 else "")
-        return reply, f"raid reward: {len(tiers)} tiers, {len(got)} cards ({names or 'none'})"
-
-    def _open_raid_reward(self, kind, rid, amount, cards, rng) -> list[int]:
-        if kind == "card":
-            return [rid] * amount if cards.get(rid) else []
-        if kind == "pack":
-            draws = packs.STORE_PACK_DRAWS.get(rid)
-            pack = packs.Pack(f"pack {rid}", draws) if draws else None
-        else:
-            mp = self._mini_packs().get(str(rid))
-            pack = packs.reward_pack(mp) if mp else None
-            if pack is not None and not all(packs.rates(d, packs.base_pool(cards, pack.faction, pack.set_id))
-                                            for d, _ in pack.draws):
-                pack = dataclasses.replace(pack, set_id=raids.FALLBACK_REWARD_SET)   # an emptied reward set
-        if pack is None:
-            return []
-        return [c for _ in range(amount) for c in packs.open_pack(pack, cards, rng)]
+        return reply, f"raid reward: {len(tiers)} tiers, {self._describe_gains(got, {})}"

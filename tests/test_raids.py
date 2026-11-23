@@ -362,7 +362,7 @@ def test_leaving_the_guild_mid_raid(tmp_path):
 def test_reward_packs_from_an_emptied_set(tmp_path):
     api, _ = game(tmp_path)
     cards, _ = api._engine_data()
-    got = api._open_raid_reward("mini_pack", 94, 2, cards, random.Random(2))   # set 4000: no level-1 cards
+    got = api._open_reward("mini_pack", 94, 2, cards, random.Random(2))   # set 4000: no level-1 cards
     assert got and all(cards[c].set == raids.FALLBACK_REWARD_SET for c in got)
 
 

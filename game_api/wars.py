@@ -276,12 +276,7 @@ class WarCalls:
                  else "You didn't earn a reward in this war." if not tiers else None)
         if words:
             return self._refuse(params, words), f"refused claimFactionWarRewards: {words}"
-        player = self.player()
-        got, gains = self._pay_tiers(player, tiers)
-        row["claimed"] = 1
-        self.player_store.save(player)
-        self.war_store.save(state)
-        reply = self._reward_reply(params, player, got, gains)
+        reply, got, gains = self._pay_claim(params, tiers, row, lambda: self.war_store.save(state))
         reply.update(self._war_parts(guild))
         return reply, (f"war rewards (rank {rank}, {row['points']} points): {len(tiers)} tiers, "
                        f"{self._describe_gains(got, gains)}")

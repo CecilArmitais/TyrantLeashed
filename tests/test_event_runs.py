@@ -1,6 +1,7 @@
 """Tests for what the timed events share (event_runs.py): runs, reward tiers, effects by
 day and battle energy. Made-up data only (the events' own tests use the game files)."""
 
+import random
 import xml.etree.ElementTree as ET
 
 import event_runs as er
@@ -100,3 +101,25 @@ def test_spending_keeps_the_part_way_progress():
     full = {"energy": 25, "energy_updated": RUN["start"]}
     ENERGY.spend(RUN, full, RUN["start"] + 5000)                         # full: the clock starts now
     assert full == {"energy": 24, "energy_updated": RUN["start"] + 5000}
+
+
+def test_a_run_and_its_claim_window():
+    assert er.new_run(7, 1000, 5000, 3, rounds=0) == {"event": 7, "start": 1000, "end": 5000,
+                                                      "decay": 5000 + 3 * DAY, "rounds": 0}
+
+
+def test_the_state_file_keeps_the_defaults_under_what_it_has(tmp_path):
+    store = er.StateStore(tmp_path / "brawls.json", lambda: {"run": None, "players": {}})
+    assert store.load() == {"run": None, "players": {}}                      # no file yet
+    store.save({"run": RUN})
+    assert store.load() == {"run": RUN, "players": {}}
+
+
+def test_an_opponent_among_the_nearest():
+    candidates = [("10", 100), ("9", 120), ("11", 300), ("2", 90)]
+    picks = {er.pick_nearest(candidates, 100, random.Random(seed), 2) for seed in range(30)}
+    assert picks == {"10", "2"}                                              # 0 and 10 away; 120 is 20
+    assert er.pick_nearest([], 100, random.Random(1), 2) is None
+    ties = [("10", 110), ("9", 90)]                                          # both 10 away
+    assert er.pick_nearest(ties, 100, random.Random(1), 1) == "10"           # "10" < "9" as text
+    assert er.pick_nearest(ties, 100, random.Random(1), 1, order=int) == "9"  # 9 < 10 as numbers

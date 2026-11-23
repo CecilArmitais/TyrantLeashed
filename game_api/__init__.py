@@ -85,7 +85,7 @@ Standard library only.
 
 The package: core.py holds GameApi and the dispatcher, joining one part per feature
 (sessions, replay, battles, arena, store, guilds, wars, conquest, brawls, raids,
-player_data, achievements, upgrades, items: each an XCalls class in its own file);
+events, player_data, achievements, upgrades, items: each an XCalls class in its own file);
 base.py, messages.py and replay.py hold what they share.
 """
 

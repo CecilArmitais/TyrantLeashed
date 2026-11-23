@@ -40,7 +40,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import event_runs
-import jsonfile
 
 # The wiki.
 WIN_INFLUENCE, LOSS_INFLUENCE = 50, 5
@@ -63,7 +62,6 @@ class ConquestError(Exception):
     """Why something can't be done, in words the player can read."""
 
 
-EventTier = event_runs.Tier        # min_points: the member's influence (0 when the file sets none)
 
 
 @dataclass(frozen=True)
@@ -95,7 +93,7 @@ class ConquestEvent:
     asset_bundle: int = 0
     terrain_prefab: str = ""
     web_link: str = ""
-    tiers: tuple[EventTier, ...] = ()
+    tiers: tuple[event_runs.Tier, ...] = ()
 
     @property
     def length(self) -> int:
@@ -134,17 +132,11 @@ def load(asset_dir: Path) -> tuple[dict[int, ConquestEvent], dict[int, Zone]]:
 
 # ---- the server's conquest state -----------------------------------------------------------------
 
-class ConquestStore:
+class ConquestStore(event_runs.StateStore):
     """state/conquest.json, written whole and atomically."""
 
     def __init__(self, path: Path):
-        self.path = Path(path)
-
-    def load(self) -> dict:
-        return {**new_state(), **jsonfile.read(self.path, {})}
-
-    def save(self, state: dict) -> None:
-        jsonfile.write(self.path, state)
+        super().__init__(path, new_state)
 
 
 def new_state() -> dict:
@@ -157,8 +149,7 @@ def start_run(state: dict, event: ConquestEvent, now: int) -> None:
     if state.get("run"):
         state["previous"] = standings(state)[:BOARD_SIZE]
     end = now + event.length
-    state.update(run={"event": event.id, "start": now, "end": end, "decay": end + DECAY_DAYS * 86400, "rounds": 0},
-                 guilds={}, members={})
+    state.update(run=event_runs.new_run(event.id, now, end, DECAY_DAYS, rounds=0), guilds={}, members={})
 
 
 def phase(state: dict, now: int) -> str | None:
@@ -256,9 +247,6 @@ def fortress_cards(state: dict, gid) -> list[int]:
 # ---- energy (the client's formula, as for brawls: event_runs.py) ---------------------------------
 
 ENERGY = event_runs.Energy(ENERGY_MAX, ENERGY_EVERY, RECHARGE_STOPS, ENERGY_COST)
-recharge_stop = ENERGY.recharge_stop
-energy_now = ENERGY.current
-spend_energy = ENERGY.spend
 
 
 # ---- fights --------------------------------------------------------------------------------------
@@ -279,10 +267,7 @@ def record_fight(state: dict, member: dict, gid, zone_id, won: bool) -> int:
 def pick_guild(candidates: list[tuple[str, int]], my_points: int, rng: random.Random,
                nearest: int = NEAREST) -> str | None:
     """One of the `nearest` guilds (id, conquest points) closest to my guild's points."""
-    if not candidates:
-        return None
-    close = sorted(candidates, key=lambda c: (abs(c[1] - my_points), int(c[0])))[:nearest]
-    return rng.choice(sorted(c[0] for c in close))
+    return event_runs.pick_nearest(candidates, my_points, rng, nearest, order=int)
 
 
 # ---- rewards -------------------------------------------------------------------------------------
@@ -291,7 +276,7 @@ def claimable(state: dict, now: int) -> bool:
     return event_runs.claimable(state, now, CLAIM_WAIT)
 
 
-def earned_tiers(event: ConquestEvent, rank: int, influence: int) -> list[EventTier]:
+def earned_tiers(event: ConquestEvent, rank: int, influence: int) -> list[event_runs.Tier]:
     return event_runs.earned_tiers(event.tiers, rank, influence)
 
 
@@ -303,7 +288,7 @@ def no_empty(d: dict) -> dict:
     return {k: v for k, v in d.items() if v != ""}
 
 
-def event_tier_json(tier: EventTier, mini_packs: dict) -> dict:
+def event_tier_json(tier: event_runs.Tier, mini_packs: dict) -> dict:
     out = {"id": str(tier.id), "rank": tier.rank, "min_points": tier.min_points}
     for kind, rid, amount in tier.rewards:
         if kind == "card":
@@ -355,10 +340,10 @@ def conquest_json(event: ConquestEvent, zones: dict[int, Zone], state: dict, gid
             "claim_reward_prevention": CLAIM_WAIT,
             "user_conquest_data": {
                 "claimed_reward": int(bool(me and me["claimed"])), "influence": me["influence"] if me else 0,
-                "energy": {"battle_energy": energy_now(run, me, now), "max_battle_energy": ENERGY_MAX,
+                "energy": {"battle_energy": ENERGY.current(run, me, now), "max_battle_energy": ENERGY_MAX,
                            "cost_per_battle_energy": 0, "battle_energy_recharge_time": ENERGY_EVERY,
                            "battle_energy_recharge_start_time": run["start"],
-                           "battle_energy_recharge_stop_time": recharge_stop(run),
+                           "battle_energy_recharge_stop_time": ENERGY.recharge_stop(run),
                            "battle_energy_update_time": me["energy_updated"] if me else run["start"]}},
             "zone_data": [zone_json(z, state, gid, effects.get(z.battleground_effect))
                           for z in sorted(zones.values(), key=lambda z: (z.order, z.id))],

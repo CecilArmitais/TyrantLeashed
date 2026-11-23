@@ -1,4 +1,4 @@
-"""Items (items.py): the inventory, using items, and the item tiers rewards pay.
+"""Items (items.py): the inventory and using items.
 Part of GameApi (core.py), as ItemCalls."""
 
 from __future__ import annotations
@@ -8,49 +8,12 @@ import packs
 
 
 class ItemCalls:
-    """GameApi's part for items (items.py): the inventory, using items, and the item tiers
-    rewards pay."""
+    """GameApi's part for items (items.py): the inventory and using items."""
 
     def _item_defs(self) -> dict:
         if self._items is None:
             self._items = items.load(self._assets)
         return self._items
-
-    def _pay_tiers(self, player, tiers) -> tuple[list[int], dict[int, int]]:
-        """Pays reward tiers into the save: (the cards opened, {item id: how many})."""
-        cards, _ = self._engine_data()
-        rng = self.rng_factory()
-        got, gains = [], {}
-        for tier in tiers:
-            for kind, rid, amount in tier.rewards:
-                if kind == "item":
-                    gains[int(rid)] = gains.get(int(rid), 0) + amount
-                else:
-                    got += self._open_raid_reward(kind, rid, amount, cards, rng)
-        for cid in got:
-            player.add_card(cid)                      # counted in cards_earned
-        for iid, n in gains.items():
-            items.add(player.items, iid, n)
-        return got, gains
-
-    def _reward_reply(self, params: dict, player, got: list[int], gains: dict) -> dict:
-        """A claim's reply, read like a pack purchase: the save's data, new_cards and
-        new_items (shown together), and the inventory."""
-        reply = self._ok(params)
-        reply.update(self._player_parts(params, ("user_data", "user_cards")))
-        reply["new_cards"] = [str(c) for c in got]
-        reply["new_items"] = items.new_items_json(gains)
-        reply["user_items"] = items.user_items_json(player.items)
-        return reply
-
-    def _describe_gains(self, got: list[int], gains: dict) -> str:
-        cards, _ = self._engine_data()
-        defs = self._item_defs()
-        names = ", ".join(cards[c].name for c in got[:8]) + (f" and {len(got) - 8} more" if len(got) > 8 else "")
-        out = f"{len(got)} cards ({names or 'none'})"
-        if gains:
-            out += "; items: " + ", ".join(f"{defs[i].name if i in defs else i} x{n}" for i, n in gains.items())
-        return out
 
     def _item_message(self, message: str, params: dict) -> tuple[dict, str]:
         """getUserItems (the inventory) and consumeItem item_id (the inventory's Use)."""

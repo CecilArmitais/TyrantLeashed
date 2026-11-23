@@ -61,7 +61,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import event_runs
-import jsonfile
 
 # Recorded (war 94's active_war_event).
 WAR_LENGTH = 28800
@@ -98,7 +97,6 @@ class WarError(Exception):
     """Why something can't be done, in words the player can read."""
 
 
-Tier = event_runs.Tier            # rank: the guild's; min_points: the member's points (0 when the file sets none)
 
 
 @dataclass(frozen=True)
@@ -109,7 +107,7 @@ class WarEvent:
     web_link: str = ""
     start_time: int = 0
     end_time: int = 0
-    tiers: tuple[Tier, ...] = ()
+    tiers: tuple[event_runs.Tier, ...] = ()
     effects: tuple[tuple[int, int], ...] = ()     # (day of the event from 0, battleground effect id)
     repair_item: int | None = None
     refill_item: int | None = None
@@ -136,17 +134,11 @@ def load(asset_dir: Path, file_name: str | None = None) -> dict[int, WarEvent]:
 
 # ---- the server's war state ----------------------------------------------------------------------
 
-class WarStore:
+class WarStore(event_runs.StateStore):
     """state/wars.json, written whole and atomically."""
 
     def __init__(self, path: Path):
-        self.path = Path(path)
-
-    def load(self) -> dict:
-        return {**new_state(), **jsonfile.read(self.path, {})}
-
-    def save(self, state: dict) -> None:
-        jsonfile.write(self.path, state)
+        super().__init__(path, new_state)
 
 
 def new_state() -> dict:
@@ -158,9 +150,8 @@ def start_run(state: dict, event: WarEvent, now: int, days: int) -> None:
     """A new run of an event, from now: the last run's standings become `previous`."""
     if state.get("run"):
         state["previous"] = standings(state)
-    end = now + days * 86400
-    state.update(run={"event": event.id, "start": now, "end": end, "no_new": end - NO_NEW_WARS,
-                      "decay": end + CLAIM_DAYS * 86400},
+    end = now + days * event_runs.DAY
+    state.update(run=event_runs.new_run(event.id, now, end, CLAIM_DAYS, no_new=end - NO_NEW_WARS),
                  guilds={}, members={}, queue={}, matches=[])
 
 
@@ -383,7 +374,7 @@ def claimable(state: dict, now: int) -> bool:
     return event_runs.claimable(state, now, CLAIM_WAIT)
 
 
-def earned_tiers(event: WarEvent, rank: int, points: int) -> list[Tier]:
+def earned_tiers(event: WarEvent, rank: int, points: int) -> list[event_runs.Tier]:
     return event_runs.earned_tiers(event.tiers, rank, points)
 
 
@@ -398,7 +389,6 @@ def owes_rewards(state: dict, event: WarEvent, uid, gid, now: int) -> bool:
 
 # ---- what the client gets ------------------------------------------------------------------------
 
-tier_json = event_runs.tier_json   # a reward tier as the recorded active_war_event had it
 
 
 def event_json(event: WarEvent, run: dict, mini_packs: dict) -> dict:
@@ -407,7 +397,7 @@ def event_json(event: WarEvent, run: dict, mini_packs: dict) -> dict:
             "web_picture": event.web_picture, "web_link": event.web_link,
             **({"repair_item": str(event.repair_item)} if event.repair_item else {}),
             **({"refill_item": str(event.refill_item)} if event.refill_item else {}),
-            "rewards": {"tier": [tier_json(t, mini_packs) for t in event.tiers]},
+            "rewards": {"tier": [event_runs.tier_json(t, mini_packs) for t in event.tiers]},
             "war_length": WAR_LENGTH, "war_battle_prep_time": PREP_TIME, "prequeue_stop_time": run["start"],
             "more_points_start_time": run["start"] + MORE_POINTS_AFTER, "no_new_war_time": run["no_new"],
             "claim_reward_prevention": CLAIM_WAIT, "decay_time": run["decay"], "battle_energy_cost": ENERGY_COST,

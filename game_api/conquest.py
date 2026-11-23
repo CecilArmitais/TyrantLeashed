@@ -165,7 +165,7 @@ class ConquestCalls:
                  else "You must be in a guild to fight in Conquest." if guild is None
                  else "There's no such zone." if zone_id not in zones
                  else "You're out of conquest energy. Wait for more energy."
-                 if conquest.energy_now(run, me, now) < conquest.ENERGY_COST else None)
+                 if conquest.ENERGY.current(run, me, now) < conquest.ENERGY_COST else None)
         if words:
             return self._refuse(params, words), f"refused fightConquestBattle: {words}"
         candidates, ready = [], {}
@@ -206,7 +206,7 @@ class ConquestCalls:
         conquest.guild_row(state, guild["id"], guild["name"])
         conquest.guild_row(state, foe_gid, foe_guild["name"])
         member = conquest.member_row(state, self.uid, self._name_of(self.uid))
-        conquest.spend_energy(run, member, now)
+        conquest.ENERGY.spend(run, member, now)
         influence = conquest.record_fight(state, member, guild["id"], zone_id, won)
         self.conquest_store.save(state)
         foe_name = self._name_of(foe)
@@ -221,7 +221,7 @@ class ConquestCalls:
                + (f" ({len(theirs)} of their fortresses, {len(ours)} of ours)" if theirs or ours else "")
                + f": {'won' if won else 'lost'} in {battle.turn} turns, +{influence} influence "
                + f"({guild['name']} {g['influence'][str(zone_id)]} there, rank {conquest.zone_rank(state, zone_id, guild['id'])}); "
-               + f"conquest energy {conquest.energy_now(run, member, now)}/{conquest.ENERGY_MAX}")
+               + f"conquest energy {conquest.ENERGY.current(run, member, now)}/{conquest.ENERGY_MAX}")
         if battle.ignored_skills:
             how += "; skills not built yet: " + ", ".join(sorted(battle.ignored_skills))
         return reply, how
@@ -240,11 +240,6 @@ class ConquestCalls:
                  else "You didn't earn a reward in this conquest." if not tiers else None)
         if words:
             return self._refuse(params, words), f"refused claimConquestReward: {words}"
-        player = self.player()
-        got, gains = self._pay_tiers(player, tiers)
-        me["claimed"] = 1
-        self.player_store.save(player)
-        self.conquest_store.save(state)
-        reply = self._reward_reply(params, player, got, gains)
+        reply, got, gains = self._pay_claim(params, tiers, me, lambda: self.conquest_store.save(state))
         return reply, (f"conquest rewards (guild rank {rank}, {me['influence']} influence): {len(tiers)} tiers, "
                        f"{self._describe_gains(got, gains)}")

@@ -83,10 +83,10 @@ def test_energy_and_fights():
     run = state["run"]
     m = conquest.member_row(state, 7, "Ann")
     conquest.guild_row(state, 1, "G1")
-    conquest.spend_energy(run, m, T0 + 10)
-    assert conquest.energy_now(run, m, T0 + 10) == 24
-    assert conquest.energy_now(run, m, T0 + 10 + conquest.ENERGY_EVERY) == 25
-    assert conquest.recharge_stop(run) == run["end"] - 4 * 3600
+    conquest.ENERGY.spend(run, m, T0 + 10)
+    assert conquest.ENERGY.current(run, m, T0 + 10) == 24
+    assert conquest.ENERGY.current(run, m, T0 + 10 + conquest.ENERGY_EVERY) == 25
+    assert conquest.ENERGY.recharge_stop(run) == run["end"] - 4 * 3600
     assert conquest.record_fight(state, m, 1, PHOBOS, True) == 50
     assert conquest.record_fight(state, m, 1, PHOBOS, False) == 5
     assert (m["influence"], m["zones"], m["battles"], m["wins"]) == (55, {str(PHOBOS): 55}, 2, 1)

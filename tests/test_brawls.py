@@ -6,6 +6,7 @@ from functools import lru_cache
 import random
 
 import brawls
+import event_runs
 import game_api as ga
 import paths
 from helpers import call, login, server, init_body
@@ -35,7 +36,7 @@ def test_the_brawls():
     assert guild.guild_event and not guild.war
     assert placement.guild_event and placement.war and placement.use_forts
     assert all(t.min_points is None for t in solo.tiers) and all(t.min_points for t in guild.tiers)
-    assert solo.tiers[0] == brawls.Tier(1, 1, None, (("card", 17239, 2),))
+    assert solo.tiers[0] == event_runs.Tier(1, 1, None, (("card", 17239, 2),))
     assert sum(1 for e in events().values() if e.effects) == 54
 
 
@@ -57,18 +58,18 @@ def test_the_brawl_matches_the_recorded_one(tmp_path):
 def test_energy():
     state = a_state()
     run = state["run"]
-    assert brawls.energy_now(run, None, T0) == brawls.ENERGY_MAX
+    assert brawls.ENERGY.current(run, None, T0) == brawls.ENERGY_MAX
     row = brawls.player_row(state, 1)
     for _ in range(3):
-        brawls.spend_energy(run, row, T0 + 100)
-    assert brawls.energy_now(run, row, T0 + 100) == 22 and brawls.recharging(run, row, T0 + 100)
-    assert brawls.energy_now(run, row, T0 + 100 + brawls.ENERGY_EVERY) == 23
-    brawls.spend_energy(run, row, T0 + 100 + brawls.ENERGY_EVERY + 600)     # keeps the part-way progress
+        brawls.ENERGY.spend(run, row, T0 + 100)
+    assert brawls.ENERGY.current(run, row, T0 + 100) == 22 and brawls.ENERGY.recharging(run, row, T0 + 100)
+    assert brawls.ENERGY.current(run, row, T0 + 100 + brawls.ENERGY_EVERY) == 23
+    brawls.ENERGY.spend(run, row, T0 + 100 + brawls.ENERGY_EVERY + 600)     # keeps the part-way progress
     assert row["energy"] == 22 and row["energy_updated"] == T0 + 100 + brawls.ENERGY_EVERY
-    assert brawls.energy_now(run, row, T0 + 100 + 2 * brawls.ENERGY_EVERY) == 23
-    late = brawls.recharge_stop(run)
+    assert brawls.ENERGY.current(run, row, T0 + 100 + 2 * brawls.ENERGY_EVERY) == 23
+    late = brawls.ENERGY.recharge_stop(run)
     row.update(energy=0, energy_updated=late - 60)
-    assert brawls.energy_now(run, row, run["end"]) == 0 and not brawls.recharging(run, row, run["end"])
+    assert brawls.ENERGY.current(run, row, run["end"]) == 0 and not brawls.ENERGY.recharging(run, row, run["end"])
 
 
 def test_points():

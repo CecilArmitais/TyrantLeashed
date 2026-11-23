@@ -1,6 +1,7 @@
 """What the timed events share: brawls (brawls.py), conquest (conquest.py) and guild wars
 (wars.py). Each keeps its own state file and rules; this is the part that's the same.
 
+- **The state file** (StateStore): each event's own, in state/, written whole.
 - **A run** is one event going on, in its state's "run": {"event", "start", "end",
   "decay", ...}. From the start to the end the event is on (fights); after the end, up
   to the decay, it's over and its rewards can be claimed, from a wait after the end
@@ -10,6 +11,7 @@
   tier they reach.
 - **Battleground effects by day:** an event file's battleground_config gives effects
   from a time; each day of a run has the last one whose day has come.
+- **Opponents** (pick_nearest): one of the few closest in points.
 - **Battle energy**, the client's own formula (EventEnergyBar.Refresh): one more every
   so often from the last update, not before the start and not after the recharge stops
   (some hours before the end), up to the most.
@@ -21,13 +23,50 @@ Standard library only."""
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
+from pathlib import Path
+
+import jsonfile
 
 REWARD_KINDS = ("card", "mini_pack", "pack", "item")
 DAY = 86400
 
 
+# ---- the state file -------------------------------------------------------------------------------
+
+class StateStore:
+    """An event's state file (state/brawls.json, ...), written whole (jsonfile.py). A load is
+    the event's new_state() with what the file has on top."""
+
+    def __init__(self, path: Path, new_state):
+        self.path = Path(path)
+        self.new_state = new_state
+
+    def load(self) -> dict:
+        return {**self.new_state(), **jsonfile.read(self.path, {})}
+
+    def save(self, state: dict) -> None:
+        jsonfile.write(self.path, state)
+
+
 # ---- runs ----------------------------------------------------------------------------------------
+
+def new_run(event_id: int, now: int, end: int, claim_days: int, **extra) -> dict:
+    """A run of an event from now to `end`, its rewards claimable up to `claim_days` after
+    the end (the decay); `extra`: the event's own fields."""
+    return {"event": event_id, "start": now, "end": end, "decay": end + claim_days * DAY, **extra}
+
+
+def pick_nearest(candidates: list[tuple[str, int]], my_points: int, rng: random.Random, nearest: int,
+                 order=str) -> str | None:
+    """One of the `nearest` candidates (id, points) closest to my points; ties in distance
+    go by `order` of the id."""
+    if not candidates:
+        return None
+    close = sorted(candidates, key=lambda c: (abs(c[1] - my_points), order(c[0])))[:nearest]
+    return rng.choice(sorted(c[0] for c in close))
+
 
 def phase(state: dict, now: int, active: str) -> str | None:
     """`active` while the run is on, "claim" after its end up to its decay, else None."""

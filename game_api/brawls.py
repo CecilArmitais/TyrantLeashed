@@ -67,9 +67,9 @@ class BrawlCalls:
         if event is None or brawls.phase(state, now) != "brawl":
             return
         run, row = state["run"], state["players"].get(str(self.uid))
-        user_data["battle_energy"] = str(brawls.energy_now(run, row, now))
+        user_data["battle_energy"] = str(brawls.ENERGY.current(run, row, now))
         user_data["battle_energy_update_time"] = str(now)
-        user_data["battle_energy_recharge_time"] = brawls.ENERGY_EVERY if brawls.recharging(run, row, now) else -1
+        user_data["battle_energy_recharge_time"] = brawls.ENERGY_EVERY if brawls.ENERGY.recharging(run, row, now) else -1
 
     def _brawl_message(self, message: str, params: dict) -> tuple[dict, str]:
         """The brawl calls (none take parameters): a fight, the reward claim, the boards."""
@@ -111,7 +111,7 @@ class BrawlCalls:
                  else "Brawls open at a battle rating above 100." if player.arena["rating"] < brawls.MIN_RATING
                  else "You must be in a Guild to compete in this Guild Brawl." if event.guild_event and guild is None
                  else "You're out of brawl energy. Wait for more energy."
-                 if brawls.energy_now(run, row, now) < brawls.ENERGY_COST else None)
+                 if brawls.ENERGY.current(run, row, now) < brawls.ENERGY_COST else None)
         if words:
             return self._refuse(params, words), f"refused fightBrawlBattle: {words}"
         mates = set(guild["members"]) if guild and event.guild_event else set()
@@ -150,7 +150,7 @@ class BrawlCalls:
         unplayed = len(battle.sides[DEFENDER].remaining)
         points = brawls.fight_points(won, destroyed, unplayed, battle.turn)
         row = brawls.player_row(state, self.uid, self._name_of(self.uid))
-        brawls.spend_energy(run, row, now)
+        brawls.ENERGY.spend(run, row, now)
         brawls.record_fight(state, row, guild["id"] if event.guild_event else None, won, points,
                             guild["name"] if event.guild_event else "")
         self.brawl_store.save(state)
@@ -169,7 +169,7 @@ class BrawlCalls:
                + f": {'won' if won else 'lost'} in {battle.turn} turns"
                + (f" ({destroyed} of their cards destroyed, {unplayed} of yours unplayed)" if won else "")
                + f", {points} points ({row['points']} in all, {row['wins']}/{row['battles']} won); "
-               + f"brawl energy {brawls.energy_now(run, row, now)}/{brawls.ENERGY_MAX}")
+               + f"brawl energy {brawls.ENERGY.current(run, row, now)}/{brawls.ENERGY_MAX}")
         if battle.ignored_skills:
             how += "; skills not built yet: " + ", ".join(sorted(battle.ignored_skills))
         return reply, how
@@ -195,12 +195,7 @@ class BrawlCalls:
                  else "You didn't earn a reward in this brawl." if not tiers else None)
         if words:
             return self._refuse(params, words), f"refused claimBrawlRewards: {words}"
-        player = self.player()
-        got, gains = self._pay_tiers(player, tiers)
-        row["claimed"] = 1
-        self.player_store.save(player)
-        self.brawl_store.save(state)
-        reply = self._reward_reply(params, player, got, gains)
+        reply, got, gains = self._pay_claim(params, tiers, row, lambda: self.brawl_store.save(state))
         reply.update(self._brawl_parts())
         return reply, (f"brawl rewards (rank {rank}, {row['points']} points): {len(tiers)} tiers, "
                        f"{self._describe_gains(got, gains)}")

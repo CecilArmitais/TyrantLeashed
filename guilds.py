@@ -123,7 +123,7 @@ class GuildStore:
         return self._take("next_guild_id")
 
 
-# ---- rules -----------------------------------------------------------------------------------------
+# ---- rules ---------------------------------------------------------------------------------------
 
 def name_problem(name: str) -> str | None:
     """The client's own checks and texts (CreateGuildPopup), or None if the name is fine."""
@@ -229,7 +229,8 @@ def join(store: GuildStore, guild_id, user_id, player_name: str, level: int, now
     return guild
 
 
-def leave(store: GuildStore, user_id, player_name: str, now: int, name_of=lambda uid: "Unknown")         -> tuple[dict, str | None]:
+def leave(store: GuildStore, user_id, player_name: str, now: int,
+          name_of=lambda uid: "Unknown") -> tuple[dict, str | None]:
     """The guild left, and who leads it now (a leader leaving hands over to the
     longest-serving officer, else member; the last member leaving disbands it).
     name_of(user_id) names the new leader in the news."""
@@ -403,7 +404,7 @@ def invites_for(store: GuildStore, user_id) -> list[dict]:
     return [g for g in store.all() if uid in g["invites"]]
 
 
-# ---- what the client reads ------------------------------------------------------------------------
+# ---- what the client reads -----------------------------------------------------------------------
 # `info(user_id)` gives a player's public details: {name, level, rating, commander_id,
 # last_update_time}, or None for a player the server doesn't know.
 

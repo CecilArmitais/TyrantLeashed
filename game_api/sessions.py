@@ -6,7 +6,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import arena
 import guilds
 from player_state import Player, PlayerStore
 
@@ -15,9 +14,10 @@ from .messages import LOGIN
 
 
 class SessionCalls:
-    """GameApi's part for logins, accounts and saves, the session's battle, and other players' saves, decks and names."""
+    """GameApi's part for logins, accounts and saves, the session's battle, and other
+    players' saves, decks and names."""
 
-    # ---- players --------------------------------------------------------------------------------------
+    # ---- players ---------------------------------------------------------------------------------
 
     def _save_path(self, user_id) -> Path:
         if self.single_player:
@@ -123,7 +123,7 @@ class SessionCalls:
             return None
         return self.player_store.current(self._start, self.energy_every, self._start_source, self.stamina_every)
 
-    # ---- guilds -------------------------------------------------------------------------------------
+    # ---- other players: their saves, decks, names and guilds -------------------------------------
 
     def _player_of(self, user_id) -> Player | None:
         """Any player's save: the current player's brought up to now, another's as last

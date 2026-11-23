@@ -2,20 +2,16 @@
 
 import json
 import os
-import sys
-from pathlib import Path
 
 import pytest
 
-import game_api as ga
-import player as cli
 from player_state import SAVE_VERSION, Player, PlayerStore, refill
-from helpers import SAVE_START as START, CARDS_XML, save_api as make_api, run_player_cli as run_cli
+from helpers import SAVE_START as START, save_api as make_api, run_player_cli as run_cli
 
 T = 1_795_000_000
 
 
-# ---- energy refill -------------------------------------------------------------------------
+# ---- energy refill -------------------------------------------------------------------------------
 
 @pytest.mark.parametrize("energy, updated, now, expected", [
     (200, T, T + 59, (200, T)),                 # not a full point yet
@@ -30,7 +26,7 @@ def test_refill(energy, updated, now, expected):
     assert refill(energy, updated, now, max_energy=250, every=60) == expected
 
 
-# ---- the store ------------------------------------------------------------------------------
+# ---- the store -----------------------------------------------------------------------------------
 
 
 def test_create_save_load(tmp_path):
@@ -77,7 +73,7 @@ def test_apply_replaces_only_existing_fields_and_keeps_their_type():
     assert partial == {"user_data": {"money": "1234"}}                # nothing added
 
 
-# ---- in the game API -------------------------------------------------------------------------------
+# ---- in the game API -----------------------------------------------------------------------------
 
 
 def ask(api, message, **params):
@@ -126,7 +122,7 @@ def test_energy_refills_between_sessions(tmp_path):
     assert json.loads((tmp_path / "state" / "player.json").read_text("utf-8"))["player"]["energy"] == 160
 
 
-# ---- the edit command ------------------------------------------------------------------------------
+# ---- the edit command ----------------------------------------------------------------------------
 
 
 def saved(tmp_path):
@@ -179,7 +175,7 @@ def test_cli_max_energy(tmp_path, monkeypatch, capsys):
     assert "too low" in str(code)
 
 
-# ---- energy across server downtime -----------------------------------------------------------------
+# ---- energy across server downtime ---------------------------------------------------------------
 
 def test_version_1_save_is_upgraded(tmp_path):
     f = tmp_path / "player.json"

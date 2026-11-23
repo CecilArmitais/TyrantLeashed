@@ -36,7 +36,7 @@ def guild_of(store, *members):
     return g
 
 
-# ---- creating, joining, leaving -------------------------------------------------------------------
+# ---- creating, joining, leaving ------------------------------------------------------------------
 
 def test_creating_a_guild(store):
     for bad, text in (("ab", "at least 3"), ("a" * 17, "at most 16"), ("No Spaces", "Only letters and numbers")):
@@ -113,7 +113,7 @@ def test_the_leader_leaving_hands_over(store):
         gd.leave(store, "2", "Bo", T)
 
 
-# ---- ranks, invitations, settings -------------------------------------------------------------------
+# ---- ranks, invitations, settings ----------------------------------------------------------------
 
 def test_ranks(store):
     g = guild_of(store, "1", "2", "3")
@@ -157,7 +157,7 @@ def test_settings(store):
     assert g["message"].startswith("Raid at '8'! now") and len(g["message"]) == gd.MESSAGE_MAX
 
 
-# ---- chat and news ----------------------------------------------------------------------------------
+# ---- chat and news -------------------------------------------------------------------------------
 
 def test_chat_and_news(store):
     g = guild_of(store, "1", "2")
@@ -193,7 +193,7 @@ def test_ids_are_never_reused(store):
     assert again.next_id() == hawks["id"] + 1
 
 
-# ---- guild points and the fortress --------------------------------------------------------------------
+# ---- guild points and the fortress ---------------------------------------------------------------
 
 def test_donations(store):
     g = guild_of(store, "1", "2")
@@ -231,7 +231,7 @@ def test_fortress_cards(store, cards):
                                                                        (22, 0, 100)]
 
 
-# ---- what the client reads ---------------------------------------------------------------------------
+# ---- what the client reads -----------------------------------------------------------------------
 
 def test_the_guild_as_the_client_reads_it(store):
     g = guild_of(store, "1", "2", "7")                                  # 7: a player the server doesn't know
@@ -246,7 +246,7 @@ def test_the_guild_as_the_client_reads_it(store):
                                         "max_members": 50, "total_rating": 300, "rank": 2}
 
 
-# ---- the game server ----------------------------------------------------------------------------------
+# ---- the game server -----------------------------------------------------------------------------
 
 def game(tmp_path, content="", gold=5000):
     if content:

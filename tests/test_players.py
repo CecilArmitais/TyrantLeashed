@@ -4,7 +4,6 @@ same time."""
 
 import http.client
 import json
-import random
 import sys
 import threading
 
@@ -16,8 +15,7 @@ import player as cli
 from helpers import server, login, call, T, ask
 
 
-
-# ---- accounts and logins -------------------------------------------------------------------------------
+# ---- accounts and logins -------------------------------------------------------------------------
 
 @pytest.mark.needs_game
 def test_each_new_browser_gets_its_own_account_and_save(tmp_path):
@@ -90,7 +88,7 @@ def test_replies_name_the_player_they_are_for():
     assert [r["user_id"] for r in body["battle_data"]["rewards"]] == ["1000002", "-5"]
 
 
-# ---- sessions --------------------------------------------------------------------------------------------
+# ---- sessions ------------------------------------------------------------------------------------
 
 @pytest.mark.needs_game
 def test_each_player_has_their_own_battle(tmp_path):
@@ -110,7 +108,7 @@ def test_each_player_has_their_own_battle(tmp_path):
     assert api._sessions["1000002"].battle["mission_id"] == "3"     # B's is untouched
 
 
-# ---- players together ---------------------------------------------------------------------------------------
+# ---- players together ----------------------------------------------------------------------------
 
 @pytest.mark.needs_game
 def test_two_players_in_one_guild(tmp_path):
@@ -159,7 +157,7 @@ def test_a_guild_fights_one_boss_together(tmp_path):
     assert [n["type"] for n in r["faction_news"]][-1] == 31         # A launched the level
 
 
-# ---- at the same time --------------------------------------------------------------------------------------
+# ---- at the same time ----------------------------------------------------------------------------
 
 @pytest.mark.needs_game
 def test_players_playing_at_once_over_http(tmp_path):
@@ -205,7 +203,7 @@ def test_players_playing_at_once_over_http(tmp_path):
         assert len({flags[f"step{i}"] for i in range(15)}) == 1     # all from that player
 
 
-# ---- the admin tool ----------------------------------------------------------------------------------------
+# ---- the admin tool ------------------------------------------------------------------------------
 
 def run_cli(monkeypatch, capsys, tmp_path, *args):
     monkeypatch.setattr(sys, "argv", ["player.py", "--fixtures", str(ga.FIXTURE_DIR), "--state", str(tmp_path), *args])

@@ -23,7 +23,7 @@ def influence(state, gid, zone, amount):
     conquest.guild_row(state, gid, f"G{gid}")["influence"][str(zone)] = amount
 
 
-# ---- the data -------------------------------------------------------------------------------------
+# ---- the data ------------------------------------------------------------------------------------
 
 @pytest.mark.needs_game
 def test_the_data():
@@ -45,7 +45,7 @@ def test_the_tier_a_rank_reaches():
     assert conquest.tier_for(ZONES[NEXUS], 1, "fortress_card") is None
 
 
-# ---- scoring rounds ------------------------------------------------------------------------------------
+# ---- scoring rounds ------------------------------------------------------------------------------
 
 @pytest.mark.needs_game
 def test_scoring_rounds():
@@ -140,7 +140,7 @@ def empty_strings(value, path="") -> list[str]:
     return []
 
 
-# ---- through the server -----------------------------------------------------------------------------
+# ---- through the server --------------------------------------------------------------------------
 
 def setup(tmp_path, content="[conquest]\nconquest = 33\n"):
     """Ann leads Owls with Cid, Bob leads Bats; all past the arena's tutorial fight."""

@@ -15,10 +15,9 @@ from __future__ import annotations
 import random
 import re
 from dataclasses import dataclass
-from pathlib import Path
 
 from .cards import COMMANDER, STRUCTURE, Card, CardDB
-from .engine import Battle, BattleError, RandomChooser, Setup, shuffled_deck, FIRST_UID, ATTACKER, DEFENDER
+from .engine import Battle, RandomChooser, Setup, shuffled_deck, FIRST_UID, ATTACKER, DEFENDER
 from paths import TUO_DIR   # the optimizer's source, beside the workspace
 
 TUO = TUO_DIR

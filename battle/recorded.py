@@ -82,7 +82,7 @@ def from_capture(session_dir: Path) -> list[RecordedBattle]:
     return stitch(capture_calls(session_dir))
 
 
-# ---- replaying through the engine ------------------------------------------------------
+# ---- replaying through the engine ----------------------------------------------------------------
 
 UNKNOWN = Card(id=0, base_id=0, name="(never played)", type=ASSAULT, faction=0, rarity=0, set=0, level=0,
                fusion_level=0, attack=0, health=1, delay=0)

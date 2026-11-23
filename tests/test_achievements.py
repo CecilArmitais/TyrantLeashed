@@ -1,8 +1,6 @@
 """Tests for achievements (achievements.py), against the recorded login, the recorded
 completions and the recorded arena fights."""
 
-import json
-import random
 from types import SimpleNamespace
 
 import pytest

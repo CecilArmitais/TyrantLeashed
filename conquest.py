@@ -132,7 +132,7 @@ def load(asset_dir: Path) -> tuple[dict[int, ConquestEvent], dict[int, Zone]]:
     return events, zones
 
 
-# ---- the server's conquest state ----------------------------------------------------------------
+# ---- the server's conquest state -----------------------------------------------------------------
 
 class ConquestStore:
     """state/conquest.json, written whole and atomically."""
@@ -183,7 +183,7 @@ def member_row(state: dict, uid, name: str = "") -> dict:
     return row
 
 
-# ---- ranks and scoring rounds ----------------------------------------------------------------
+# ---- ranks and scoring rounds --------------------------------------------------------------------
 
 def zone_ranking(state: dict, zone_id) -> list[tuple[str, int]]:
     """(guild id, influence) in a zone, best first; guilds with none aren't ranked."""
@@ -253,7 +253,7 @@ def fortress_cards(state: dict, gid) -> list[int]:
     return [g["fortresses"][z] for z in zones[:FORTRESSES]]
 
 
-# ---- energy (the client's formula, as for brawls: event_runs.py) ------------------------------
+# ---- energy (the client's formula, as for brawls: event_runs.py) ---------------------------------
 
 ENERGY = event_runs.Energy(ENERGY_MAX, ENERGY_EVERY, RECHARGE_STOPS, ENERGY_COST)
 recharge_stop = ENERGY.recharge_stop
@@ -261,7 +261,7 @@ energy_now = ENERGY.current
 spend_energy = ENERGY.spend
 
 
-# ---- fights ------------------------------------------------------------------------------------
+# ---- fights --------------------------------------------------------------------------------------
 
 def record_fight(state: dict, member: dict, gid, zone_id, won: bool) -> int:
     """A fight's influence (50 a win, 5 a loss) to the guild in the zone and to the member."""
@@ -285,7 +285,7 @@ def pick_guild(candidates: list[tuple[str, int]], my_points: int, rng: random.Ra
     return rng.choice(sorted(c[0] for c in close))
 
 
-# ---- rewards ------------------------------------------------------------------------------------
+# ---- rewards -------------------------------------------------------------------------------------
 
 def claimable(state: dict, now: int) -> bool:
     return event_runs.claimable(state, now, CLAIM_WAIT)

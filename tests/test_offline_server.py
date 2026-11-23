@@ -5,8 +5,6 @@ import json
 import shutil
 import subprocess
 import threading
-import urllib.request
-from pathlib import Path
 
 import pytest
 
@@ -192,7 +190,7 @@ def test_summary_when_clean(server):
     assert "Nothing was blocked" in server.summary()
 
 
-# ---- shim (runs in Node) ----------------------------------------------------------------
+# ---- shim (runs in Node) -------------------------------------------------------------------------
 
 SHIM_TEST = r"""
 globalThis.window = globalThis;

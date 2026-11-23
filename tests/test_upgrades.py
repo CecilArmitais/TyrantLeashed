@@ -1,7 +1,6 @@
 """Tests for the Upgrade screen (upgrades.py): upgrades, salvage, locks and fusion,
 against the recorded upgradeCard / salvageL1CommonCards replies."""
 
-import json
 
 import pytest
 
@@ -68,7 +67,8 @@ def test_the_recorded_upgrades_and_salvage(tmp_path):
     # As recorded: "Rise to Power" done and paid (200 gold), and its next link at 2 of 3.
     assert r["completed_achievements"] == after_cyrus["completed_achievements"]
     assert api.player().gold == gold + 200
-    assert {k: (v["progress"], v["max_progress"]) for k, v in r["user_achievements"].items() if k in ("101", "102")}         == {"102": ("2", "3")}
+    progress = {k: (v["progress"], v["max_progress"]) for k, v in r["user_achievements"].items() if k in ("101", "102")}
+    assert progress == {"102": ("2", "3")}
     assert owned(r["user_cards"]) == owned(after_cyrus["user_cards"])
     assert r["user_cards"]["1000"]["num_owned"] == "0"                 # kept at 0, as recorded
     assert deck_of(r["user_decks"]) == deck_of(after_cyrus["user_decks"])

@@ -166,7 +166,7 @@ def player_row(state: dict, uid, name: str = "") -> dict:
     return row
 
 
-# ---- energy (the client's own formula, EventEnergyBar.Refresh: event_runs.py) ------------------------
+# ---- energy (the client's own formula, EventEnergyBar.Refresh: event_runs.py) --------------------
 
 ENERGY = event_runs.Energy(ENERGY_MAX, ENERGY_EVERY, RECHARGE_STOPS, ENERGY_COST)
 recharge_stop = ENERGY.recharge_stop
@@ -175,7 +175,7 @@ spend_energy = ENERGY.spend
 recharging = ENERGY.recharging
 
 
-# ---- fights ------------------------------------------------------------------------------------
+# ---- fights --------------------------------------------------------------------------------------
 
 def fight_points(won: bool, enemy_destroyed: int, own_unplayed: int, turns: int) -> int:
     """The optimizer's brawl score: a win 55 + the enemy cards destroyed + the player's
@@ -213,7 +213,7 @@ def effect_on(event: BrawlEvent, run: dict, now: int) -> int | None:
     return event_runs.effect_on(event.effects, run, now)
 
 
-# ---- standings and rewards -------------------------------------------------------------------------
+# ---- standings and rewards -----------------------------------------------------------------------
 
 def standings(state: dict, guild_event: bool) -> list[dict]:
     """The players (a guild brawl: the guilds) who scored, best first: {"id", "name",

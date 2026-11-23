@@ -164,7 +164,7 @@ def test_valor_and_allegiance():
     assert allegiance["card_uid"] == 1 and allegiance["status"][0]["value"] == 1
 
 
-# ---- the optimizer's test decks, as a crash test ----------------------------------------------------
+# ---- the optimizer's test decks, as a crash test -------------------------------------------------
 
 import pytest  # noqa: E402
 

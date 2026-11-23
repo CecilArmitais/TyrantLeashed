@@ -123,7 +123,7 @@ def load_boxes(asset_dir: Path, file_name: str = "event_box.xml") -> dict[int, B
     return out
 
 
-# ---- a player's progress through a box ----------------------------------------------------------
+# ---- a player's progress through a box -----------------------------------------------------------
 # The save keeps, per box id: {"received": {card id: copies bought this round},
 # "completes": rounds bought out, "deals": deal ids bought this round}, and for a tiered
 # box "tier": the open tier, from 0 ("received" is that tier's).

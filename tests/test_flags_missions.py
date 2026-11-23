@@ -95,7 +95,7 @@ def win(api, mission, card):
     return ask(api, "playCard", battle_id=r["battle_data"]["battle_id"], card_uid=card, skip="0")
 
 
-# ---- flags ------------------------------------------------------------------------------------------
+# ---- flags ---------------------------------------------------------------------------------------
 
 def test_flag_is_saved_and_survives_a_restart(tmp_path):
     api = make_api(tmp_path)
@@ -169,7 +169,7 @@ def test_old_save_gets_flags_and_missions_from_the_starting_data(tmp_path):
     assert saved(tmp_path)["flags"]["tutorial"] == "0"
 
 
-# ---- missions ---------------------------------------------------------------------------------------
+# ---- missions ------------------------------------------------------------------------------------
 
 def test_a_won_mission_is_saved_and_shown(tmp_path):
     api = make_api(tmp_path)
@@ -208,7 +208,7 @@ def test_repeat_wins_and_extra_stars(tmp_path):
     assert (r["user_data"]["mission_wins"], r["user_data"]["stars"]) == (3, 3)
 
 
-# ---- mission energy costs -----------------------------------------------------------------------------
+# ---- mission energy costs ------------------------------------------------------------------------
 
 def set_energy(api, energy, updated=NOW):
     p = api.player()
@@ -265,7 +265,7 @@ def test_what_isnt_charged(tmp_path):
     assert r["result"] is True and saved(tmp_path)["energy"] == 250
 
 
-# ---- buying an energy refill ----------------------------------------------------------------------------
+# ---- buying an energy refill ---------------------------------------------------------------------
 
 def test_refill_adds_max_energy_on_top_for_war_bonds(tmp_path):
     api = make_api(tmp_path)
@@ -315,7 +315,7 @@ def test_refill_cost_comes_from_the_login_data(tmp_path):
     assert how.endswith("45 war bonds (50 -> 5)")
 
 
-# ---- the edit command ---------------------------------------------------------------------------------
+# ---- the edit command ----------------------------------------------------------------------------
 
 def run_cli(tmp_path, monkeypatch, capsys, *args):
     make_api(tmp_path)

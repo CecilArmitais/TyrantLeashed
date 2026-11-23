@@ -105,7 +105,7 @@ class Rules:
         return row.fusion_salvage.get(card.fusion_level, row.salvage) if card.fusion_level else row.salvage
 
 
-# ---- what each action does to the save -------------------------------------------------------------
+# ---- what each action does to the save -----------------------------------------------------------
 
 def upgrade(rules: Rules, player, card_id, in_deck: bool, active_deck: str | None) -> tuple[int, int]:
     """Upgrades one copy of a card: (the new card id, the SP it cost). A deck copy is

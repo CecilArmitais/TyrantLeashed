@@ -16,8 +16,6 @@ from .messages import TARGETS
 class ArenaCalls:
     """GameApi's part for the arena: rivals, fights, revenge, reports, stamina and Promote."""
 
-    # ---- the arena -----------------------------------------------------------------------
-
     def _arena_info(self) -> dict:
         """arena_battle_info, in the recorded shape. hunts_fought counts every fight."""
         a = self.player().arena

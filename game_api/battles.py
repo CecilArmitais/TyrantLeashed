@@ -21,9 +21,8 @@ from .replay import battle_won
 
 
 class BattleCalls:
-    """GameApi's part for battles from the engine: the campaign files, decks, missions and their pay, surrender, practice fights."""
-
-    # ---- the battle engine ------------------------------------------------------------
+    """GameApi's part for battles from the engine: the campaign files, decks, missions and
+    their pay, surrender, practice fights."""
 
     def _mission_file(self) -> str | None:
         """The mission file the player's game loads (`mission_file` in the login): the

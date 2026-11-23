@@ -8,9 +8,8 @@ import packs
 
 
 class ItemCalls:
-    """GameApi's part for items (items.py): the inventory, using items, and the item tiers rewards pay."""
-
-    # ---- items (items.py) ----------------------------------------------------------------------------
+    """GameApi's part for items (items.py): the inventory, using items, and the item tiers
+    rewards pay."""
 
     def _item_defs(self) -> dict:
         if getattr(self, "_items", None) is None:

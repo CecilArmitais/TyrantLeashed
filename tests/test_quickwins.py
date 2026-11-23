@@ -24,7 +24,7 @@ def game(tmp_path, bonds=2000, gold=50000):
     return api, clock
 
 
-# ---- the crate -------------------------------------------------------------------------------------
+# ---- the crate -----------------------------------------------------------------------------------
 
 def test_a_new_saves_crate_opens_as_recorded(tmp_path):
     api, clock = game(tmp_path)
@@ -61,7 +61,7 @@ def test_the_crate_rewards_come_from_the_content_file(tmp_path):
     assert r["bonus_result"]["bonus"]["card"] == 2999
 
 
-# ---- store upgrades -----------------------------------------------------------------------------------
+# ---- store upgrades ------------------------------------------------------------------------------
 
 def promo(r, item_id):
     return next((p for p in r["store_promos"] if str(p.get("item_type")) == "4" and str(p["item_id"]) == item_id), None)
@@ -116,7 +116,7 @@ def test_deck_slots_and_the_active_deck(tmp_path):
     assert r["store_upgrades"]["2"] == []
 
 
-# ---- name and refreshes -------------------------------------------------------------------------------
+# ---- name and refreshes --------------------------------------------------------------------------
 
 def test_the_name(tmp_path):
     api, _ = game(tmp_path)

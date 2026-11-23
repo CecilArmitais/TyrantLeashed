@@ -333,7 +333,7 @@ class PlayerStore:
         self._player: Player | None = None
         self._mtime: float | None = None
 
-    # ---- file ----------------------------------------------------------------------
+    # ---- file ------------------------------------------------------------------------------------
 
     def exists(self) -> bool:
         return self.path.is_file()
@@ -401,7 +401,7 @@ class PlayerStore:
         self.path.unlink(missing_ok=True)
         self._player, self._mtime = None, None
 
-    # ---- the player ------------------------------------------------------------------
+    # ---- the player ------------------------------------------------------------------------------
 
     def create_from(self, start: dict, source: dict | None = None) -> Player:
         """A new save from a starting reply (the recorded `init`): its gold, war bonds,

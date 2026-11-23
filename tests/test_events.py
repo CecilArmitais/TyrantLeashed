@@ -42,7 +42,7 @@ def stats(won=True, **kw):
     return ach.FightStats(won, **kw)
 
 
-# ---- the data -------------------------------------------------------------------------------------
+# ---- the data ------------------------------------------------------------------------------------
 
 def test_the_sets(defs):
     assert len(ach.challenge_set(defs, LIVING_MIRRORS)) == 16 and ach.challenge_length(defs, LIVING_MIRRORS) == 28 * 86400
@@ -60,7 +60,7 @@ def test_a_new_player_sees_what_the_recording_did(defs):
     assert shown == {str(i) for i in range(1148, 1159)}                                 # Mesmerize Mutant
 
 
-# ---- mission levels -------------------------------------------------------------------------------
+# ---- mission levels ------------------------------------------------------------------------------
 
 def test_mission_levels_are_wins(defs):
     p = player(wins={1516: 3})
@@ -70,7 +70,7 @@ def test_mission_levels_are_wins(defs):
     assert ach.user_achievements(defs, p)["1150"]["progress"] == "3"                      # Lv. 4: 3/4
 
 
-# ---- challenges, background progress --------------------------------------------------------------
+# ---- challenges, background progress -------------------------------------------------------------
 
 def test_a_challenge_counts_in_the_background(defs):
     """Recorded: an account short of mission 17 listed the challenge's follow-ups, so the
@@ -139,7 +139,7 @@ def test_the_parent_and_counts(defs):
     assert ach.event_progress(defs[3013], q) == 30                                    # "Complete 30 daily objectives"
 
 
-# ---- the new fight kinds, drops ---------------------------------------------------------------------
+# ---- the new fight kinds, drops ------------------------------------------------------------------
 
 def test_kinds_6_and_7(defs):
     orbo = defs[3272]                                     # "Protect the Mythic Orbo in 20 battles and win"
@@ -183,7 +183,7 @@ def test_raid_drops_that_need_a_level(defs):
     assert ach.drops(defs, p, ach.RAID, False, always, level=5) == {3009: 1}             # every raid fight counts
 
 
-# ---- the list ---------------------------------------------------------------------------------------
+# ---- the list ------------------------------------------------------------------------------------
 
 def test_the_list_is_sorted_and_capped(defs):
     ctx = run_of(defs, EXTREME)
@@ -196,7 +196,7 @@ def test_the_list_is_sorted_and_capped(defs):
     assert "1158" not in ua                                                            # mutants (order 50) cut
 
 
-# ---- through the server -----------------------------------------------------------------------------
+# ---- through the server --------------------------------------------------------------------------
 
 def test_a_challenge_through_the_server(tmp_path, defs):
     (tmp_path / "content.toml").write_text("[objectives]\nchallenge = 3580\n", "utf-8")

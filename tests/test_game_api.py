@@ -15,7 +15,7 @@ T = 1_795_000_000          # recorded server time
 NOW = T + 1_000_000        # about 11.6 days later
 
 
-# ---- shift_times ---------------------------------------------------------------------
+# ---- shift_times ---------------------------------------------------------------------------------
 
 def test_shift_times_moves_live_times_only():
     body = {
@@ -51,7 +51,7 @@ def test_offline_credentials_have_the_real_lengths():
     assert (len(ga.OFFLINE_PASSWORD), len(ga.OFFLINE_SYNCODE)) == (32, 64)
 
 
-# ---- GameApi -----------------------------------------------------------------------------
+# ---- GameApi -------------------------------------------------------------------------------------
 
 def write_fixtures(d: Path, **bodies):
     d.mkdir(parents=True, exist_ok=True)
@@ -105,7 +105,7 @@ def test_missing_fixtures_reported(tmp_path):
     assert api.unsupported("x", {})["daily_bonus_time"]          # still a valid envelope
 
 
-# ---- make_fixtures -----------------------------------------------------------------------------
+# ---- make_fixtures -------------------------------------------------------------------------------
 
 REAL_UID, REAL_PW, REAL_SYNC = "1400000042", "ab12cd34ef56ab12cd34ef56ab12cd34", "99ffee11223344556677889900aabbccddeeff00"
 REAL_NAME, UDID = "Commander8812", "5f3c-device-id-0001"
@@ -267,7 +267,7 @@ def test_real_fixtures_contain_no_identifier_from_any_session(tmp_path):
     assert every and not [s for s in every if s in text]
 
 
-# ---- replay library: battles and matched requests ---------------------------------------------
+# ---- replay library: battles and matched requests ------------------------------------------------
 
 def battle(bid, turn, winner=None, extra=None):
     bd = {"battle_id": bid, "host_id": ga.OFFLINE_USER_ID, "turn": {str(turn): {"draws": [1, 2]}}}

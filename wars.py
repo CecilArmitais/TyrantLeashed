@@ -189,7 +189,7 @@ def rank_of(state: dict, gid) -> int:
     return next((r["rank"] for r in rows if r["id"] == str(gid)), len(rows) + 1)
 
 
-# ---- matches -----------------------------------------------------------------------------------
+# ---- matches -------------------------------------------------------------------------------------
 
 def match_of(state: dict, gid) -> dict | None:
     """The guild's match being played (not finished), if any."""
@@ -318,7 +318,7 @@ def finish_matches(state: dict, now: int) -> list[dict]:
     return done
 
 
-# ---- fights -------------------------------------------------------------------------------------
+# ---- fights --------------------------------------------------------------------------------------
 
 def slot_health(match: dict, gid, slot: int) -> int:
     """A slot's health out of FORT_HEALTH in this match (the core never falls)."""
@@ -377,7 +377,7 @@ def effect_on(event: WarEvent, run: dict, now: int) -> int | None:
     return event_runs.effect_on(event.effects, run, now)
 
 
-# ---- rewards ------------------------------------------------------------------------------------
+# ---- rewards -------------------------------------------------------------------------------------
 
 def claimable(state: dict, now: int) -> bool:
     return event_runs.claimable(state, now, CLAIM_WAIT)

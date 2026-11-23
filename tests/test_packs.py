@@ -1,7 +1,6 @@
 """Tests for buying packs (packs.py): the card pool, the published drop rates, the
 Basic Pack, its gold bundles and the Epic Pack, and the replies."""
 
-import json
 import random
 from collections import Counter
 
@@ -9,7 +8,7 @@ import pytest
 
 import game_api as ga
 import packs
-from helpers import shop, T, ask, real_cards, init_body
+from helpers import shop, ask, real_cards, init_body
 
 RECORDED_DRAWS = [9, 6763, 75, 4, 2024, 112, 109, 45, 314, 169, 2100, 9, 109, 172, 115, 100, 197, 104,
                   4, 317, 2024, 71, 254, 504, 115]   # every recorded basic draw, both accounts
@@ -115,7 +114,7 @@ def test_refusals(tmp_path):
     assert api.player().gold == 1000                                   # nothing taken
 
 
-# ---- faction packs (the Blight Pack) ------------------------------------------------------------------
+# ---- faction packs (the Blight Pack) -------------------------------------------------------------
 
 @pytest.mark.needs_game
 def test_a_faction_pool_and_its_epic_column():

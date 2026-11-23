@@ -8,14 +8,13 @@ import pytest
 
 import arena
 import game_api as ga
-from battle.cards import CardDB
 from battle.engine import Battle, BattleError, RandomChooser, Setup, shuffled_deck
 from player_state import LEVELS, Player, PlayerStore, SAVE_VERSION, arena_from_start, level_for, level_info
-from helpers import arena_api, arena_fight as fight, real_cards, DB, T, ask, mission_api, recorded_calls
+from helpers import arena_api, real_cards, DB, T, ask, mission_api, recorded_calls
 
 
 
-# ---- Skip and Surrender ---------------------------------------------------------------------------
+# ---- Skip and Surrender --------------------------------------------------------------------------
 
 def long_battle(seed=1):
     db = DB
@@ -83,7 +82,7 @@ def test_surrendering_a_replayed_battle(tmp_path):
     assert r["battle_data"]["winner"] == 0 and r["battle_data"]["rewards"][0]["gold"] == 28
 
 
-# ---- levels and the save ----------------------------------------------------------------------------
+# ---- levels and the save -------------------------------------------------------------------------
 
 def test_levels_follow_the_rating():
     # The wiki's 20 ranks.
@@ -134,7 +133,7 @@ def test_an_older_save_gets_the_arena(tmp_path):
     assert json.loads(f.read_text("utf-8"))["version"] == SAVE_VERSION
 
 
-# ---- rivals ---------------------------------------------------------------------------------------------
+# ---- rivals --------------------------------------------------------------------------------------
 
 
 
@@ -238,7 +237,7 @@ def test_the_second_recorded_win():
     assert p.arena["rival_order"][-1] == -9
 
 
-# ---- through the server -------------------------------------------------------------------------------
+# ---- through the server --------------------------------------------------------------------------
 
 
 @pytest.mark.needs_game

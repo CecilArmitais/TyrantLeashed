@@ -15,7 +15,8 @@ from .base import NotSupported
 
 
 class WarCalls:
-    """GameApi's part for guild wars (wars.py): the event, matches, fights and rewards."""
+    """GameApi's part for guild wars (wars.py): the event, matches, fights and rewards. A
+    war event is the server's, shared by all its guilds."""
 
     def _war_report(self) -> str:
         c = self.content()
@@ -25,8 +26,6 @@ class WarCalls:
         return (f"; guild wars: {event.name} ({event.id}), {c.war_days}-day events, guilds of "
                 f"{c.war_min_members}+ members"
                 + ("; the raid takes the Wars tab while it's set" if self._set_raid() is not None else ""))
-
-    # ---- guild wars (wars.py; the server's, across guilds) ------------------------------------------
 
     def _war_events(self) -> dict:
         if getattr(self, "_wars", None) is None:

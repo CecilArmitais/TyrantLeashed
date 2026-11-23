@@ -16,9 +16,8 @@ from battle.protocol import BattleSession
 
 
 class RaidCalls:
-    """GameApi's part for raids (raids.py): each guild's run of the raid content.toml sets."""
-
-    # ---- raids (each guild fights its own run of the raid content.toml sets) ---------------------
+    """GameApi's part for raids (raids.py): each guild fights its own run of the raid
+    content.toml sets."""
 
     def _raid_defs(self) -> dict:
         if getattr(self, "_raids", None) is None:

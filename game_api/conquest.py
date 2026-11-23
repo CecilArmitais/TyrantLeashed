@@ -11,7 +11,8 @@ from battle.protocol import BattleSession
 
 
 class ConquestCalls:
-    """GameApi's part for conquest (conquest.py): the map, zones, fights and rewards."""
+    """GameApi's part for conquest (conquest.py): the map, zones, fights and rewards. A
+    conquest event is the server's, shared by all its guilds."""
 
     def _conquest_report(self) -> str:
         c = self.content()
@@ -19,8 +20,6 @@ class ConquestCalls:
         if event is None:
             return "; conquest: none" + (f" (there's no conquest {c.conquest_event})" if c.conquest_event else "")
         return f"; conquest: {event.name} ({event.id}), {event.length // 3600} hours"
-
-    # ---- conquest (conquest.py; the server's, across guilds) -----------------------------------------
 
     def _conquest_defs(self):
         if getattr(self, "_conquests", None) is None:

@@ -115,7 +115,7 @@ def test_a_deal_is_all_or_nothing(all_boxes):
     assert json.dumps(state, sort_keys=True) == before
 
 
-# ---- the content file ---------------------------------------------------------------------------------
+# ---- the content file ----------------------------------------------------------------------------
 
 def test_the_content_file_is_written_with_the_defaults(tmp_path):
     store = content.ContentStore(tmp_path / "content.toml")
@@ -229,7 +229,7 @@ def test_an_unknown_box_is_reported(tmp_path):
     assert "boxes: none" in report and "there's no box 1" in report
 
 
-# ---- tiered boxes ---------------------------------------------------------------------------------
+# ---- tiered boxes --------------------------------------------------------------------------------
 
 DEVOUR = 128
 

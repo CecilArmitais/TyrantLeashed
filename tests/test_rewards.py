@@ -3,7 +3,6 @@ the check against every recorded mission ending, the final playCard reply, and
 setDeckCards."""
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -15,7 +14,7 @@ from player_state import Player, SAVE_VERSION, completions_json, deck_from_json,
 from rewards import DECK_SIZE, RewardRules, finish_mission
 
 import xml.etree.ElementTree as ET
-from helpers import LOSING, mission_api as make_api, play_mission as play_out, T, ask
+from helpers import mission_api as make_api, play_mission as play_out, T, ask
 
 NOW = 1_795_000_000
 RULES = RewardRules(gold_multiplier=7)
@@ -32,7 +31,7 @@ def player(**kw) -> Player:
     return p
 
 
-# ---- the rules ----------------------------------------------------------------------------------------
+# ---- the rules -----------------------------------------------------------------------------------
 
 def test_rules_from_the_login_data():
     start = json.loads((ga.FIXTURE_DIR / "init.json").read_text("utf-8"))["body"]
@@ -119,7 +118,7 @@ def test_star_conditions_come_from_the_mission_file():
     assert [mid for mid, m in real.items() if m.location == 0] == ["1", "2", "3", "4", "5"]
 
 
-# ---- against the recordings -----------------------------------------------------------------------------
+# ---- against the recordings ----------------------------------------------------------------------
 
 def check_recorded_endings(calls, start) -> int:
     """Runs a recorded session's mission endings through the rules, from the state the
@@ -206,7 +205,7 @@ def test_the_accounts_captured_mission_endings_pay_the_same():
     assert n >= 3                     # mission 8 won twice, mission 9's first win (card 42)
 
 
-# ---- the server ---------------------------------------------------------------------------------------
+# ---- the server ----------------------------------------------------------------------------------
 
 
 def test_the_final_reply_of_a_first_win(tmp_path):
@@ -259,7 +258,7 @@ def test_a_replayed_mission_pays_by_the_save_not_the_recording(tmp_path):
     assert r["user_data"]["money"] == 170 and "user_cards" in r and "user_decks" in r
 
 
-# ---- saved decks ----------------------------------------------------------------------------------------
+# ---- saved decks ---------------------------------------------------------------------------------
 
 def set_deck(api, cards, commander="1000", deck_id="1"):
     return ask(api, "setDeckCards", deck_id=deck_id, commander_id=commander, dominion_id="0",

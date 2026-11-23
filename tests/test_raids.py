@@ -26,7 +26,7 @@ def cards():
     return real_cards()
 
 
-# ---- the data ---------------------------------------------------------------------------------------
+# ---- the data ------------------------------------------------------------------------------------
 
 @pytest.mark.needs_game
 def test_the_raid_file(all_raids, cards):
@@ -73,7 +73,7 @@ def test_earned_tiers(all_raids):
     assert [t.id for t in raids.earned_tiers(icarus, 1000, 3)] == [26, 25, 24]   # the level holds it back
 
 
-# ---- a run -----------------------------------------------------------------------------------------
+# ---- a run ---------------------------------------------------------------------------------------
 
 @pytest.mark.needs_game
 def test_energy_comes_back_while_the_raid_runs(all_raids):
@@ -144,7 +144,7 @@ def test_when_the_reward_can_be_claimed(all_raids):
     assert not raids.claimable(run, m, end + HOUR + 600)
 
 
-# ---- fortresses in the engine ------------------------------------------------------------------------
+# ---- fortresses in the engine --------------------------------------------------------------------
 
 @pytest.mark.needs_game
 def test_fortresses_come_in_with_the_bosss_first_turn(cards):
@@ -168,7 +168,7 @@ def test_fortresses_come_in_with_the_bosss_first_turn(cards):
     assert [u.delay for u in b.sides[DEFENDER].structures[:2]] == [2, 4]
 
 
-# ---- the game server ---------------------------------------------------------------------------------
+# ---- the game server -----------------------------------------------------------------------------
 
 
 def me(api):

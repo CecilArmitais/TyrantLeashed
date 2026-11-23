@@ -52,7 +52,7 @@ TIERED_ITEM_TYPE = 10                           # ...and as a tiered box (a row 
 BOX_BANNER_TEXT = "New Event Box!"              # the banner's ribbon for a box (ours; "" shows "0")
 
 
-# ---- the offers: packs, promos and boxes ----------------------------------------------------------
+# ---- the offers: packs, promos and boxes ---------------------------------------------------------
 
 def promo_entry(mp_id, mp: dict, promo: Promo, available_cards: list[int] | None) -> dict:
     """A store_promos entry for a mini pack, in the recorded entries' shape (item_type 3)."""
@@ -166,7 +166,7 @@ def apply_offers(body: dict, content: Content, promo_entries: list[dict], box_en
     return body
 
 
-# ---- single cards and bundles ---------------------------------------------------------------------
+# ---- single cards and bundles --------------------------------------------------------------------
 
 CARD_ITEM_BASE = 1_000_000          # a single-card promo's item_id: this + the card id (ours)...
 RECORDED_IDS = {70584: 13835}       # ...or the recorded store's id for it (Tabitha's Trooper)
@@ -245,7 +245,7 @@ def bundle_entry(bundle: Bundle, gold: int | None, war_bonds: int | None) -> dic
     return entry
 
 
-# ---- upgrades: +50 Max Energy, +10 Card Slots, the Extra Deck Slot --------------------------------
+# ---- upgrades: +50 Max Energy, +10 Card Slots, the Extra Deck Slot -------------------------------
 
 @dataclass(frozen=True)
 class Upgrade:

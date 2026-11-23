@@ -12,7 +12,8 @@ from battle.protocol import BattleSession
 
 
 class BrawlCalls:
-    """GameApi's part for brawls (brawls.py): the event, fights and rewards."""
+    """GameApi's part for brawls (brawls.py): the event, fights and rewards. A brawl is the
+    server's, shared by all its players."""
 
     def _brawl_report(self) -> str:
         c = self.content()
@@ -21,8 +22,6 @@ class BrawlCalls:
             return "; brawls: none" + (f" (there's no brawl {c.brawl_event})" if c.brawl_event else "")
         kind = "a guild brawl" if event.guild_event else "a solo brawl"
         return f"; brawl: {event.name} ({event.id}), {kind} of {event.length // 3600} hours"
-
-    # ---- brawls (brawls.py; the server's, across players) -------------------------------------------
 
     def _brawl_events(self) -> dict:
         if getattr(self, "_brawls", None) is None:

@@ -178,7 +178,7 @@ def load(asset_dir: Path) -> dict[int, Achievement]:
     return out
 
 
-# ---- the save ---------------------------------------------------------------------------------------
+# ---- the save ------------------------------------------------------------------------------------
 # player.achievements = {"done": [ids], "counts": {"upgrade_level", "fusions", "salvage"},
 #   "daily": {"ids": [...], "end_time": t, "progress": {id: n}, "ready": [ids], "claimed": [ids]},
 #   "rotations": n}
@@ -197,7 +197,7 @@ def state(player) -> dict:
     return s
 
 
-# ---- which event objectives are on --------------------------------------------------------------
+# ---- which event objectives are on ---------------------------------------------------------------
 
 @dataclass(frozen=True)
 class EventContext:
@@ -276,6 +276,8 @@ def sync_run(player, ctx: EventContext) -> None:
     ev["run"], ev["run_ids"] = key, sorted(ctx.challenge)
 
 
+# ---- progress: what's shown and what counts ------------------------------------------------------
+
 def _mission_done(player, mid) -> bool:
     m = (player.missions or {}).get(str(mid))
     return bool(m and m.get("complete"))
@@ -330,6 +332,8 @@ def progress(a: Achievement, player) -> int:
         return c.get("salvage", 0)
     return 0
 
+
+# ---- the list, dailies, finishing and pay --------------------------------------------------------
 
 def open_permanent(defs: dict[int, Achievement], player) -> list[Achievement]:
     """The permanent achievements on the list: not done, and the one before (if any) done."""
@@ -406,7 +410,7 @@ def pay(a: Achievement, player, cap_sp: int) -> None:
         player.add_card(cid, n)
 
 
-# ---- arena fights -----------------------------------------------------------------------------------
+# ---- arena fights --------------------------------------------------------------------------------
 
 @dataclass
 class FightStats:
@@ -561,7 +565,7 @@ def claim(defs: dict[int, Achievement], player, aid, cap_sp: int, now: int,
     return a
 
 
-# ---- item drops (type 10) -------------------------------------------------------------------------
+# ---- item drops (type 10) ------------------------------------------------------------------------
 
 def drops(defs: dict[int, Achievement], player, battle_type: int, won: bool, rng: random.Random,
           ctx: EventContext | None = None, mutant: bool = False, level: int | None = None) -> dict[int, int]:
@@ -598,7 +602,7 @@ def reward_item(gains: dict[int, int]):
     return {str(i): n for i, n in gains.items()} or []
 
 
-# ---- the replies --------------------------------------------------------------------------------------
+# ---- the replies ---------------------------------------------------------------------------------
 
 def entry(a: Achievement, progress_now: int, status: int, end_time: int | None = None) -> dict:
     """A user_achievements entry, as recorded."""

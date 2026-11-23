@@ -10,7 +10,8 @@ from .messages import CLAIM
 
 
 class AchievementCalls:
-    """GameApi's part for objectives (achievements.py): the chains, dailies, events and their drops."""
+    """GameApi's part for objectives (achievements.py): the chains, dailies, events and
+    their drops."""
 
     def objectives_report(self) -> str:
         """The objective challenge content.toml sets, if any."""
@@ -23,8 +24,6 @@ class AchievementCalls:
         length = achievements.challenge_length(defs, c.challenge)
         return (f"Objective challenge: {root.name} ({root.id}), {len(members)} objectives, "
                 + (f"{length // 86400}-day runs" if length else "no end"))
-
-    # ---- achievements ---------------------------------------------------------------------------
 
     def _achievement_defs(self) -> dict:
         if getattr(self, "_ach_defs", None) is None:

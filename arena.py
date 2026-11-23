@@ -309,7 +309,7 @@ def rival_deck(rival: dict, cards: CardDB) -> tuple[Card, list[Card]]:
     return commander, deck
 
 
-# ---- Promote: unlocking commanders ------------------------------------------------------
+# ---- Promote: unlocking commanders ---------------------------------------------------------------
 
 UNLOCK_RARITY = {1: 2, 2: 3, 3: 4}           # user_data.commander_unlock_rarity for each tier
 UNLOCK_BONUS = {1: (1, 3), 2: (2, 2), 3: (4, 0)}   # (rares, commons) that come with it (the wiki)
@@ -364,6 +364,8 @@ def unlock_commander(player: Player, base_id: int, cards: CardDB, rng: random.Ra
     a["unlock_rarity"] = UNLOCK_RARITY[unlock_tier(owned | {base_id})]
     return bonus
 
+
+# ---- arena fights: rating and pay ----------------------------------------------------------------
 
 def rating_change(mine: int, theirs: int, won: bool, first_win: bool) -> int:
     """A win: 30, more against a higher-rated rival (30 + the difference / 50), at most
@@ -424,7 +426,7 @@ def finish_hunt(player: Player, rival: dict, won: bool, loss_mult: float, now: i
     return result
 
 
-# ---- reports (the Reports tab) -------------------------------------------------------------
+# ---- reports (the Reports tab) -------------------------------------------------------------------
 
 REPORTS_KEPT = 16                    # the account's list had 16 (the real limit isn't known)
 

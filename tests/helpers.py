@@ -14,7 +14,7 @@ import player as cli
 from battle.cards import CardDB
 
 
-# ---- the real game files (read on first use) -------------------------------------------------
+# ---- the real game files (read on first use) -----------------------------------------------------
 
 @lru_cache(maxsize=None)
 def real_cards() -> CardDB:
@@ -33,7 +33,7 @@ def recorded_calls() -> list:
     return json.loads((paths.FIXTURE_DIR / "replay.json").read_text("utf-8"))["calls"]
 
 
-# ---- the clock and requests ------------------------------------------------------------------------
+# ---- the clock and requests ----------------------------------------------------------------------
 
 T = 1_795_000_000
 
@@ -42,7 +42,7 @@ def ask(api, message, **params):
     return api.respond(message, {"message": message, "user_id": "1000001", **params})
 
 
-# ---- a tiny made-up game (cards and missions written to a temporary folder) ------------------------
+# ---- a tiny made-up game (cards and missions written to a temporary folder) ----------------------
 
 CARDS = """<root>
   <unit><id>1000</id><name>Cyrus</name><health>10</health><skill id="heal" x="1" y="1"/></unit>
@@ -85,7 +85,7 @@ def make_api(tmp_path, engine=True):
     return ga.GameApi(fixture_dir=fx, asset_dir=assets, clock=lambda: T + 100, battle_engine=engine)
 
 
-# ---- several players on one server -----------------------------------------------------------------
+# ---- several players on one server ---------------------------------------------------------------
 
 def server(tmp_path, content="", engine=False):
     if content:
@@ -108,7 +108,7 @@ def call(api, creds, message, **params):
     return api.respond(message, {"message": message, **creds, **params})
 
 
-# ---- the store -------------------------------------------------------------------------------------
+# ---- the store -----------------------------------------------------------------------------------
 
 def shop(tmp_path, engine=False, tutorial="-1", gold=1000, bonds=50):
     api = ga.GameApi(fixture_dir=ga.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: T, battle_engine=engine)
@@ -121,7 +121,7 @@ def shop(tmp_path, engine=False, tutorial="-1", gold=1000, bonds=50):
     return api
 
 
-# ---- the arena -------------------------------------------------------------------------------------
+# ---- the arena -----------------------------------------------------------------------------------
 
 def arena_api(tmp_path):
     api = ga.GameApi(fixture_dir=ga.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: T + 100, battle_engine=True)
@@ -141,7 +141,7 @@ def arena_fight(api, tid, skip="1"):
     return r, how
 
 
-# ---- missions the player always loses (rewards) ----------------------------------------------------
+# ---- missions the player always loses (rewards) --------------------------------------------------
 
 LOSING = """<root>
   <mission><id>2</id><name>2. Cannon Fire</name><location_id>0</location_id><energy>15</energy>
@@ -177,7 +177,7 @@ def play_mission(api, mission):
             return r, how
 
 
-# ---- objectives ------------------------------------------------------------------------------------
+# ---- objectives ----------------------------------------------------------------------------------
 
 def objectives_game(tmp_path, engine=False):
     clock = [T + 100]
@@ -205,7 +205,7 @@ def recorded_fight(first, last):
     return SimpleNamespace(turns=turns, sides=(att, dfn)), data.get("winner") == 1
 
 
-# ---- raids -----------------------------------------------------------------------------------------
+# ---- raids ---------------------------------------------------------------------------------------
 
 def raid_game(tmp_path, raid=161, bonds=2000, extra="health_percent = 2\n", guild="Raiders"):
     """A server with the raid set (at 2% of the boss's health, so the numbers stay small)
@@ -233,7 +233,7 @@ def raid_fight(api):
     return ask(api, "fightRaidBattle", raid_id="161", raid_level=str(level))
 
 
-# ---- a made-up save, and the admin tool on it ------------------------------------------------------
+# ---- a made-up save, and the admin tool on it ----------------------------------------------------
 
 SAVE_START = {
     "time": T, "max_energy": 250, "energy_recharge_time": 60,

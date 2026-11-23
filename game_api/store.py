@@ -19,26 +19,10 @@ from .messages import BUY_UPGRADE, PACK_GOLD, PROMO_GOLD, PROMO_WB
 
 
 class StoreCalls:
-    """GameApi's part for the store: packs, promos, event boxes and store upgrades, as content.toml sets them."""
+    """GameApi's part for the store: packs, promos, event boxes and store upgrades, as
+    content.toml sets them."""
 
-    def _boxes(self) -> dict:
-        if getattr(self, "_box_data", None) is None:
-            self._box_data = boxes.load_boxes(self._assets)
-        return self._box_data
-
-    def _rarity_of(self, cid: int) -> int:
-        return self._engine_data()[0][cid].rarity
-
-    def _box_problem(self, bid: int, box) -> str | None:
-        """Why a box in the content file can't be sold, or None."""
-        if box is None:
-            return f"boxes.on_offer: there's no box {bid} in event_box.xml"
-        cards = self._engine_data()[0]
-        every = [cid for t in (box.tiers or (box.cards,)) for cid, _ in t]
-        missing = [cid for cid in every if cid not in cards.cards]
-        if missing or not every:
-            return f"boxes.on_offer: the {box.name} ({bid}) has cards the card files don't: {missing[:5]}"
-        return None
+    # ---- what's on offer -------------------------------------------------------------------------
 
     def _store(self, player: Player | None = None, from_save: bool = True) \
             -> tuple[Content, list[dict], list[dict], list[str]]:
@@ -140,29 +124,10 @@ class StoreCalls:
             self._scaling_pack = packs.load_scaling_pack(self._assets)
         return self._scaling_pack
 
-    def _buy_promo(self, message: str, params: dict):
-        """buyStorePromoGold / buyStorePromoTokens item_type=3 or 7 item_id: a promo the
-        content file offers (a mini pack, a single card, a bundle), or None for others."""
-        player = self.player()
-        offers, _ = self._promo_offers(player)
-        item_id, item_type = str(params.get("item_id")), str(params.get("item_type"))
-        offer = next((o for o in offers if str(o["entry"]["item_id"]) == item_id
-                      and str(o["entry"]["item_type"]) == item_type), None)
-        if offer is None:
-            bundle = store.BUNDLES.get(int(item_id)) if item_id.isdigit() else None
-            if bundle is not None and item_type == str(store.BUNDLE_ITEM_TYPE) \
-                    and player.promo_buys.get(store.bundle_key(bundle.id)):
-                return self._refuse(params, f"You already bought the {bundle.name}: it's one time only."), \
-                    f"refused {message}: {bundle.name} already bought"
-            return None
-        pack = offer["pack"]
-        currency = "gold" if message == PROMO_GOLD else "war bonds"
-        price = pack.gold if message == PROMO_GOLD else pack.war_bonds
-        if price is None:
-            return self._refuse(params, f"The {pack.name} isn't sold for {currency}."), \
-                f"refused {message}: no {currency} price"
-        return self._sell_pack(params, pack, price, currency, PROMO_GOLD, with_data=True, count_key=offer["key"],
-                               bundle=offer["bundle"])
+    def _mini_packs(self) -> dict:
+        if getattr(self, "_mini_pack_data", None) is None:
+            self._mini_pack_data = packs.load_mini_packs(self._assets)
+        return self._mini_pack_data
 
     def store_report(self) -> str:
         """One line on what the store offers, then any problems in the content file."""
@@ -174,12 +139,7 @@ class StoreCalls:
                 + (", ".join(f"{e['name']} ({e['item_id']})" for e in box_entries) or "none"))
         return "\n".join([line] + [f"  {self.content_store.path.name}: {p}" for p in problems])
 
-    # ---- packs --------------------------------------------------------------------------------
-
-    def _mini_packs(self) -> dict:
-        if getattr(self, "_mini_pack_data", None) is None:
-            self._mini_pack_data = packs.load_mini_packs(self._assets)
-        return self._mini_pack_data
+    # ---- buying packs and promos -----------------------------------------------------------------
 
     def _buy_pack(self, message: str, params: dict) -> tuple[dict, str]:
         """buyPackGold / buyPackTokens pack_id: a `store_packs` pack (packs.py)."""
@@ -303,6 +263,51 @@ class StoreCalls:
                        + "; ".join(x for x in (names, *extras) if x)
                        + ("; into the deck (tutorial)" if into_deck else ""))
 
+    def _buy_promo(self, message: str, params: dict):
+        """buyStorePromoGold / buyStorePromoTokens item_type=3 or 7 item_id: a promo the
+        content file offers (a mini pack, a single card, a bundle), or None for others."""
+        player = self.player()
+        offers, _ = self._promo_offers(player)
+        item_id, item_type = str(params.get("item_id")), str(params.get("item_type"))
+        offer = next((o for o in offers if str(o["entry"]["item_id"]) == item_id
+                      and str(o["entry"]["item_type"]) == item_type), None)
+        if offer is None:
+            bundle = store.BUNDLES.get(int(item_id)) if item_id.isdigit() else None
+            if bundle is not None and item_type == str(store.BUNDLE_ITEM_TYPE) \
+                    and player.promo_buys.get(store.bundle_key(bundle.id)):
+                return self._refuse(params, f"You already bought the {bundle.name}: it's one time only."), \
+                    f"refused {message}: {bundle.name} already bought"
+            return None
+        pack = offer["pack"]
+        currency = "gold" if message == PROMO_GOLD else "war bonds"
+        price = pack.gold if message == PROMO_GOLD else pack.war_bonds
+        if price is None:
+            return self._refuse(params, f"The {pack.name} isn't sold for {currency}."), \
+                f"refused {message}: no {currency} price"
+        return self._sell_pack(params, pack, price, currency, PROMO_GOLD, with_data=True, count_key=offer["key"],
+                               bundle=offer["bundle"])
+
+    # ---- event boxes -----------------------------------------------------------------------------
+
+    def _boxes(self) -> dict:
+        if getattr(self, "_box_data", None) is None:
+            self._box_data = boxes.load_boxes(self._assets)
+        return self._box_data
+
+    def _rarity_of(self, cid: int) -> int:
+        return self._engine_data()[0][cid].rarity
+
+    def _box_problem(self, bid: int, box) -> str | None:
+        """Why a box in the content file can't be sold, or None."""
+        if box is None:
+            return f"boxes.on_offer: there's no box {bid} in event_box.xml"
+        cards = self._engine_data()[0]
+        every = [cid for t in (box.tiers or (box.cards,)) for cid, _ in t]
+        missing = [cid for cid in every if cid not in cards.cards]
+        if missing or not every:
+            return f"boxes.on_offer: the {box.name} ({bid}) has cards the card files don't: {missing[:5]}"
+        return None
+
     def _offered_box(self, params: dict):
         """(box, None) for a box the store has now, or (None, the refusal)."""
         try:
@@ -367,7 +372,7 @@ class StoreCalls:
         return (f"; {box.name} round {int(state.get('completes', 0)) + 1}{limit}{where}: "
                 f"{boxes.bought(box, state)}/{box.size} bought")
 
-    # ---- the crate, upgrades, name, decks, refreshes ------------------------------------------------
+    # ---- store upgrades --------------------------------------------------------------------------
 
     def _decks_limit(self) -> int:
         return int(self._start.get("max_decks_available") or 5)

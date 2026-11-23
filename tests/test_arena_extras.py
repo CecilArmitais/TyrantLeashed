@@ -4,7 +4,6 @@ two recorded unlocks where there are captures."""
 
 import json
 import random
-from pathlib import Path
 
 import pytest
 
@@ -27,7 +26,7 @@ def api_with(tmp_path, engine=True, **arena_values):
     return api
 
 
-# ---- stamina -----------------------------------------------------------------------------------------
+# ---- stamina -------------------------------------------------------------------------------------
 
 @pytest.mark.needs_game
 def test_a_stamina_refill_fills_stamina_for_war_bonds(tmp_path):
@@ -41,7 +40,7 @@ def test_a_stamina_refill_fills_stamina_for_war_bonds(tmp_path):
     assert "user_data" in r and api.player().arena["stamina"] == 15
 
 
-# ---- refreshing the rivals ------------------------------------------------------------------------------
+# ---- refreshing the rivals -----------------------------------------------------------------------
 
 @pytest.mark.needs_game
 def test_refreshing_rolls_new_rivals_for_gold(tmp_path):
@@ -79,7 +78,7 @@ def test_a_refresh_above_150_moves_ratings_a_little():
         assert abs(int(p["hunting_elo"]) - int(r["hunting_elo"])) in (0, 50)
 
 
-# ---- Promote ----------------------------------------------------------------------------------------------
+# ---- Promote -------------------------------------------------------------------------------------
 
 @pytest.mark.needs_game
 def test_unlocking_a_commander(tmp_path):
@@ -93,7 +92,8 @@ def test_unlocking_a_commander(tmp_path):
     assert [c.rarity for c in new] == [2, 1, 1, 1] and len({c.id for c in new}) == 4
     assert all((c.faction, c.set, c.level, c.id) == (2, 1000, 1, c.base_id) for c in new)
     ud = r["user_data"]
-    assert (int(ud["promotion_points"]), int(ud["cards_earned"]), int(ud["commander_unlock_rarity"])) ==         (1, 10, 2)                                                       # cards earned: 5 + the commander + 4
+    # cards earned: 5 + the commander + 4
+    assert (int(ud["promotion_points"]), int(ud["cards_earned"]), int(ud["commander_unlock_rarity"])) == (1, 10, 2)
     assert r["user_cards"]["1007"]["num_owned"] == "1"
     for cid, why in (("1007", "you already have that commander"), ("1000", "you already have that commander"),
                      ("1041", "unlock every tier 1 commander first"), ("1297", "that isn't a commander Promote unlocks")):
@@ -157,7 +157,7 @@ def test_the_recorded_unlocks_follow_the_rule():
     assert seen == 2
 
 
-# ---- reports ---------------------------------------------------------------------------------------------
+# ---- reports -------------------------------------------------------------------------------------
 
 @pytest.mark.needs_game
 def test_reports_list_the_players_fights_newest_first(tmp_path):

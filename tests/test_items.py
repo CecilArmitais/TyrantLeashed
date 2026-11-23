@@ -13,7 +13,7 @@ from helpers import call, login, server
 DEFS = items.load(ga.ASSET_DIR)
 
 
-# ---- the data and formats -------------------------------------------------------------------------
+# ---- the data and formats ------------------------------------------------------------------------
 
 @pytest.mark.needs_game
 def test_the_data():
@@ -57,7 +57,7 @@ def test_what_can_be_used():
     items.check_use(DEFS[items.ENERGY_REFILL], {"1": 1})
 
 
-# ---- through the server -----------------------------------------------------------------------------
+# ---- through the server --------------------------------------------------------------------------
 
 def setup(tmp_path, owned):
     api, clock = server(tmp_path, engine=True)

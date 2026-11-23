@@ -3,7 +3,6 @@ matchmaking, fortresses, rewards), the replies, and a war between two guilds pla
 through the server."""
 
 import json
-import random
 
 import pytest
 
@@ -26,7 +25,7 @@ def members(groups):
     return lambda gid: groups.get(gid)
 
 
-# ---- the data -------------------------------------------------------------------------------------
+# ---- the data ------------------------------------------------------------------------------------
 
 @pytest.mark.needs_game
 def test_the_war_events():
@@ -55,7 +54,7 @@ def test_the_event_matches_the_recorded_one(tmp_path):
     assert ours["more_points_start_time"] == recorded["more_points_start_time"]       # the event's start + 7 days
 
 
-# ---- the rules ----------------------------------------------------------------------------------------
+# ---- the rules -----------------------------------------------------------------------------------
 
 def test_points_for_a_fight():
     assert wars.fight_points(wars.CORE, True, 20) == 180 and wars.fight_points(wars.CORE, False, 20) == 20
@@ -225,7 +224,7 @@ def test_the_war_as_the_client_gets_it():
     assert info["members"] == [{"member_name": "Ann", "faction_war_points": 90}]
 
 
-# ---- through the server -----------------------------------------------------------------------------
+# ---- through the server --------------------------------------------------------------------------
 
 WAR_CONTENT = "[wars]\nwar = 94\nmin_members = 1\npoint_gap_percent = 100\nrematch_hours = 0\n"
 

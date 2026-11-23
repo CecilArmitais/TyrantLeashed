@@ -25,7 +25,7 @@ from __future__ import annotations
 import math
 import random
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -97,7 +97,7 @@ def load(asset_dir: Path, file_name: str | None = None) -> dict[int, Raid]:
     return out
 
 
-# ---- the boss's deck ---------------------------------------------------------------------------------
+# ---- the boss's deck -----------------------------------------------------------------------------
 
 def boss_deck(raid: Raid, level: int, cards, rng: random.Random):
     """(commander, fortresses, cards) for a fight at this level: deck_size cards from the
@@ -134,7 +134,7 @@ def _top_level(cards, card):
         card = nxt
 
 
-# ---- a fight's damage and the rewards -------------------------------------------------------------------
+# ---- a fight's damage and the rewards ------------------------------------------------------------
 
 def fight_damage(destroyed: int, boss_hp: int, boss_max_hp: int) -> int:
     """Raid damage for one fight (the optimizer's formula), at least 0."""
@@ -147,7 +147,7 @@ def earned_tiers(raid: Raid, damage: int, level: int) -> list[Tier]:
     return [t for t in raid.tiers if damage >= t.damage and level >= t.level]
 
 
-# ---- a raid run: the guild's state --------------------------------------------------------------------
+# ---- a raid run: the guild's state ---------------------------------------------------------------
 # guild["raid"] = {"id", "start", "end", "decay", "level", "level_start", "level_end", "hp",
 #   "members": {user_id: {"damage", "fights", "claimed", "energy", "energy_updated"}}}
 # The boss (its level, health and the level's clock) is the guild's; each member has their
@@ -229,7 +229,7 @@ def claimable(run: dict, m: dict, now: int) -> bool:
     return now >= max(run["end"], level_end) + CLAIM_WAIT and now < run["decay"] and not m["claimed"]
 
 
-# ---- the replies ------------------------------------------------------------------------------------------
+# ---- the replies ---------------------------------------------------------------------------------
 
 def tier_json(tier: Tier, mini_packs: dict) -> dict:
     out = {"id": str(tier.id), "damage": tier.damage, "level": tier.level}

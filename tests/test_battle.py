@@ -1,8 +1,6 @@
 """Tests for the battle engine (phase 1): card data, missions, the turn loop and plain
 attacks, the replies, the server wiring, and the check against recorded battles."""
 
-import json
-from pathlib import Path
 
 import pytest
 
@@ -14,10 +12,10 @@ from battle.protocol import BattleSession
 from battle.recorded import compare, from_fixtures
 
 import xml.etree.ElementTree as ET
-from helpers import CARDS, DB, MISSIONS, T, make_api, ask
+from helpers import DB, T, make_api, ask
 
 
-# ---- card data ------------------------------------------------------------------------------------
+# ---- card data -----------------------------------------------------------------------------------
 
 def test_upgrades_inherit_and_replace():
     grunt, lv2, lv3 = DB[1], DB[5], DB[7]
@@ -47,7 +45,7 @@ def test_missions():
     assert (m.commander, m.deck, m.energy, m.gold, m.reward_cards) == (1297, (1, 1, 2), 16, 13, (12,))
 
 
-# ---- the engine -----------------------------------------------------------------------------------
+# ---- the engine ----------------------------------------------------------------------------------
 
 def battle(att_cmd=1000, att=(1, 1, 1, 1), def_cmd=1300, dfn=(1, 1, 1)):
     """Decks in the given draw order (no shuffle), uids 1.. and 101.."""
@@ -145,7 +143,7 @@ def test_skills_not_built_yet_are_noted():
     assert b.ignored_skills == {"teleport"}
 
 
-# ---- the replies ----------------------------------------------------------------------------------
+# ---- the replies ---------------------------------------------------------------------------------
 
 def test_battle_data():
     b = battle(att=(1, 2, 3, 1), def_cmd=1300, dfn=(3, 3, 3))
@@ -165,7 +163,7 @@ def test_battle_data():
     assert "winner" not in data and data["battleground_effects"] == {"global": [], "attacker": [], "defender": []}
 
 
-# ---- in the server ---------------------------------------------------------------------------------
+# ---- in the server -------------------------------------------------------------------------------
 
 
 def test_a_mission_from_the_engine(tmp_path):
@@ -204,7 +202,7 @@ def test_without_the_engine_missions_replay(tmp_path):
     assert "hasn't been recorded" in ask(api, "startMission", mission_id="2")[1]
 
 
-# ---- against the recordings -------------------------------------------------------------------------
+# ---- against the recordings ----------------------------------------------------------------------
 
 ASSETS = ga.ASSET_DIR
 REPLAY = ga.FIXTURE_DIR / "replay.json"

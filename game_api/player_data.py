@@ -16,7 +16,8 @@ from .messages import CRATE, REFRESH, SET_ACTIVE, SET_DECK, SET_NAME
 
 
 class PlayerDataCalls:
-    """GameApi's part for the player's own data: the crate, name, decks and flags, refreshes, energy refills, the SP cap."""
+    """GameApi's part for the player's own data: the crate, name, decks and flags,
+    refreshes, energy refills, the SP cap."""
 
     def _player_parts(self, params: dict, keys) -> dict:
         """The save's user_data / user_cards / user_decks, in the recorded login's shape."""

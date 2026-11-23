@@ -2,7 +2,6 @@
 ones, energy, scoring, opponents, rewards, and brawls played through the server."""
 
 import pytest
-import json
 from functools import lru_cache
 import random
 
@@ -25,7 +24,7 @@ def a_state(event_id=344, now=T0):
     return state
 
 
-# ---- the data -------------------------------------------------------------------------------------
+# ---- the data ------------------------------------------------------------------------------------
 
 @pytest.mark.needs_game
 def test_the_brawls():
@@ -51,7 +50,7 @@ def test_the_brawl_matches_the_recorded_one(tmp_path):
     assert set(mine["energy"]) == set(init_body()["player_brawl_data"]["energy"]) | {"battle_energy_recharge_stop_time"}
 
 
-# ---- the rules ----------------------------------------------------------------------------------------
+# ---- the rules -----------------------------------------------------------------------------------
 
 @pytest.mark.needs_game
 def test_energy():
@@ -113,7 +112,7 @@ def test_a_new_run_keeps_the_last_board():
         {"user_id": "7", "points": "60", "points_rank": 1, "rank": 1, "stat": "60", "name": "Ann"}]
 
 
-# ---- through the server -----------------------------------------------------------------------------
+# ---- through the server --------------------------------------------------------------------------
 
 def players(tmp_path, content="[brawls]\nbrawl = 344\n", n=3):
     """n players, all past the arena's tutorial fight and rated 150."""

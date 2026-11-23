@@ -276,7 +276,7 @@ class Battle:
             side.next_uid += len(forts)
         self._fortress_uids = {uid for forts in self._fortresses.values() for uid, _ in forts}
 
-    # ---- the outside -------------------------------------------------------------
+    # ---- the outside -----------------------------------------------------------------------------
 
     @property
     def over(self) -> bool:
@@ -361,7 +361,7 @@ class Battle:
         group = side.structures if unit.is_structure else side.assaults
         return group.index(unit) if unit in group else -1
 
-    # ---- a turn ------------------------------------------------------------------
+    # ---- a turn ----------------------------------------------------------------------------------
 
     def _begin_turn(self) -> None:
         self.turn += 1
@@ -609,7 +609,7 @@ class Battle:
             s.assaults = [u for u in s.assaults if u.alive]
             s.structures = [u for u in s.structures if u.alive]
 
-    # ---- attacks -------------------------------------------------------------------
+    # ---- attacks ---------------------------------------------------------------------------------
 
     def _attack(self, att: Unit) -> bool:
         """One attack (the optimizer's attack_phase + PerformAttack). True if it attacked."""
@@ -817,7 +817,7 @@ class Battle:
             self._action(unit, "disease", [across], disease, [self._status(across, "disease", across.diseased)]
                          + self._shown_health([across]) + self._own_health(unit))
 
-    # ---- active skills ----------------------------------------------------------------
+    # ---- active skills ---------------------------------------------------------------------------
 
     def _candidates(self, unit: Unit, spec, hostile: bool, kind: str = "assaults") -> list[Unit]:
         side = self.sides[1 - unit.side if hostile else unit.side]
@@ -1152,7 +1152,7 @@ class Battle:
             return True
         return False
 
-    # ---- triggered skills ---------------------------------------------------------------
+    # ---- triggered skills ------------------------------------------------------------------------
 
     def _barrier(self, unit: Unit, amount: int) -> None:
         unit.protected += amount
@@ -1416,7 +1416,7 @@ class Battle:
         as the optimizer's fd->tapi), else None."""
         return self.passive[self.active.index if side is None else side].get(rule)
 
-    # ---- bookkeeping ---------------------------------------------------------------------
+    # ---- bookkeeping -----------------------------------------------------------------------------
 
     def _begin_action(self, section: str = "actions") -> None:
         self._section_name = section
@@ -1473,7 +1473,7 @@ class Battle:
             if s.id not in BUILT:
                 self.ignored_skills.add(s.id)
 
-    # ---- describing it -------------------------------------------------------------
+    # ---- describing it ---------------------------------------------------------------------------
 
     def _section(self, name: str) -> list:
         return self.turns.setdefault(self.turn, {}).setdefault(name, [])

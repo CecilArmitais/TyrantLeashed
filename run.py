@@ -4,7 +4,6 @@
     python server/run.py --open          # also open it in the default browser
     python server/run.py --quiet         # don't log every file served (problems still show)
     python server/run.py --engine        # missions are real battles from the battle engine
-                                         # (in progress: all skills but Mimic)
     python server/run.py --host 0.0.0.0  # let other machines connect (your network's
                                          # address for this machine, same port)
     python server/run.py --single-player # every browser is the one offline player, as
@@ -26,7 +25,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from game_api import GameApi  # noqa: E402
-from offline_server import ARCHIVE_DIR, CLIENT_DIR, OfflineServer  # noqa: E402
+from offline_server import OfflineServer  # noqa: E402
+from paths import ARCHIVE_DIR, CLIENT_DIR  # noqa: E402
 
 
 def main() -> None:
@@ -62,7 +62,7 @@ def main() -> None:
         for line in (report or "").splitlines():
             print(f"  {line}")
         if args.engine:
-            print("  battles: the battle engine (missions and the arena; every skill but Mimic)")
+            print("  battles: the battle engine (missions and the arena)")
     print(f"  client  {CLIENT_DIR}\n  archive {ARCHIVE_DIR}")
     print("Ctrl+C to stop.")
     if args.open:

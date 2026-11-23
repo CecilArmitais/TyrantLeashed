@@ -27,7 +27,7 @@ REWARD_KINDS = ("card", "mini_pack", "pack", "item")
 DAY = 86400
 
 
-# ---- runs -------------------------------------------------------------------------------------
+# ---- runs ----------------------------------------------------------------------------------------
 
 def phase(state: dict, now: int, active: str) -> str | None:
     """`active` while the run is on, "claim" after its end up to its decay, else None."""
@@ -47,7 +47,7 @@ def claimable(state: dict, now: int, wait: int) -> bool:
     return bool(run) and run["end"] + wait <= now <= run["decay"]
 
 
-# ---- reward tiers -------------------------------------------------------------------------------
+# ---- reward tiers --------------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class Tier:
@@ -95,7 +95,7 @@ def tier_json(tier: Tier, mini_packs: dict) -> dict:
     return out
 
 
-# ---- battleground effects by day -------------------------------------------------------------------
+# ---- battleground effects by day -----------------------------------------------------------------
 
 def effects_of(config, start: int) -> tuple[tuple[int, int], ...]:
     """(day of the event from 0, effect id) from a <battleground_config> element (None:
@@ -113,7 +113,7 @@ def effect_on(effects, run: dict, now: int) -> int | None:
     return today[-1] if today else None
 
 
-# ---- battle energy ------------------------------------------------------------------------------
+# ---- battle energy -------------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class Energy:

@@ -1,11 +1,12 @@
 """Offline Tyrant Unleashed server.
 
-Serves the web client, the archived game files and (from step 4 on) the game's
-API from this machine, so the game runs with no connection to Kongregate or
-Synapse. Standard library only. Start it with server/run.py.
+Serves the web client, the archived game files and the game's API from this
+machine, so the game runs with no connection to Kongregate or Synapse. Standard
+library only. Start it with server/run.py.
 
 The game page is the original client page with these changes:
-  - Kongregate's API script is removed (a local stand-in comes in step 3)
+  - Kongregate's API script is removed; the game finds no Kongregate, which it
+    handles on its own, and logs in with its own account
   - /tu-offline/shim.js loads first; it sends every request for the game's hosts
     (mobile.tyrantonline.com, cdn.synapsegames.com) to this server instead
   - a Content-Security-Policy header limits the page to this server. Anything
@@ -36,7 +37,7 @@ from urllib.parse import parse_qs, unquote, urlsplit
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from game_api import GameApi  # noqa: E402
 from game_api import encode as encode_reply  # noqa: E402
-from paths import ARCHIVE_DIR, CLIENT_DIR, GAME_DIR, WEB_DIR  # noqa: E402,F401 (run.py imports them here)
+from paths import ARCHIVE_DIR, CLIENT_DIR, WEB_DIR  # noqa: E402
 from archive_layout import safe_rel_path  # noqa: E402  (the capture tools' archive layout)
 
 ARCHIVE_HOSTS = {"mobile.tyrantonline.com", "cdn.synapsegames.com"}
@@ -148,7 +149,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):  # noqa: A002  (silence the default per-request log)
         pass
 
-    # ---- routing ------------------------------------------------------------
+    # ---- routing ---------------------------------------------------------------------------------
 
     def do_GET(self):
         self._route(head=False)
@@ -190,7 +191,7 @@ class Handler(BaseHTTPRequestHandler):
                                   label=f"{host}/{rest}")
         return self._not_found(path)
 
-    # ---- handlers -------------------------------------------------------------
+    # ---- handlers --------------------------------------------------------------------------------
 
     def _file(self, target: Path | None, head: bool, kind: str, label: str | None = None,
               cache: str = "max-age=3600"):
@@ -246,7 +247,7 @@ class Handler(BaseHTTPRequestHandler):
         self.server.note(f"404 {what}: {label}")
         self._send(404, b"not found", "text/plain", False, {"Cache-Control": "no-store"})
 
-    # ---- plumbing -------------------------------------------------------------------
+    # ---- plumbing --------------------------------------------------------------------------------
 
     def _read_body(self) -> bytes:
         length = int(self.headers.get("Content-Length") or 0)

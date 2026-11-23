@@ -18,8 +18,6 @@ class UpgradeCalls:
             self._upgrade_data = (upgrades.load_levels(self._assets), upgrades.load_recipes(self._assets))
         return self._upgrade_data[1]
 
-    # ---- the Upgrade screen ---------------------------------------------------------------------
-
     def _upgrade_rules(self) -> upgrades.Rules:
         recipes = self._recipes()
         levels = self._upgrade_data[0]

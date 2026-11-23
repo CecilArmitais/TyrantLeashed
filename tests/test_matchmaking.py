@@ -29,7 +29,7 @@ def an_arena(rating=735, wins=20):
     return a
 
 
-# ---- the rules ---------------------------------------------------------------------------------------
+# ---- the rules -----------------------------------------------------------------------------------
 
 def test_player_gold_fits_the_recorded_list():
     golds = [arena.player_gold(735, r) * 3 for r, _, _ in RECORDED_PLAYERS]
@@ -139,7 +139,7 @@ def test_the_arena_settings():
                           "arena.rank_reach: needs a whole number of ranks, 0 or more"]
 
 
-# ---- through the server -----------------------------------------------------------------------------------
+# ---- through the server --------------------------------------------------------------------------
 
 def fight(api, creds, tid):
     """startHuntingBattle, then Skip to the end: (the start reply, the last reply, its log line)."""

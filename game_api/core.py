@@ -61,7 +61,7 @@ class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, Gu
         for other fixtures).
         asset_dir: the game data files (default: the archive's ASSET_DIR).
         battle_engine: missions are real battles from the battle engine instead of
-        replayed recordings (docs/battle-engine.md; in progress).
+        replayed recordings (battle/).
         single_player: every login is the offline player (1000001), saved in
         state/player.json, as before accounts existed (the tests and tools use this).
         Otherwise each browser has its own account (accounts.py) and save
@@ -166,7 +166,7 @@ class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, Gu
             line += f" (+{gained} regenerated in the {away} since the last update)"
         return line + bonuses
 
-    # ---- answering ------------------------------------------------------------------
+    # ---- answering -------------------------------------------------------------------------------
 
     def respond(self, message: str, params: dict) -> tuple[dict, str]:
         """(reply, how it was answered). Unsupported requests get the error reply."""

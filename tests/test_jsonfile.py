@@ -1,6 +1,7 @@
 """Tests for the state files' reading and writing (jsonfile.py)."""
 
 import json
+import os
 
 import pytest
 
@@ -48,3 +49,34 @@ def test_a_broken_file_raises(tmp_path):
     f.write_text("{half", "utf-8")
     with pytest.raises(ValueError):
         jsonfile.read(f, {})
+
+
+def test_a_swap_windows_refuses_for_a_moment_is_tried_again(tmp_path, monkeypatch):
+    f = tmp_path / "p.json"
+    jsonfile.write(f, {"gold": 100})
+    real, refusals, waits = os.replace, [2], []
+
+    def held_open(src, dst):                         # a virus scanner has the file for a moment
+        if refusals[0]:
+            refusals[0] -= 1
+            raise PermissionError(13, "Access is denied")
+        real(src, dst)
+    monkeypatch.setattr(jsonfile.os, "replace", held_open)
+    monkeypatch.setattr(jsonfile, "_pause", waits.append)
+    jsonfile.write(f, {"gold": 200})
+    assert jsonfile.read(f) == {"gold": 200} and waits == [0.02, 0.04]
+
+
+def test_a_swap_that_stays_refused_raises_and_keeps_the_old_file(tmp_path, monkeypatch):
+    f = tmp_path / "p.json"
+    jsonfile.write(f, {"gold": 100})
+    tries = []
+
+    def refused(src, dst):
+        tries.append(dst)
+        raise PermissionError(13, "Access is denied")
+    monkeypatch.setattr(jsonfile.os, "replace", refused)
+    monkeypatch.setattr(jsonfile, "_pause", lambda s: None)
+    with pytest.raises(PermissionError):
+        jsonfile.write(f, {"gold": 200})
+    assert len(tries) == jsonfile.SWAP_TRIES and jsonfile.read(f) == {"gold": 100}

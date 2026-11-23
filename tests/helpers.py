@@ -125,7 +125,8 @@ def shop(tmp_path, engine=False, tutorial="-1", gold=1000, bonds=50):
 
 def arena_api(tmp_path):
     api = ga.GameApi(fixture_dir=paths.FIXTURE_DIR, state_dir=tmp_path, clock=lambda: T + 100, battle_engine=True)
-    # The tutorial fight is lost now and then (about 1 in 9 with the starting deck): fix the shuffle.
+    # The tutorial fight is lost now and then (about 1 in 9 with the starting deck): fix the random
+    # source (the shuffles and the fight's own choices).
     api.rng_factory = lambda: random.Random(1)
     return api
 

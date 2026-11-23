@@ -105,7 +105,7 @@ class BattleCalls:
         rng = self.rng_factory()
         battle = Battle(Setup(commander, shuffled_deck(deck, FIRST_UID[ATTACKER], rng), cards[mission.commander],
                               shuffled_deck([cards[i] for i in mission.deck], FIRST_UID[DEFENDER], rng)),
-                        cards=cards)                                   # for Summon
+                        chooser=RandomChooser(rng), cards=cards)       # the server's random source; cards for Summon
         battle_id = int(self.clock() * 1000)
         session = BattleSession(battle, battle_id, str(self.uid), mid)
         turns = battle.start()

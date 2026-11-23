@@ -14,12 +14,10 @@ from pathlib import Path
 import achievements
 import brawls
 import conquest
-import content as store_content
 import guilds
 import paths
-import promos
 import raids
-import store_upgrades
+import store
 import wars
 from accounts import AccountStore
 from battle.cards import CardDB
@@ -263,12 +261,14 @@ class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, Gu
                 return self._choose_deck(message, params)
             if message in REFRESH:
                 return self._refresh(message, params)
-        if message == PROMO_WB and str(params.get("item_type")) in (str(store_content.BOX_ITEM_TYPE),
-                                                                    str(store_content.TIERED_ITEM_TYPE)) \
+        if message == PROMO_WB and str(params.get("item_type")) in (str(store.BOX_ITEM_TYPE),
+                                                                    str(store.TIERED_ITEM_TYPE)) \
                 and self.player() is not None:
-            return self._buy_box_deal(params) if params.get("box_discount_id") not in (None, "")                 else self._buy_box(params)
+            if params.get("box_discount_id") not in (None, ""):
+                return self._buy_box_deal(params)
+            return self._buy_box(params)
         if message in (PROMO_GOLD, PROMO_WB) and self.player() is not None \
-                and str(params.get("item_type")) in ("3", str(promos.BUNDLE_ITEM_TYPE)):
+                and str(params.get("item_type")) in ("3", str(store.BUNDLE_ITEM_TYPE)):
             sold = self._buy_promo(message, params)
             if sold is not None:
                 return sold
@@ -317,12 +317,12 @@ class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, Gu
         if "gold_multiplier_missions" in body or "event_popups" in body or "event_popup" in body:
             apply_to_login(body, self.settings())   # the mission gold bonus in use, as the game shows it
         if isinstance(body.get("store_promos"), list) or isinstance(body.get("store_packs"), dict):
-            c, promos, box_entries, _ = self._store()
-            store_content.apply_to_store(body, c, promos, box_entries, set(self._mini_packs()))
+            c, promo_entries, box_entries, _ = self._store()
+            store.apply_offers(body, c, promo_entries, box_entries, set(self._mini_packs()))
         if isinstance(body.get("store_promos"), list) or isinstance(body.get("store_upgrades"), dict):
             player = self.player()
             if player is not None:
-                store_upgrades.apply_to_store(body, player, self._decks_limit())
+                store.apply_upgrades(body, player, self._decks_limit())
         if any(k in body for k in ("current_raids", "raid_info", "faction", "faction_invites", "fortress_slots")):
             player = self.player()
             guild = self._my_guild() if player is not None else None

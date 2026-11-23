@@ -27,7 +27,8 @@ every account identifier replaced):
   buyPackTokens,         bundles and base-set faction packs (the Blight Pack), with the
   buyStorePromoGold,     game's published drop rates (packs.py), and event boxes
   buyStorePromoTokens    (boxes.py) and their deals; other promos are replayed. What the
-                         store offers comes from state/content.toml (content.py)
+                         store offers comes from state/content.toml (content.py),
+                         in the store's replies (store.py)
   upgradeCard,           real logic: the Upgrade screen. Upgrades cost salvage points
   salvageCard,           (SP), salvage gives them, locks keep cards from salvage, and
   salvageL1CommonCards,  fusion turns a recipe's cards into the fused card, with the
@@ -42,7 +43,7 @@ every account identifier replaced):
                          are set in content.toml)
   buyUpgrade, store      real logic: +50 Max Energy, +10 Card Slots (store promos of
   promos item_type 4     item_type 4) and the deck screen's Extra Deck Slot
-                         (store_upgrades.py)
+                         (store.py)
   setUserName,           real logic: the player's name, active deck and defence deck
   setActiveDeck,
   setDefenseDeck

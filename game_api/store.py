@@ -7,12 +7,10 @@ import copy
 import dataclasses
 
 import boxes
-import content as store_content
 import items
 import packs
-import promos
-import store_upgrades
-from content import Content
+import store
+from content import PACK_IDS, Content, Promo
 from player_state import Player, decks_json
 from rewards import DECK_SIZE
 
@@ -64,9 +62,9 @@ class StoreCalls:
             state = ((player.boxes if player is not None else {}).get(str(bid))) or boxes.new_state()
             if boxes.sold_out(box, state):
                 continue                                  # bought out for good: it leaves the store
-            box_entries.append(store_content.tiered_box_entry(box, state, now, boxes.tier(box, state))
+            box_entries.append(store.tiered_box_entry(box, state, now, boxes.tier(box, state))
                                if box.tiered else
-                               store_content.box_entry(box, state, now, boxes.next_deal(box, state)))
+                               store.box_entry(box, state, now, boxes.next_deal(box, state)))
         return c, promo_entries, box_entries, problems
 
     def _promo_offers(self, player) -> tuple[list[dict], list[str]]:
@@ -88,8 +86,8 @@ class StoreCalls:
                     problems.append(f"store.promos: card {promo.card} ({card.name}) needs a price: the scaling "
                                     "table only prices Epic to Mythic cards")
                     continue
-                key = promos.card_key(card.id)
-                entry = promos.card_entry(card, table or {}, bought(key))
+                key = store.card_key(card.id)
+                entry = store.card_entry(card, table or {}, bought(key))
                 if promo.gold is not None or promo.war_bonds is not None:     # a fixed price instead
                     entry.pop("wb_cost")
                     entry.pop("scaling_pricing")
@@ -99,17 +97,17 @@ class StoreCalls:
                                   war_bonds=int(entry["wb_cost"]) if "wb_cost" in entry else None)
                 offers.append({"entry": entry, "pack": pack, "key": key, "bundle": None})
             elif promo.kind == "bundle":
-                bundle = promos.BUNDLES.get(promo.bundle)
+                bundle = store.BUNDLES.get(promo.bundle)
                 if bundle is None:
                     problems.append(f"store.promos: there's no bundle {promo.bundle} (the recorded ones: "
-                                    + ", ".join(map(str, promos.BUNDLES)) + ")")
+                                    + ", ".join(map(str, store.BUNDLES)) + ")")
                     continue
-                key = promos.bundle_key(bundle.id)
+                key = store.bundle_key(bundle.id)
                 if bundle.once and bought(key):
                     continue                                        # bought once: it leaves the store
                 pack = packs.Pack(bundle.name, (), gold=promo.gold, war_bonds=promo.war_bonds,
                                   fixed=(bundle.card,) if bundle.card else (), sp=bundle.sp)
-                offers.append({"entry": promos.bundle_entry(bundle, promo.gold, promo.war_bonds), "pack": pack,
+                offers.append({"entry": store.bundle_entry(bundle, promo.gold, promo.war_bonds), "pack": pack,
                                "key": key, "bundle": bundle})
             else:
                 mp = mini.get(str(promo.mini_pack))
@@ -119,7 +117,7 @@ class StoreCalls:
                         "doesn't exist" if mp is None else "can't be opened: the card files lack its cards"
                         if pack is not None else "has data we don't know how to open"))
                     continue
-                key = promos.pack_key(promo.mini_pack)
+                key = store.pack_key(promo.mini_pack)
                 scaling = mp.get("scaling_pricing")
                 if scaling and promo.gold is None and promo.war_bonds is None:
                     pack = dataclasses.replace(pack, war_bonds=packs.scaling_price(scaling, bought(key)))
@@ -127,7 +125,7 @@ class StoreCalls:
                     problems.append(f"store.promos: mini pack {promo.mini_pack} ({mp['name']}) has no price in "
                                     "the file: give it one, gold or war_bonds")
                     continue
-                entry = store_content.promo_entry(promo.mini_pack, mp, store_content.Promo(
+                entry = store.promo_entry(promo.mini_pack, mp, Promo(
                     promo.mini_pack, gold=pack.gold, war_bonds=pack.war_bonds if pack.gold is None else None),
                     packs.preview_cards(cards, mp))
                 if pack.fixed:
@@ -151,9 +149,9 @@ class StoreCalls:
         offer = next((o for o in offers if str(o["entry"]["item_id"]) == item_id
                       and str(o["entry"]["item_type"]) == item_type), None)
         if offer is None:
-            bundle = promos.BUNDLES.get(int(item_id)) if item_id.isdigit() else None
-            if bundle is not None and item_type == str(promos.BUNDLE_ITEM_TYPE) \
-                    and player.promo_buys.get(promos.bundle_key(bundle.id)):
+            bundle = store.BUNDLES.get(int(item_id)) if item_id.isdigit() else None
+            if bundle is not None and item_type == str(store.BUNDLE_ITEM_TYPE) \
+                    and player.promo_buys.get(store.bundle_key(bundle.id)):
                 return self._refuse(params, f"You already bought the {bundle.name}: it's one time only."), \
                     f"refused {message}: {bundle.name} already bought"
             return None
@@ -187,7 +185,7 @@ class StoreCalls:
         """buyPackGold / buyPackTokens pack_id: a `store_packs` pack (packs.py)."""
         if self.player() is None:
             raise NotSupported("there is no starting data (game/fixtures/init.json) to keep cards in.")
-        if str(params.get("pack_id")) not in {store_content.PACK_IDS[p] for p in self.content().packs}:
+        if str(params.get("pack_id")) not in {PACK_IDS[p] for p in self.content().packs}:
             return self._refuse(params, "That pack isn't in the store."), \
                 f"refused {message}: pack {params.get('pack_id')} isn't in {self.content_store.path.name}"
         pack = packs.store_pack(self._start, params.get("pack_id"))
@@ -375,18 +373,18 @@ class StoreCalls:
         return int(self._start.get("max_decks_available") or 5)
 
     def _buy_store_upgrade(self, message: str, params: dict) -> tuple[dict, str]:
-        """A store upgrade (store_upgrades.py): buyStorePromoTokens / buyStorePromoGold
+        """A store upgrade (store.py): buyStorePromoTokens / buyStorePromoGold
         item_type=4 item_id (+50 Max Energy, +10 Card Slots), or buyUpgrade upgrade_id
         (the Extra Deck Slot)."""
         player = self.player()
         uid = str(params.get("upgrade_id") if message == BUY_UPGRADE else params.get("item_id"))
-        up = store_upgrades.UPGRADES.get(uid)
+        up = store.UPGRADES.get(uid)
         currency = "gold" if message == PROMO_GOLD else "wb"
         if up is None or (message != BUY_UPGRADE and up.currency != currency):
             return self._refuse(params, "That upgrade isn't for sale."), f"refused {message}: upgrade {uid!r}"
         try:
-            price = store_upgrades.buy(player, up, params.get("expected_cost"), self._decks_limit())
-        except store_upgrades.UpgradeError as e:
+            price = store.buy_upgrade(player, up, params.get("expected_cost"), self._decks_limit())
+        except store.StoreError as e:
             reply = self._refuse(params, str(e))
             reply["user_data"] = self.current_user_data(params)
             return reply, f"refused {up.name}: {e}"
@@ -397,7 +395,7 @@ class StoreCalls:
             reply.update(self._player_parts(params, ("user_data", "user_decks")))
             reply["store_upgrades"] = copy.deepcopy(self._start.get("store_upgrades") or {})
             reply["max_decks"] = player.max_decks
-            store_upgrades.apply_to_store(reply, player, self._decks_limit())
+            store.apply_upgrades(reply, player, self._decks_limit())
         else:
             recorded = [b for (m, _), bodies in self.replays.items() if m == PROMO_GOLD for b in bodies]
             plain = [b for b in recorded if "user_decks" not in b] or recorded

@@ -1,4 +1,4 @@
-"""Tests for the store's other promos (packs.py, promos.py): every mini pack kind, single
+"""Tests for the store's other promos (packs.py, store.py): every mini pack kind, single
 cards with rising prices, and the real-money bundles sold for gold or war bonds."""
 
 import random
@@ -9,7 +9,6 @@ import pytest
 import content
 import game_api as ga
 import packs
-import promos
 import upgrades
 from helpers import ask, real_cards, shop
 

@@ -1,4 +1,4 @@
-"""Tests for the daily crate (daily_crate.py), store upgrades (store_upgrades.py), the
+"""Tests for the daily crate (daily_crate.py), store upgrades (store.py), the
 player's name and decks, and the refresh calls."""
 
 import pytest

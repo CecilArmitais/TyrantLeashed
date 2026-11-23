@@ -19,10 +19,6 @@ from pathlib import Path
 from daily_crate import DEFAULT_EVERY_HOURS, DEFAULT_REWARDS, Reward
 
 PACK_IDS = {"basic": "1", "epic": "1000"}       # the store's pack tiles (store_packs)
-BOX_DAYS_SHOWN = 7                              # the store shows a box with this long left (ours)
-BOX_ITEM_TYPE = 8                               # store_promos item_type the game shows as an event box
-TIERED_ITEM_TYPE = 10                           # ...and as a tiered box (a row of tiers that open in turn)
-BOX_BANNER_TEXT = "New Event Box!"              # the banner's ribbon for a box (ours; "" shows "0")
 
 TEMPLATE = '''# What's on offer in this Tyrant Unleashed server: the store, event boxes, the raid,
 # brawls, conquest, guild wars, guild donations, other players as arena rivals and the
@@ -198,7 +194,7 @@ class Promo:
     gold: int | None = None
     war_bonds: int | None = None
     card: int | None = None          # one copy of a card, its price rising with each purchase
-    bundle: int | None = None        # a recorded real-money bundle (promos.BUNDLES)
+    bundle: int | None = None        # a recorded real-money bundle (store.BUNDLES)
 
     @property
     def kind(self) -> str:
@@ -371,117 +367,3 @@ class ContentStore:
                 self._content = Content(problems=[f"{self.path.name} isn't valid TOML ({e}); using the defaults"])
             self._mtime = mtime
         return copy.deepcopy(self._content)
-
-
-# ---- the store, as the game gets it ---------------------------------------------------------------
-
-def promo_entry(mp_id, mp: dict, promo: Promo, available_cards: list[int] | None) -> dict:
-    """A store_promos entry for a mini pack, in the recorded entries' shape (item_type 3)."""
-    entry = {"id": str(mp_id), "name": mp["name"], "type": mp.get("type", ""), "desc": mp.get("desc", "")}
-    for k in ("picture", "banner_picture", "icon"):
-        if mp.get(k):
-            entry[k] = mp[k]
-    if promo.gold is not None:
-        entry["gold_cost"] = str(promo.gold)
-    else:
-        entry["wb_cost"] = str(promo.war_bonds)
-    entry.update({"item_type": 3, "item_id": int(mp_id), "sub_item_id": "gold" if promo.gold is not None else "wb"})
-    if available_cards:
-        entry["available_cards"] = [str(c) for c in available_cards]
-    return entry
-
-
-def box_entry(box, state: dict, now: int, next_deal=None) -> dict:
-    """A store_promos entry for an event box, in the shape the game reads (found in its
-    code, ServicePromoItemData/ServiceGachaData, and checked in the game): item_type 8
-    shows the event box screen; `card` lists the box's cards with their copies, and
-    `cards_received` the copies bought this round, by card id, as strings (the game
-    reads a number there as 0); `box_discount` is the deal on offer. Buying sends
-    buyStorePromoTokens item_type=8 (with box_discount_id for the deal)."""
-    entry = _box_base(box, now, BOX_ITEM_TYPE)
-    got = state.get("received") or {}
-    entry["card"] = [{"id": str(cid), "count": n} for cid, n in box.cards]
-    entry["cards_received"] = {str(cid): str(int(got[str(cid)])) for cid, _ in box.cards if got.get(str(cid))}
-    if next_deal is not None:
-        entry["box_discount"] = {"box_discount_id": next_deal.id, "name": next_deal.name,
-                                 "desc": next_deal.desc, "wb_cost": str(next_deal.wb_cost)}
-    return entry
-
-
-def tiered_box_entry(box, state: dict, now: int, open_tier: int) -> dict:
-    """A store_promos entry for a tiered box, in the shape the game reads (its code,
-    ServiceMultiGachaData; checked in the game): item_type 10 shows the tiered box
-    screen; `subbox` lists the tiers, each {"card": [{"id", "count"}]}, and
-    `cards_received` the copies bought, by tier number (from 1) and card id, as strings.
-    The game opens the tier after the last one bought out, so the finished tiers are
-    sent full. `cards_received` must be there (the game reads it unchecked). Buying
-    sends buyStorePromoTokens item_type=10."""
-    entry = _box_base(box, now, TIERED_ITEM_TYPE)
-    got = state.get("received") or {}
-    entry["subbox"] = [{"card": [{"id": str(cid), "count": n} for cid, n in t]} for t in box.tiers]
-    received = {str(i + 1): {str(cid): str(n) for cid, n in t} for i, t in enumerate(box.tiers[:open_tier])}
-    current = {str(cid): str(int(got[str(cid)])) for cid, _ in box.tiers[open_tier] if got.get(str(cid))}
-    if current:
-        received[str(open_tier + 1)] = current
-    entry["cards_received"] = received
-    return entry
-
-
-def _box_base(box, now: int, item_type: int) -> dict:
-    """What every box entry has: the name, price, time left (always 7 days) and pictures."""
-    entry = {"item_type": item_type, "item_id": box.id, "id": box.id, "name": box.name, "desc": box.desc,
-             "wb_cost": str(box.wb_cost), "sub_item_id": "wb", "picture": "tyrantpack",
-             "start_time": now - 3600, "end_time": now + BOX_DAYS_SHOWN * 86400}
-    for src, key in (("store_banner", "icon"), ("banner_picture", "banner_picture"),
-                     ("anim_picture", "anim_picture"), ("web_banner", "web_banner")):
-        if box.picture(src):
-            entry[key] = box.picture(src)
-    return entry
-
-
-def apply_to_store(body: dict, content: Content, promo_entries: list[dict], box_entries: list[dict],
-                   mini_pack_ids: set[str]) -> dict:
-    """The store parts of a reply (store_packs, store_promos, store_banner), in place, from
-    the content file. Recorded mini pack promos are replaced by the content file's; the
-    other recorded items stay if recorded_extras is on."""
-    if isinstance(body.get("store_packs"), dict):
-        keep = {PACK_IDS[p] for p in content.packs}
-        body["store_packs"] = {k: v for k, v in body["store_packs"].items() if k in keep}
-    if isinstance(body.get("store_promos"), list):
-        # The recorded order, with each recorded promo we sell replaced by ours (a mini
-        # pack's by its id; a single card's, like Tabitha's Trooper, by its card; a
-        # bundle's by its id), and the recorded mini packs we don't sell dropped; new
-        # promos follow the last one, boxes come first.
-        fresh = {str(e["item_id"]): e for e in promo_entries}
-        by_card = {str(e["card"]): str(e["item_id"]) for e in promo_entries if str(e.get("type")) == "13"}
-        promos, last = [], 0
-        for p in body["store_promos"]:
-            if not isinstance(p, dict):
-                continue
-            key, kind = str(p.get("item_id")), str(p.get("item_type"))
-            if kind == "3" and str(p.get("type")) == "13" and str(p.get("card")) in by_card:
-                key = by_card[str(p.get("card"))]
-            if key in fresh and kind == str(fresh[key]["item_type"]):
-                promos.append(fresh.pop(key))
-                last = len(promos)
-            elif kind == "3" and key in mini_pack_ids:
-                continue
-            elif kind == "7" and key in {str(x.bundle) for x in content.promos if x.bundle is not None}:
-                continue                                      # ours, bought once: gone for good
-            elif content.recorded_extras:
-                promos.append(p)
-        rest = [e for e in promo_entries if str(e["item_id"]) in fresh]
-        body["store_promos"] = box_entries + promos[:last] + rest + promos[last:]
-        banner = body.get("store_banner")
-        offered = {str(p.get("item_id")) for p in body["store_promos"]}
-        lead = (box_entries + promo_entries + [None])[0]
-        if box_entries or not isinstance(banner, dict) or str(banner.get("promo_id")) not in offered:
-            if lead is None:
-                body.pop("store_banner", None)
-            else:
-                body["store_banner"] = {"name": lead["name"], "picture": lead.get("icon", ""),
-                                        "promo_id": lead["item_id"],
-                                        "discount": BOX_BANNER_TEXT if lead in box_entries
-                                        else (banner or {}).get("discount", ""),
-                                        "end_time": lead.get("end_time", 1)}
-    return body

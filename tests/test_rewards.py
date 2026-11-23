@@ -3,6 +3,7 @@ the check against every recorded mission ending, the final playCard reply, and
 setDeckCards."""
 
 import json
+import xml.etree.ElementTree as ET
 
 import pytest
 
@@ -10,11 +11,9 @@ import game_api as ga
 import paths
 from battle.missions import Mission, load_missions, parse_missions
 from battle.recorded import capture_calls
+from helpers import T, ask, mission_api, play_mission
 from player_state import Player, SAVE_VERSION, completions_json, deck_from_json, decks_json, fill_from_start
 from rewards import DECK_SIZE, RewardRules, finish_mission
-
-import xml.etree.ElementTree as ET
-from helpers import mission_api as make_api, play_mission as play_out, T, ask
 
 NOW = 1_795_000_000
 RULES = RewardRules(gold_multiplier=7)
@@ -189,15 +188,12 @@ def test_every_recorded_mission_ending_pays_the_same():
     assert check_recorded_endings([(c["message"], c["key"], c["body"]) for c in calls], start) == 12
 
 
-CAPTURES = paths.CAPTURES_DIR / "api"
-
-
-@pytest.mark.skipif(not CAPTURES.is_dir(), reason="no captures here")
+@pytest.mark.skipif(not paths.RAW_CAPTURES_DIR.is_dir(), reason="no captures here")
 def test_the_accounts_captured_mission_endings_pay_the_same():
     """The account's own sessions (kept private; nothing from them is printed). Each one
     starts from that session's login."""
     n = 0
-    for session in sorted(CAPTURES.iterdir()):
+    for session in sorted(paths.RAW_CAPTURES_DIR.iterdir()):
         calls = capture_calls(session)
         start = next((b for m, _, b in calls if m == "init" and isinstance(b, dict)), None)
         if start is not None:
@@ -209,9 +205,9 @@ def test_the_accounts_captured_mission_endings_pay_the_same():
 
 
 def test_the_final_reply_of_a_first_win(tmp_path):
-    api = make_api(tmp_path)
+    api = mission_api(tmp_path)
     ask(api, "init")
-    r, how = play_out(api, "2")
+    r, how = play_mission(api, "2")
     assert how.endswith("(you won); paid 84 gold, card 2 (into the deck)")
     assert r["battle_data"]["rewards"] == [{"user_id": "1000001", "gold": 84, "card": ["2"], "star": {"1": True}}]
     keys = [k for k in r if k in ("user_data", "user_cards", "user_decks", "mission_completions", "current_campaigns")]
@@ -227,14 +223,14 @@ def test_the_final_reply_of_a_first_win(tmp_path):
 
 
 def test_the_final_reply_of_a_repeat_win_and_of_a_loss(tmp_path):
-    api = make_api(tmp_path)
+    api = mission_api(tmp_path)
     ask(api, "init")
-    play_out(api, "2")
-    r, how = play_out(api, "2")
+    play_mission(api, "2")
+    r, how = play_mission(api, "2")
     assert how.endswith("(you won); paid 84 gold")
     assert [k for k in ("user_data", "user_cards", "user_decks", "mission_completions", "current_campaigns")
             if k in r] == ["user_data", "mission_completions", "current_campaigns"]
-    r, how = play_out(api, "3")                         # 50 turns can't get through 999 health: a loss
+    r, how = play_mission(api, "3")                         # 50 turns can't get through 999 health: a loss
     assert how.endswith("(you lost); paid 28 gold")
     assert r["battle_data"]["rewards"] == [{"user_id": "1000001", "gold": 28}]
     assert [k for k in ("user_data", "user_cards", "user_decks", "mission_completions", "current_campaigns")
@@ -266,7 +262,7 @@ def set_deck(api, cards, commander="1000", deck_id="1"):
 
 
 def test_set_deck_cards_saves_the_deck(tmp_path):
-    api = make_api(tmp_path)
+    api = mission_api(tmp_path)
     ask(api, "init")
     r, how = set_deck(api, {"1": 2})
     assert how == "saved deck 1: commander 1000, 2 cards"
@@ -286,7 +282,7 @@ def test_set_deck_cards_saves_the_deck(tmp_path):
     ({str(i): 1 for i in range(1, DECK_SIZE + 2)}, "1000", "1", f"a deck holds at most {DECK_SIZE} cards"),
 ])
 def test_set_deck_cards_refusals(tmp_path, cards, commander, deck_id, why):
-    api = make_api(tmp_path)
+    api = mission_api(tmp_path)
     ask(api, "init")
     r, how = set_deck(api, cards, commander, deck_id)
     assert r["result"] is False and r["result_message"] == [f"Can't save that deck: {why}."]
@@ -295,7 +291,7 @@ def test_set_deck_cards_refusals(tmp_path, cards, commander, deck_id, why):
 
 
 def test_an_older_save_gets_decks_and_earned_counts(tmp_path):
-    api = make_api(tmp_path)
+    api = mission_api(tmp_path)
     ask(api, "init")
     f = tmp_path / "state" / "player.json"
     data = json.loads(f.read_text("utf-8"))

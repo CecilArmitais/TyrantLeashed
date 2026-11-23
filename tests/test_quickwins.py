@@ -1,9 +1,10 @@
 """Tests for the daily crate (daily_crate.py), store upgrades (store.py), the
 player's name and decks, and the refresh calls."""
 
-import pytest
 import json
 import random
+
+import pytest
 
 import game_api as ga
 import paths

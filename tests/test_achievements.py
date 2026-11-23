@@ -7,8 +7,8 @@ import pytest
 
 import achievements as ach
 import paths
+from helpers import T, arena_fight, ask, init_body, objectives_game, recorded_calls, recorded_fight
 from player_state import PlayerStore
-from helpers import objectives_game as game, recorded_fight, T, arena_fight, ask, init_body, recorded_calls
 
 pytestmark = pytest.mark.needs_game        # every test here needs the game files
 
@@ -31,7 +31,7 @@ def test_the_permanent_chains_start_where_the_recording_did(defs):
 
 
 def test_the_login_lists_them(tmp_path, defs):
-    api, _ = game(tmp_path)
+    api, _ = objectives_game(tmp_path)
     r, _ = ask(api, "init")
     ua = r["user_achievements"]
     permanent = {k: v for k, v in ua.items() if v["type"] != "9"}
@@ -54,7 +54,7 @@ def test_the_login_lists_them(tmp_path, defs):
 def test_mission_5_finishes_the_first_link(tmp_path, defs):
     """Recorded: winning mission 5 finished "Savior of Acheron" (100 gold) and listed the
     next link, "Complete Mission #8"."""
-    api, _ = game(tmp_path)
+    api, _ = objectives_game(tmp_path)
     ask(api, "init")
     gold = api.player().gold
     p = api.player()
@@ -69,7 +69,7 @@ def test_mission_5_finishes_the_first_link(tmp_path, defs):
 
 
 def test_a_rating_jump_finishes_a_chain_in_one_go(tmp_path):
-    api, _ = game(tmp_path)
+    api, _ = objectives_game(tmp_path)
     ask(api, "init")
     p = api.player()
     p.arena["rating"], gold = 650, p.gold
@@ -110,7 +110,7 @@ def test_fight_kinds(defs):
 
 
 def test_daily_objectives_through_the_server(tmp_path, defs):
-    api, clock = game(tmp_path, engine=True)
+    api, clock = objectives_game(tmp_path, engine=True)
     ask(api, "init")
     p = api.player()
     easy = next(a for a in defs.values() if a.daily and a.req["pvp_sub_type"] == {
@@ -134,7 +134,7 @@ def test_daily_objectives_through_the_server(tmp_path, defs):
 
 
 def test_card_rewards(tmp_path, defs):
-    api, _ = game(tmp_path)
+    api, _ = objectives_game(tmp_path)
     ask(api, "init")
     p = api.player()
     for m in ("5", "8"):

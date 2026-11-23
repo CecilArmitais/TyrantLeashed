@@ -5,11 +5,8 @@ import os
 
 import pytest
 
+from helpers import SAVE_START, T, ask, run_player_cli, save_api
 from player_state import SAVE_VERSION, Player, PlayerStore, refill
-from helpers import SAVE_START as START, save_api as make_api, run_player_cli as run_cli
-
-T = 1_795_000_000
-
 
 # ---- energy refill -------------------------------------------------------------------------------
 
@@ -32,7 +29,7 @@ def test_refill(energy, updated, now, expected):
 def test_create_save_load(tmp_path):
     clock = [T + 5]
     store = PlayerStore(tmp_path / "player.json", clock=lambda: clock[0])
-    p = store.create_from(START, {"session": "s1"})
+    p = store.create_from(SAVE_START, {"session": "s1"})
     assert (p.gold, p.war_bonds, p.energy, p.energy_updated) == (100, 50, 250, T + 5)
     assert p.cards == {"2": {"num_owned": 1, "num_used": 0}, "1000": {"num_owned": 2, "num_used": 1}}
     assert p.card_count == 3
@@ -43,7 +40,7 @@ def test_create_save_load(tmp_path):
 def test_store_rereads_the_file_when_it_changes(tmp_path):
     a = PlayerStore(tmp_path / "player.json", clock=lambda: T)
     b = PlayerStore(tmp_path / "player.json", clock=lambda: T)
-    a.create_from(START)
+    a.create_from(SAVE_START)
     assert b.load().gold == 100
     p = a.load()
     p.gold = 999
@@ -76,14 +73,10 @@ def test_apply_replaces_only_existing_fields_and_keeps_their_type():
 # ---- in the game API -----------------------------------------------------------------------------
 
 
-def ask(api, message, **params):
-    return api.respond(message, {"message": message, **params})[0]
-
-
 def test_login_shows_the_save_and_it_survives_a_restart(tmp_path):
     clock = [T + 100]
-    api = make_api(tmp_path, clock)
-    r = ask(api, "init")
+    api = save_api(tmp_path, clock)
+    r, _ = ask(api, "init")
     assert (r["user_data"]["money"], r["user_data"]["tokens"], r["user_data"]["energy"]) == ("100", "50", "250")
     assert (tmp_path / "state" / "player.json").is_file()
     p = api.player()
@@ -91,18 +84,18 @@ def test_login_shows_the_save_and_it_survives_a_restart(tmp_path):
     p.cards["777"] = {"num_owned": 2, "num_used": 0}
     api.player_store.save(p)
 
-    restarted = make_api(tmp_path, clock)                             # a new server process
+    restarted = save_api(tmp_path, clock)                             # a new server process
     for message in ("getUserAccount", "init"):
-        r = ask(restarted, message)
+        r, _ = ask(restarted, message)
         assert (r["user_data"]["money"], r["user_data"]["tokens"]) == ("4321", "88")
         assert r["user_cards"]["777"] == {"num_owned": "2", "num_used": "0"}
 
 
 def test_replayed_replies_show_the_save_not_the_recording(tmp_path):
     clock = [T + 100]
-    api = make_api(tmp_path, clock)
+    api = save_api(tmp_path, clock)
     ask(api, "init")
-    r = ask(api, "buyStoreItem", pack_id="1")
+    r, _ = ask(api, "buyStoreItem", pack_id="1")
     assert r["user_data"]["money"] == "100"                           # recorded "0" not applied
     assert set(r["user_cards"]) == {"2", "1000"}                     # recorded new card not added
     assert r["new_cards"] == [{"id": 9}]                             # the reply still shows the pack opening
@@ -110,13 +103,13 @@ def test_replayed_replies_show_the_save_not_the_recording(tmp_path):
 
 def test_energy_refills_between_sessions(tmp_path):
     clock = [T + 100]
-    api = make_api(tmp_path, clock)
+    api = save_api(tmp_path, clock)
     ask(api, "init")
     p = api.player()
     p.energy, p.energy_updated = 100, T + 100
     api.player_store.save(p)
     clock[0] = T + 100 + 3600 + 25                                    # an hour (and a bit) later
-    r = ask(make_api(tmp_path, clock), "init")
+    r, _ = ask(save_api(tmp_path, clock), "init")
     assert r["user_data"]["energy"] == "160"
     assert r["user_data"]["last_update_time"] == str(T + 100 + 3600)  # the 25 s towards the next point are kept
     assert json.loads((tmp_path / "state" / "player.json").read_text("utf-8"))["player"]["energy"] == 160
@@ -130,48 +123,48 @@ def saved(tmp_path):
 
 
 def test_cli_show(tmp_path, monkeypatch, capsys):
-    _, out = run_cli(tmp_path, monkeypatch, capsys)
+    _, out = run_player_cli(tmp_path, monkeypatch, capsys)
     assert "gold       100" in out and "war bonds  50" in out
     assert "energy     250 / 250 (full)" in out
     assert "x2   Commander Halcyon, 1 used" in out and "x1   Infantry" in out
 
 
 def test_cli_sets_values(tmp_path, monkeypatch, capsys):
-    run_cli(tmp_path, monkeypatch, capsys, "gold", "500")
-    run_cli(tmp_path, monkeypatch, capsys, "bonds", "75")
-    run_cli(tmp_path, monkeypatch, capsys, "energy", "40", clock=T + 200)
+    run_player_cli(tmp_path, monkeypatch, capsys, "gold", "500")
+    run_player_cli(tmp_path, monkeypatch, capsys, "bonds", "75")
+    run_player_cli(tmp_path, monkeypatch, capsys, "energy", "40", clock=T + 200)
     s = saved(tmp_path)
     assert (s["gold"], s["war_bonds"], s["energy"], s["energy_updated"]) == (500, 75, 40, T + 200)
-    _, out = run_cli(tmp_path, monkeypatch, capsys, clock=T + 200 + 90)
+    _, out = run_player_cli(tmp_path, monkeypatch, capsys, clock=T + 200 + 90)
     # 41 after one minute and a half; 209 missing = 30 s + 208 x 60 s = 3h 28m 30s
     assert "energy     41 / 250 (next point in 0m 30s, full in 3h 28m)" in out
 
 
 def test_cli_cards(tmp_path, monkeypatch, capsys):
-    _, out = run_cli(tmp_path, monkeypatch, capsys, "card", "1001", "+2")
+    _, out = run_player_cli(tmp_path, monkeypatch, capsys, "card", "1001", "+2")
     assert "Card 1001 (Commander Malika): 0 -> 2." in out
-    run_cli(tmp_path, monkeypatch, capsys, "card", "3", "=4")
-    _, out = run_cli(tmp_path, monkeypatch, capsys, "card", "2", "-1")
+    run_player_cli(tmp_path, monkeypatch, capsys, "card", "3", "=4")
+    _, out = run_player_cli(tmp_path, monkeypatch, capsys, "card", "2", "-1")
     assert "Deck 1 used more than that, so it now has 0." in out      # taken out of the saved deck too
     s = saved(tmp_path)
     assert s["decks"]["1"]["cards"] == {}
     assert s["cards"] == {"1000": {"num_owned": 2, "num_used": 1}, "1001": {"num_owned": 2, "num_used": 0},
                           "3": {"num_owned": 4, "num_used": 0}}
-    code, _ = run_cli(tmp_path, monkeypatch, capsys, "card", "99999", "+1")
+    code, _ = run_player_cli(tmp_path, monkeypatch, capsys, "card", "99999", "+1")
     assert "isn't in the card data" in str(code)
-    code, _ = run_cli(tmp_path, monkeypatch, capsys, "card", "1001", "-5")
+    code, _ = run_player_cli(tmp_path, monkeypatch, capsys, "card", "1001", "-5")
     assert "only have 2" in str(code)
 
 
 def test_cli_max_energy(tmp_path, monkeypatch, capsys):
-    run_cli(tmp_path, monkeypatch, capsys, "max-energy", "300")
-    run_cli(tmp_path, monkeypatch, capsys, "energy", "290")
-    _, out = run_cli(tmp_path, monkeypatch, capsys, clock=T + 100 + 600)
+    run_player_cli(tmp_path, monkeypatch, capsys, "max-energy", "300")
+    run_player_cli(tmp_path, monkeypatch, capsys, "energy", "290")
+    _, out = run_player_cli(tmp_path, monkeypatch, capsys, clock=T + 100 + 600)
     assert "energy     300 / 300 (full)" in out                       # refilled to the player's own cap
-    run_cli(tmp_path, monkeypatch, capsys, "energy", "350")
-    _, out = run_cli(tmp_path, monkeypatch, capsys)
+    run_player_cli(tmp_path, monkeypatch, capsys, "energy", "350")
+    _, out = run_player_cli(tmp_path, monkeypatch, capsys)
     assert "energy     350 / 300 (over the max" in out
-    code, _ = run_cli(tmp_path, monkeypatch, capsys, "max-energy", "0")
+    code, _ = run_player_cli(tmp_path, monkeypatch, capsys, "max-energy", "0")
     assert "too low" in str(code)
 
 
@@ -189,7 +182,7 @@ def test_version_1_save_is_upgraded(tmp_path):
 @pytest.mark.needs_game
 def test_server_off_for_hours_counts_up_to_the_players_own_max(tmp_path):
     clock = [T + 100]
-    api = make_api(tmp_path, clock)
+    api = save_api(tmp_path, clock)
     ask(api, "init")
     p = api.player()
     p.energy, p.energy_updated, p.max_energy = 100, T + 100, 300
@@ -197,7 +190,7 @@ def test_server_off_for_hours_counts_up_to_the_players_own_max(tmp_path):
     del api                                                            # server stops
 
     clock[0] = T + 100 + 4 * 3600                                     # four hours later, server starts again
-    restarted = make_api(tmp_path, clock)                             # 240 points' worth, capped at 300
+    restarted = save_api(tmp_path, clock)                             # 240 points' worth, capped at 300
     assert restarted.startup_report() == ("Player save: 100 gold, 50 war bonds, energy 300/300 "
                                           "(+200 regenerated in the 4h 0m since the last update)\n"
                                           "Gold bonuses: missions x7, arena x3\n"
@@ -207,7 +200,7 @@ def test_server_off_for_hours_counts_up_to_the_players_own_max(tmp_path):
                                           "conquest: none\n"
                                           "Objective challenge: none; mutant mission levels and the undated "
                                           "Legendary Quests are always on")
-    r = ask(restarted, "init")
+    r, _ = ask(restarted, "init")
     assert r["user_data"]["energy"] == "300" and r["max_energy"] == 300  # the player's cap, not the recorded 250
     assert r["user_data"]["last_update_time"] == str(clock[0])        # full: the sync point is now
 
@@ -215,29 +208,29 @@ def test_server_off_for_hours_counts_up_to_the_players_own_max(tmp_path):
 @pytest.mark.needs_game
 def test_server_off_briefly_keeps_partial_progress(tmp_path):
     clock = [T + 100]
-    api = make_api(tmp_path, clock)
+    api = save_api(tmp_path, clock)
     ask(api, "init")
     p = api.player()
     p.energy, p.energy_updated = 10, T + 100
     api.player_store.save(p)
     clock[0] = T + 100 + 25 * 60 + 45                                  # 25 minutes 45 seconds later
-    restarted = make_api(tmp_path, clock)
+    restarted = save_api(tmp_path, clock)
     assert "(+25 regenerated in the 25m since the last update)" in restarted.startup_report()
-    r = ask(restarted, "init")
+    r, _ = ask(restarted, "init")
     assert r["user_data"]["energy"] == "35"
     assert r["user_data"]["last_update_time"] == str(T + 100 + 25 * 60)  # the 45 s count towards the next point
 
 
 @pytest.mark.needs_game
 def test_startup_report_without_a_save(tmp_path):
-    api = make_api(tmp_path, [T])
+    api = save_api(tmp_path, [T])
     assert "none yet" in api.startup_report()
     assert not (tmp_path / "state" / "player.json").exists()          # reporting doesn't create it
 
 
 def test_cli_reset_needs_yes(tmp_path, monkeypatch, capsys):
-    run_cli(tmp_path, monkeypatch, capsys, "gold", "500")
-    code, _ = run_cli(tmp_path, monkeypatch, capsys, "reset")
+    run_player_cli(tmp_path, monkeypatch, capsys, "gold", "500")
+    code, _ = run_player_cli(tmp_path, monkeypatch, capsys, "reset")
     assert "--yes" in str(code) and saved(tmp_path)["gold"] == 500
-    run_cli(tmp_path, monkeypatch, capsys, "reset", "--yes")
+    run_player_cli(tmp_path, monkeypatch, capsys, "reset", "--yes")
     assert not (tmp_path / "state" / "player.json").exists()

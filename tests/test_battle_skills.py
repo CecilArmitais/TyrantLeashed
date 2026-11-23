@@ -206,13 +206,9 @@ def test_a_last_single_card_is_played_for_you():
     assert {"card_uid": "2", "status": []} in turns[3]["plays"]
 
 
-ASSETS = paths.ASSET_DIR
-REPLAY = paths.FIXTURE_DIR / "replay.json"
-
-
-@pytest.mark.skipif(not (ASSETS.is_dir() and REPLAY.is_file()), reason="needs the archive and the recordings")
+@pytest.mark.needs_game
 def test_every_recorded_battle_matches():
-    db = CardDB.load(ASSETS)
-    for rec in from_fixtures(REPLAY):
+    db = CardDB.load(paths.ASSET_DIR)
+    for rec in from_fixtures(paths.FIXTURE_DIR / "replay.json"):
         r = compare(rec, db)
         assert r.ok, f"{rec.name}: {r.difference}"

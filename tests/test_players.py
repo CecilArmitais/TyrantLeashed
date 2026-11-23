@@ -4,7 +4,6 @@ same time."""
 
 import http.client
 import json
-import sys
 import threading
 
 import pytest
@@ -12,8 +11,7 @@ import pytest
 import game_api as ga
 import offline_server as srv
 import paths
-import player as cli
-from helpers import server, login, call, T, ask
+from helpers import T, ask, call, login, run_cli, server
 
 
 # ---- accounts and logins -------------------------------------------------------------------------
@@ -206,14 +204,10 @@ def test_players_playing_at_once_over_http(tmp_path):
 
 # ---- the admin tool ------------------------------------------------------------------------------
 
-def run_cli(monkeypatch, capsys, tmp_path, *args):
-    monkeypatch.setattr(sys, "argv", ["player.py", "--fixtures", str(paths.FIXTURE_DIR), "--state", str(tmp_path), *args])
-    monkeypatch.setattr(cli, "CLOCK", lambda: T)
-    try:
-        cli.main()
-    except SystemExit as e:
-        return str(e)
-    return capsys.readouterr().out
+def real_cli(monkeypatch, capsys, tmp_path, *args):
+    """player.py on the game's fixtures and this state: what it printed, or its exit message."""
+    code, out = run_cli(monkeypatch, capsys, paths.FIXTURE_DIR, tmp_path, *args)
+    return code if isinstance(code, str) else out
 
 
 @pytest.mark.needs_game
@@ -221,13 +215,13 @@ def test_the_admin_tool_on_a_multi_player_server(tmp_path, monkeypatch, capsys):
     api, _ = server(tmp_path)
     login(api)
     login(api)
-    out = run_cli(monkeypatch, capsys, tmp_path, "players")
+    out = real_cli(monkeypatch, capsys, tmp_path, "players")
     assert "2 players:" in out and "1000001  Player1000001" in out and "1000002  Player1000002" in out
-    assert "choose one with --user" in run_cli(monkeypatch, capsys, tmp_path, "gold", "500")
-    out = run_cli(monkeypatch, capsys, tmp_path, "--user", "1000002", "name", "Night", "Hawk")
+    assert "choose one with --user" in real_cli(monkeypatch, capsys, tmp_path, "gold", "500")
+    out = real_cli(monkeypatch, capsys, tmp_path, "--user", "1000002", "name", "Night", "Hawk")
     assert "Renamed Player1000002 to Night Hawk" in out
-    run_cli(monkeypatch, capsys, tmp_path, "--user", "1000002", "gold", "777")
+    real_cli(monkeypatch, capsys, tmp_path, "--user", "1000002", "gold", "777")
     p2 = json.loads((tmp_path / "players" / "1000002.json").read_text("utf-8"))["player"]
     p1 = json.loads((tmp_path / "players" / "1000001.json").read_text("utf-8"))["player"]
     assert (p2["name"], p2["gold"]) == ("Night Hawk", 777) and p1["gold"] != 777
-    assert "There's no player 5" in run_cli(monkeypatch, capsys, tmp_path, "--user", "5", "gold", "1")
+    assert "There's no player 5" in real_cli(monkeypatch, capsys, tmp_path, "--user", "5", "gold", "1")

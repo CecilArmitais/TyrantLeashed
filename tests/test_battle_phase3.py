@@ -1,6 +1,10 @@
 """Tests for the battle engine's phase 3 skills (never seen in recordings; rules from
 the optimizer, reference/tuo). Random picks take the first candidate."""
 
+import pytest
+
+import paths
+from battle import tuo_tests as tt
 from battle.cards import CardDB
 from battle.engine import Battle, Setup
 
@@ -165,12 +169,6 @@ def test_valor_and_allegiance():
 
 
 # ---- the optimizer's test decks, as a crash test -------------------------------------------------
-
-import pytest  # noqa: E402
-
-import paths  # noqa: E402
-from battle import tuo_tests as tt  # noqa: E402
-
 
 @pytest.mark.skipif(not (paths.TUO_DIR / "tests" / "sim" / "data").is_dir(), reason="needs reference/tuo")
 def test_the_optimizers_test_decks_run_without_errors():

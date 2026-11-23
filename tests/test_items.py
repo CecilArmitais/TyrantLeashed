@@ -1,29 +1,35 @@
 """Tests for items (items.py, game_api/items.py, player_state.py): the data, the formats, using
 items, the energy bar's refill with one, and the save."""
 
-import pytest
 import json
+from functools import lru_cache
+
+import pytest
 
 import items
 import paths
 from battle.cards import CardDB
-from player_state import SAVE_VERSION, PlayerStore
 from helpers import call, login, server
+from player_state import SAVE_VERSION, PlayerStore
 
-DEFS = items.load(paths.ASSET_DIR)
+
+@lru_cache(maxsize=None)
+def defs():
+    """The game's items (read on first use)."""
+    return items.load(paths.ASSET_DIR)
 
 
 # ---- the data and formats ------------------------------------------------------------------------
 
 @pytest.mark.needs_game
 def test_the_data():
-    assert len(DEFS) == 72 and 2003 not in DEFS                          # the commented-out ones left out
-    epic, vindi, cache = DEFS[items.EPIC_SHARD], DEFS[items.VINDICATOR_SHARD], DEFS[items.SALVAGE_CACHE]
+    assert len(defs()) == 72 and 2003 not in defs()                          # the commented-out ones left out
+    epic, vindi, cache = defs()[items.EPIC_SHARD], defs()[items.VINDICATOR_SHARD], defs()[items.SALVAGE_CACHE]
     assert (epic.name, epic.cost, epic.pack["distribution"]) == ("Epic Shard", 500, {"basic": 3, "epic": 1})
     assert (vindi.cost, vindi.pack["distribution"]) == (1000, {"vindicator_strict": 1})
     assert (cache.cost, cache.sp, cache.pack) == (20, 40, None)
-    assert DEFS[items.ENERGY_REFILL].refill and DEFS[items.ENERGY_REFILL].cost == 1
-    assert not DEFS[items.COMMANDER_RESPEC].usable
+    assert defs()[items.ENERGY_REFILL].refill and defs()[items.ENERGY_REFILL].cost == 1
+    assert not defs()[items.COMMANDER_RESPEC].usable
 
 
 def test_formats():
@@ -50,11 +56,11 @@ def test_what_can_be_used():
                            (10, "The Massacre Refill can't be used."),       # no effect given
                            (2200, "The Neuro Pack Shard can't be used.")):
         try:
-            items.check_use(DEFS.get(item_id), inv)
+            items.check_use(defs().get(item_id), inv)
             raise AssertionError(item_id)
         except items.ItemError as e:
             assert str(e) == words
-    items.check_use(DEFS[items.ENERGY_REFILL], {"1": 1})
+    items.check_use(defs()[items.ENERGY_REFILL], {"1": 1})
 
 
 # ---- through the server --------------------------------------------------------------------------

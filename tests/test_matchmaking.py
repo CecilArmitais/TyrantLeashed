@@ -8,8 +8,8 @@ import pytest
 
 import arena
 import content
-from player_state import arena_from_start
 from helpers import T, call, login, real_cards, server
+from player_state import arena_from_start
 
 # The account's recorded list (rating 735): each real rival's rating, rank and gold.
 RECORDED_PLAYERS = [(1663, 6, 159), (1624, 6, 156), (1309, 6, 129), (1302, 6, 126), (1259, 6, 123),

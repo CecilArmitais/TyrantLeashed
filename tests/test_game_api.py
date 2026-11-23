@@ -8,10 +8,10 @@ from pathlib import Path
 import pytest
 
 import game_api as ga
-import paths
 import make_fixtures as mf
+import paths
+from helpers import T, ask
 
-T = 1_795_000_000          # recorded server time
 NOW = T + 1_000_000        # about 11.6 days later
 
 
@@ -225,10 +225,6 @@ def test_without_raw_recordings_the_sanitized_copy_is_used(tmp_path, monkeypatch
         str(ga.OFFLINE_USER_ID)
 
 
-REAL_CAPTURES = paths.CAPTURES_DIR / "api"
-REAL_SANITIZED = REAL_CAPTURES.parent / "api-sanitized"
-
-
 def _fixture_session() -> str:
     try:
         return json.loads((paths.FIXTURE_DIR / "init.json").read_text("utf-8"))["source"]["session"]
@@ -236,19 +232,19 @@ def _fixture_session() -> str:
         return ""
 
 
-@pytest.mark.skipif(not (REAL_SANITIZED / _fixture_session()).is_dir() or not _fixture_session(),
+@pytest.mark.skipif(not (paths.SANITIZED_CAPTURES_DIR / _fixture_session()).is_dir() or not _fixture_session(),
                     reason="no sanitized copy of the fixtures' session here")
 def test_the_real_fixtures_can_be_rebuilt_from_the_sanitized_recordings(tmp_path):
-    mf.build(REAL_SANITIZED / _fixture_session(), tmp_path / "fx")
+    mf.build(paths.SANITIZED_CAPTURES_DIR / _fixture_session(), tmp_path / "fx")
     for name in ("getUserAccount", "init", "replay"):
         assert (tmp_path / "fx" / f"{name}.json").read_bytes() == (paths.FIXTURE_DIR / f"{name}.json").read_bytes(), name
 
 
-@pytest.mark.skipif(not REAL_CAPTURES.is_dir(), reason="no recorded sessions on this machine")
+@pytest.mark.skipif(not paths.RAW_CAPTURES_DIR.is_dir(), reason="no recorded sessions on this machine")
 def test_real_fixtures_contain_no_identifier_from_any_session(tmp_path):
     """Build from the real recordings, then look for every identifier any session ever sent."""
     built = None
-    for s in sorted(REAL_CAPTURES.iterdir(), reverse=True):
+    for s in sorted(paths.RAW_CAPTURES_DIR.iterdir(), reverse=True):
         try:
             built = mf.build(s, tmp_path / "fx")
             break
@@ -257,7 +253,7 @@ def test_real_fixtures_contain_no_identifier_from_any_session(tmp_path):
     if built is None:
         pytest.skip("no non-Kongregate session recorded")
     every = {}
-    for s in REAL_CAPTURES.iterdir():
+    for s in paths.RAW_CAPTURES_DIR.iterdir():
         for f in s.glob("*.json"):
             try:
                 every.update(mf.secrets_of(json.loads(f.read_text("utf-8"))))
@@ -300,10 +296,6 @@ def game(tmp_path):
     )
     (d / "replay.json").write_text(json.dumps({"source": {}, "calls": calls}), "utf-8")
     return ga.GameApi(fixture_dir=d, clock=lambda: NOW)
-
-
-def ask(api, message, **params):
-    return api.respond(message, {"message": message, "user_id": "1000001", "password": "p", **params})
 
 
 def test_battle_replays_as_a_script(game):

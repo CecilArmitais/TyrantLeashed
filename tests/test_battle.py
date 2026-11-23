@@ -2,6 +2,8 @@
 attacks, the replies, the server wiring, and the check against recorded battles."""
 
 
+import xml.etree.ElementTree as ET
+
 import pytest
 
 import paths
@@ -10,8 +12,6 @@ from battle.engine import TURN_LIMIT, Battle, BattleError, Setup
 from battle.missions import parse_missions
 from battle.protocol import BattleSession
 from battle.recorded import compare, from_fixtures
-
-import xml.etree.ElementTree as ET
 from helpers import DB, T, make_api, ask
 
 
@@ -204,15 +204,11 @@ def test_without_the_engine_missions_replay(tmp_path):
 
 # ---- against the recordings ----------------------------------------------------------------------
 
-ASSETS = paths.ASSET_DIR
-REPLAY = paths.FIXTURE_DIR / "replay.json"
-
-
-@pytest.mark.skipif(not (ASSETS.is_dir() and REPLAY.is_file()), reason="needs the archive and the recordings")
+@pytest.mark.needs_game
 def test_recorded_battles_match_up_to_the_first_skill():
-    db = CardDB.load(ASSETS)
+    db = CardDB.load(paths.ASSET_DIR)
     results = {}
-    for i, rec in enumerate(from_fixtures(REPLAY)):
+    for i, rec in enumerate(from_fixtures(paths.FIXTURE_DIR / "replay.json")):
         r = compare(rec, db)
         results[f"{i} {rec.name}"] = r
         assert r.ok or r.needs_skill, f"{rec.name} differs in a plain attack: {r.difference}"

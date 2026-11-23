@@ -267,18 +267,26 @@ def save_api(tmp_path, clock):
     return ga.GameApi(fixture_dir=fx, clock=lambda: clock[0])
 
 
-def run_player_cli(tmp_path, monkeypatch, capsys, *args, clock=T + 100):
-    save_api(tmp_path, [clock])
-    xml = tmp_path / "xml"
-    xml.mkdir(exist_ok=True)
-    (xml / "cards_section_1.xml").write_text(CARDS_XML, "utf-8")
-    monkeypatch.setattr(cli, "CARD_XML_DIR", xml)
+def run_cli(monkeypatch, capsys, fixtures, state, *args, clock=T, cards_dir=None) -> tuple:
+    """player.py with `args`, on these fixtures and this state folder: (its exit code or
+    message, 0 if it didn't exit; what it printed). cards_dir: where it reads the card
+    names (default: the game's)."""
+    if cards_dir is not None:
+        monkeypatch.setattr(cli, "CARD_XML_DIR", cards_dir)
     monkeypatch.setattr(cli, "CLOCK", lambda: clock)
-    monkeypatch.setattr(sys, "argv", ["player.py", "--fixtures", str(tmp_path / "fixtures"),
-                                      "--state", str(tmp_path / "state"), *args])
+    monkeypatch.setattr(sys, "argv", ["player.py", "--fixtures", str(fixtures), "--state", str(state), *args])
     code = 0
     try:
         cli.main()
     except SystemExit as e:
         code = e.code
     return code, capsys.readouterr().out
+
+
+def run_player_cli(tmp_path, monkeypatch, capsys, *args, clock=T + 100):
+    """player.py on a made-up save (save_api) and card file."""
+    save_api(tmp_path, [clock])
+    xml = tmp_path / "xml"
+    xml.mkdir(exist_ok=True)
+    (xml / "cards_section_1.xml").write_text(CARDS_XML, "utf-8")
+    return run_cli(monkeypatch, capsys, tmp_path / "fixtures", tmp_path / "state", *args, clock=clock, cards_dir=xml)

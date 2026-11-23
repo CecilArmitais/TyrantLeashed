@@ -1,22 +1,36 @@
 """Tests for conquest (conquest.py, game_api/conquest.py): the data, zone tiers, scoring rounds,
 fortresses, energy, opponents, rewards, the replies, and a conquest through the server."""
 
-import pytest
 import random
+from functools import lru_cache
+
+import pytest
 
 import conquest
 import game_api as ga
 import paths
 from helpers import call, login, server
 
-EVENTS, ZONES = conquest.load(paths.ASSET_DIR)
+
+@lru_cache(maxsize=None)
+def conquest_events():
+    """The conquest events (read on first use)."""
+    return conquest.load(paths.ASSET_DIR)[0]
+
+
+@lru_cache(maxsize=None)
+def conquest_zones():
+    """The conquest zones (read on first use)."""
+    return conquest.load(paths.ASSET_DIR)[1]
+
+
 T0 = 1_800_000_000
 PHOBOS, NEXUS = 11, 12
 
 
 def a_state(now=T0):
     state = conquest.new_state()
-    conquest.start_run(state, EVENTS[33], now)
+    conquest.start_run(state, conquest_events()[33], now)
     return state
 
 
@@ -28,22 +42,22 @@ def influence(state, gid, zone, amount):
 
 @pytest.mark.needs_game
 def test_the_data():
-    assert len(EVENTS) == 35 and len(ZONES) == 12
-    ev = EVENTS[33]
+    assert len(conquest_events()) == 35 and len(conquest_zones()) == 12
+    ev = conquest_events()[33]
     assert (ev.name, ev.length, ev.asset_bundle, ev.terrain_prefab) == ("Aftermath Conquest", 76 * 3600, 2006,
                                                                         "prefab_conquest_map1")
-    assert ZONES[PHOBOS].name == "Phobos Station" and ZONES[PHOBOS].battleground_effect == 1002
-    assert [t.min_rank for t in ZONES[PHOBOS].tiers] == [1, 5, 10, 25, 35, 50, 75, 100, 500, 5000]
-    assert all(t.conquest_points for t in ZONES[NEXUS].tiers)                  # the Nexus is all points
+    assert conquest_zones()[PHOBOS].name == "Phobos Station" and conquest_zones()[PHOBOS].battleground_effect == 1002
+    assert [t.min_rank for t in conquest_zones()[PHOBOS].tiers] == [1, 5, 10, 25, 35, 50, 75, 100, 500, 5000]
+    assert all(t.conquest_points for t in conquest_zones()[NEXUS].tiers)                  # the Nexus is all points
 
 
 @pytest.mark.needs_game
 def test_the_tier_a_rank_reaches():
-    zone = ZONES[PHOBOS]
+    zone = conquest_zones()[PHOBOS]
     assert (conquest.tier_for(zone, 1, "conquest_points"), conquest.tier_for(zone, 1, "fortress_card")) == (50, 8507)
     assert (conquest.tier_for(zone, 6, "conquest_points"), conquest.tier_for(zone, 6, "fortress_card")) == (30, 8506)
     assert conquest.tier_for(zone, 0, "conquest_points") is None
-    assert conquest.tier_for(ZONES[NEXUS], 1, "fortress_card") is None
+    assert conquest.tier_for(conquest_zones()[NEXUS], 1, "fortress_card") is None
 
 
 # ---- scoring rounds ------------------------------------------------------------------------------
@@ -54,14 +68,14 @@ def test_scoring_rounds():
     influence(state, 1, PHOBOS, 100)
     influence(state, 2, PHOBOS, 50)
     influence(state, 2, NEXUS, 5)
-    assert conquest.score_rounds(state, ZONES, T0 + conquest.ROUND_EVERY - 1) == 0
-    assert conquest.score_rounds(state, ZONES, T0 + conquest.ROUND_EVERY) == 1
+    assert conquest.score_rounds(state, conquest_zones(), T0 + conquest.ROUND_EVERY - 1) == 0
+    assert conquest.score_rounds(state, conquest_zones(), T0 + conquest.ROUND_EVERY) == 1
     g1, g2 = state["guilds"]["1"], state["guilds"]["2"]
     assert (g1["points"], g2["points"]) == (50, 30 + 150)                       # Phobos rank 1 / 2; the Nexus rank 1
     assert g1["fortresses"] == {str(PHOBOS): 8507} and g2["fortresses"] == {str(PHOBOS): 8507}
     assert g1["influence"][str(PHOBOS)] == 100                                  # no decay (an unknown)
-    assert conquest.score_rounds(state, ZONES, T0 + conquest.ROUND_EVERY) == 0  # once a round
-    assert conquest.score_rounds(state, ZONES, T0 + 10 ** 7) == 18              # every round up to the end, 19 in all
+    assert conquest.score_rounds(state, conquest_zones(), T0 + conquest.ROUND_EVERY) == 0  # once a round
+    assert conquest.score_rounds(state, conquest_zones(), T0 + 10 ** 7) == 18              # every round up to the end, 19 in all
     assert state["run"]["rounds"] == 19 and g1["points"] == 19 * 50
     assert [r["id"] for r in conquest.standings(state)] == ["2", "1"]
     assert conquest.guild_rank(state, 1) == 2 and conquest.guild_rank(state, 9) == 0
@@ -102,7 +116,7 @@ def test_opponent_guilds_near_yours():
 
 @pytest.mark.needs_game
 def test_rewards():
-    ev = EVENTS[33]
+    ev = conquest_events()[33]
     assert conquest.earned_tiers(ev, 0, 10 ** 6) == []
     top = conquest.earned_tiers(ev, 1, 10 ** 6)
     assert len(top) == len(ev.tiers)
@@ -115,7 +129,7 @@ def test_the_replies():
     state = a_state()
     influence(state, 1, PHOBOS, 100)
     state["guilds"]["1"]["markers"][str(PHOBOS)] = 2
-    data = conquest.conquest_json(EVENTS[33], ZONES, state, 1, 7, {}, {}, T0 + 5)
+    data = conquest.conquest_json(conquest_events()[33], conquest_zones(), state, 1, 7, {}, {}, T0 + 5)
     for key in ("id", "asset_bundle", "terrain_prefab", "conquest_points", "conquest_rank", "start_time", "end_time",
                 "decay_time", "claim_reward_prevention", "user_conquest_data", "zone_data", "rewards"):
         assert key in data, key

@@ -1,9 +1,10 @@
 """Tests for brawls (brawls.py, game_api/brawls.py): the data, the replies against the recorded
 ones, energy, scoring, opponents, rewards, and brawls played through the server."""
 
-import pytest
-from functools import lru_cache
 import random
+from functools import lru_cache
+
+import pytest
 
 import brawls
 import event_runs

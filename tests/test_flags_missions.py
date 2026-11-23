@@ -1,16 +1,15 @@
 """Tests for saved game flags (tutorial progress, settings) and mission progress."""
 
 import json
-import sys
 
 import pytest
 
 import game_api as ga
 import paths
 import player as cli
+from helpers import T, ask, run_cli
 from player_state import SAVE_VERSION
 
-T = 1_795_000_000
 NOW = T + 100
 
 FLAGS = {"music": "1", "sound": "1", "tutorial": "0", "autopilot": "0", "speed": "1",
@@ -78,10 +77,6 @@ def make_api(tmp_path, clock=NOW):
     calls = [{"seq": i, "message": m, "key": k, "body": b} for i, (m, k, b) in enumerate(CALLS, 1)]
     (fx / "replay.json").write_text(json.dumps({"source": {}, "calls": calls}), "utf-8")
     return ga.GameApi(fixture_dir=fx, clock=lambda: clock, asset_dir=assets)
-
-
-def ask(api, message, **params):
-    return api.respond(message, {"message": message, "user_id": "1000001", **params})
 
 
 def saved(tmp_path):
@@ -317,40 +312,37 @@ def test_refill_cost_comes_from_the_login_data(tmp_path):
 
 # ---- the edit command ----------------------------------------------------------------------------
 
-def run_cli(tmp_path, monkeypatch, capsys, *args):
+def made_up_cli(tmp_path, monkeypatch, capsys, *args):
+    """player.py on the made-up game (make_api): what it printed."""
     make_api(tmp_path)
     monkeypatch.setattr(paths, "ASSET_DIR", tmp_path / "assets")
-    monkeypatch.setattr(cli, "CARD_XML_DIR", tmp_path / "assets")
-    monkeypatch.setattr(cli, "CLOCK", lambda: NOW)
-    monkeypatch.setattr(sys, "argv", ["player.py", "--fixtures", str(tmp_path / "fixtures"),
-                                      "--state", str(tmp_path / "state"), *args])
-    cli.main()
-    return capsys.readouterr().out
+    return run_cli(monkeypatch, capsys, tmp_path / "fixtures", tmp_path / "state", *args, clock=NOW,
+                   cards_dir=tmp_path / "assets")[1]
 
 
 def test_cli_tutorial_skip(tmp_path, monkeypatch, capsys):
-    out = run_cli(tmp_path, monkeypatch, capsys)
+    out = made_up_cli(tmp_path, monkeypatch, capsys)
     assert "tutorial   part 1 of 5: Start First Mission" in out
     assert "missions   none won yet (0 wins, 0 stars)" in out
-    assert "Tutorial marked finished" in run_cli(tmp_path, monkeypatch, capsys, "tutorial", "skip")
+    assert "Tutorial marked finished" in made_up_cli(tmp_path, monkeypatch, capsys, "tutorial", "skip")
     p = saved(tmp_path)
     assert p["flags"]["tutorial"] == "-1" and set(p["missions"]) == {"1"} and p["mission_wins"] == 1
-    out = run_cli(tmp_path, monkeypatch, capsys)
+    out = made_up_cli(tmp_path, monkeypatch, capsys)
     assert "tutorial   finished" in out and "missions   1 won (1 wins, 1 stars)" in out
-    assert "already finished" in run_cli(tmp_path, monkeypatch, capsys, "tutorial", "skip")
+    assert "already finished" in made_up_cli(tmp_path, monkeypatch, capsys, "tutorial", "skip")
     r, _ = ask(make_api(tmp_path), "init")
     assert r["user_data"]["flags"]["tutorial"] == "-1" and "1" in r["mission_completions"]
 
 
 def test_cli_music_and_sound(tmp_path, monkeypatch, capsys):
-    assert "settings   music on, sound on, battle speed 1x, autopilot off" in run_cli(tmp_path, monkeypatch, capsys)
-    assert "Music off." in run_cli(tmp_path, monkeypatch, capsys, "music", "off")
-    run_cli(tmp_path, monkeypatch, capsys, "sound", "off")
+    assert "settings   music on, sound on, battle speed 1x, autopilot off" in made_up_cli(tmp_path, monkeypatch, capsys)
+    assert "Music off." in made_up_cli(tmp_path, monkeypatch, capsys, "music", "off")
+    made_up_cli(tmp_path, monkeypatch, capsys, "sound", "off")
     assert (saved(tmp_path)["flags"]["music"], saved(tmp_path)["flags"]["sound"]) == ("0", "0")
-    assert "settings   music off, sound off" in run_cli(tmp_path, monkeypatch, capsys)
+    assert "settings   music off, sound off" in made_up_cli(tmp_path, monkeypatch, capsys)
     r, _ = ask(make_api(tmp_path), "init")
     assert (r["user_data"]["flags"]["music"], r["user_data"]["flags"]["sound"]) == ("0", "0")
-    run_cli(tmp_path, monkeypatch, capsys, "music", "on")
+    made_up_cli(tmp_path, monkeypatch, capsys, "music", "on")
     assert saved(tmp_path)["flags"]["music"] == "1"
 
 

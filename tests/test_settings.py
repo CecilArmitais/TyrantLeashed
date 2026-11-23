@@ -8,9 +8,8 @@ import pytest
 
 import game_api as ga
 import paths
-from settings import Bonus, Settings, SettingsStore, apply_to_login
 from helpers import T, ask, mission_api, play_mission, run_player_cli, init_body
-
+from settings import Bonus, Settings, SettingsStore, apply_to_login
 
 
 def test_defaults_and_switching(tmp_path):

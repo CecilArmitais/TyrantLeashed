@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from battle.cards import CardDB  # noqa: E402
 from battle.recorded import compare, from_capture, from_fixtures  # noqa: E402
-from paths import ASSET_DIR, CAPTURES_DIR, FIXTURE_DIR  # noqa: E402
+from paths import ASSET_DIR, FIXTURE_DIR, RAW_CAPTURES_DIR  # noqa: E402
 
 
 def main() -> None:
@@ -32,7 +32,7 @@ def main() -> None:
     db = CardDB.load(ASSET_DIR)
     sources = [("fixtures", from_fixtures(FIXTURE_DIR / "replay.json"))]
     if args.captures:
-        for session in sorted((CAPTURES_DIR / "api").iterdir()):
+        for session in sorted(RAW_CAPTURES_DIR.iterdir()):
             if session.is_dir():
                 sources.append((f"session {session.name}", from_capture(session)))
 

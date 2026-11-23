@@ -127,16 +127,13 @@ def test_tiers_open_in_order_with_their_bonuses():
     assert [cards[c].rarity for c in bonus] == [2, 2, 2, 2] and {cards[c].faction for c in bonus} == {2}
 
 
-CAPTURES = paths.CAPTURES_DIR / "api"
-
-
-@pytest.mark.skipif(not CAPTURES.is_dir(), reason="no captures here")
+@pytest.mark.skipif(not paths.RAW_CAPTURES_DIR.is_dir(), reason="no captures here")
 def test_the_recorded_unlocks_follow_the_rule():
     """The account's two unlocks (nothing from them is printed): the bonus cards fit the
     tier-1 rule, one promotion point each, cards_earned +5."""
     cards = real_cards()
     seen = 0
-    for session in sorted(CAPTURES.iterdir()):
+    for session in sorted(paths.RAW_CAPTURES_DIR.iterdir()):
         prev = None
         for m, params, body in capture_calls(session):
             if not isinstance(body, dict):
@@ -189,7 +186,7 @@ def test_reports_keep_the_latest_16():
     assert len(a["reports"]) == 16 and a["reports"][0]["time"] == T + 19
 
 
-@pytest.mark.skipif(not CAPTURES.is_dir(), reason="no captures here")
+@pytest.mark.skipif(not paths.RAW_CAPTURES_DIR.is_dir(), reason="no captures here")
 def test_reports_have_the_recorded_shape():
     """The account's reports (nothing from them is printed): same keys, same order, same
     kinds of values, and every one a fight the account started."""
@@ -198,7 +195,7 @@ def test_reports_have_the_recorded_shape():
                       {"user_id": "1000001", "gold": 19, "sp": 0, "rating_change": 0, "item": [], "lp_change": 0}, T)
     ours = arena.reports_json(a, 1000001)[0]
     seen = 0
-    for session in sorted(CAPTURES.iterdir()):
+    for session in sorted(paths.RAW_CAPTURES_DIR.iterdir()):
         for m, params, body in capture_calls(session):
             if m != "getBattleReports" or not isinstance(body, dict):
                 continue

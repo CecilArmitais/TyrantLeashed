@@ -3,6 +3,7 @@ matchmaking, fortresses, rewards), the replies, and a war between two guilds pla
 through the server."""
 
 import json
+from functools import lru_cache
 
 import pytest
 
@@ -12,14 +13,20 @@ import paths
 import wars
 from helpers import call, login, server
 
-EVENTS = wars.load(paths.ASSET_DIR)
+
+@lru_cache(maxsize=None)
+def war_events():
+    """The war events (read on first use)."""
+    return wars.load(paths.ASSET_DIR)
+
+
 TESLA, CANNON = 2700, 2736          # a defensive fortress, a siege fortress (level 1)
 T0 = 1_800_000_000
 
 
 def a_state(now=T0, days=3):
     state = wars.new_state()
-    wars.start_run(state, EVENTS[94], now, days)
+    wars.start_run(state, war_events()[94], now, days)
     return state
 
 
@@ -31,12 +38,12 @@ def members(groups):
 
 @pytest.mark.needs_game
 def test_the_war_events():
-    assert len(EVENTS) == 94
-    ev = EVENTS[94]
+    assert len(war_events()) == 94
+    ev = war_events()[94]
     assert (ev.name, len(ev.tiers), ev.repair_item) == ("Hypothermia War", 39, 11)
     assert ev.tiers[0] == event_runs.Tier(1, 1, 11000, (("card", 17240, 1),))
     assert [t.rank for t in ev.tiers] == sorted(t.rank for t in ev.tiers)
-    with_effects = [e for e in EVENTS.values() if e.effects]
+    with_effects = [e for e in war_events().values() if e.effects]
     assert len(with_effects) == 50
     assert all(day >= 0 for e in with_effects for day, _ in e.effects)
 
@@ -47,7 +54,7 @@ def test_the_event_matches_the_recorded_one(tmp_path):
     start, end = int(recorded["start_time"]), int(recorded["end_time"])
     run = {"event": 94, "start": start, "end": end, "no_new": end - wars.NO_NEW_WARS,
            "decay": end + wars.CLAIM_DAYS * 86400}
-    ours = wars.event_json(EVENTS[94], run, api._mini_packs())
+    ours = wars.event_json(war_events()[94], run, api._mini_packs())
     assert ours["rewards"] == recorded["rewards"]                      # the 39 tiers, mini packs and all
     assert set(ours) == set(recorded) - {"repair_item_drop_rate", "placement_war"}
     for key in ("war_length", "war_battle_prep_time", "claim_reward_prevention", "battle_energy_cost",
@@ -184,7 +191,7 @@ def test_recording_a_fight():
 
 @pytest.mark.needs_game
 def test_rewards():
-    ev = EVENTS[94]
+    ev = war_events()[94]
     assert wars.earned_tiers(ev, 900, 10**6) == []                       # every tier needs a rank of 800 or better
     tiers = wars.earned_tiers(ev, 800, 20)
     assert [t.rewards for t in tiers] == [(("pack", 1000, 1),)]

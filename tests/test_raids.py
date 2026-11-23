@@ -11,7 +11,7 @@ import game_api as ga
 import paths
 import raids
 from battle.engine import ATTACKER, DEFENDER, FIRST_UID, Battle, RandomChooser, Setup, shuffled_deck
-from helpers import raid_game as game, raid_run as run_of, raid_fight as fight, T, ask, real_cards
+from helpers import T, ask, raid_fight, raid_game, raid_run, real_cards
 
 DAY = 86400
 HOUR = 3600
@@ -173,7 +173,7 @@ def test_fortresses_come_in_with_the_bosss_first_turn(cards):
 
 
 def me(api):
-    return run_of(api)["members"]["1000001"]
+    return raid_run(api)["members"]["1000001"]
 
 
 def change_run(api, **values):
@@ -187,7 +187,7 @@ def change_run(api, **values):
 
 @pytest.mark.needs_game
 def test_no_raid_by_default(tmp_path):
-    api, _ = game(tmp_path, raid=None)
+    api, _ = raid_game(tmp_path, raid=None)
     r, _ = ask(api, "init")
     assert r["current_raids"] == [] and r["raid_info"] is None and r["faction"]["name"] == "Raiders"
     r, how = ask(api, "getRaidInfo")
@@ -196,7 +196,7 @@ def test_no_raid_by_default(tmp_path):
 
 @pytest.mark.needs_game
 def test_a_raid_needs_a_guild(tmp_path):
-    api, _ = game(tmp_path, guild=None)
+    api, _ = raid_game(tmp_path, guild=None)
     r, _ = ask(api, "init")
     assert r["current_raids"] == [] and r["raid_info"] is None and r["faction"] == {"faction_id": 0}
     r, how = ask(api, "fightRaidBattle", raid_id="161", raid_level="1")
@@ -205,7 +205,7 @@ def test_a_raid_needs_a_guild(tmp_path):
 
 @pytest.mark.needs_game
 def test_a_raid_in_init_and_the_guild(tmp_path):
-    api, _ = game(tmp_path)
+    api, _ = raid_game(tmp_path)
     r, _ = ask(api, "init")
     raid = r["current_raids"][0]
     assert (raid["id"], raid["name"], raid["start_time"], raid["end_time"]) == (161, "Sentinel Icarus", T, T + 3 * DAY)
@@ -226,7 +226,7 @@ def test_a_raid_in_init_and_the_guild(tmp_path):
 
 @pytest.mark.needs_game
 def test_the_boss_has_its_real_health_by_default(tmp_path):
-    api, _ = game(tmp_path, extra="days = 1\n")
+    api, _ = raid_game(tmp_path, extra="days = 1\n")
     r, _ = ask(api, "getRaidInfo")
     assert r["raid_info"][0]["max_health"] == 15000 and r["current_raids"][0]["end_time"] == T + DAY
 
@@ -241,9 +241,9 @@ def slow_deck(api):
 
 @pytest.mark.needs_game
 def test_a_raid_fight(tmp_path):
-    api, clock = game(tmp_path)
+    api, clock = raid_game(tmp_path)
     slow_deck(api)
-    r, how = fight(api)
+    r, how = raid_fight(api)
     assert r["result"] is True
     bd = r["battle_data"]
     assert bd["enemy_name"] == "Sentinel Icarus" and bd["winner"] in (0, 1)
@@ -253,7 +253,7 @@ def test_a_raid_fight(tmp_path):
     assert {"18954", "18964"} <= {bd["card_map"].get(p["card_uid"] if isinstance(p["card_uid"], str) else str(p["card_uid"]))
                                   for p in bd["turn"]["2"]["plays"]}       # the fortresses
     assert bd["battleground_effects"] == {"global": [], "attacker": [], "defender": []}
-    run = run_of(api)
+    run = raid_run(api)
     assert (me(api)["energy"], me(api)["damage"], run["hp"], me(api)["fights"]) == (12, damage, 300 - damage, 1)
     assert run["level_end"] == T + 8 * HOUR
     r, _ = ask(api, "updateFaction", last_activity_id="0")
@@ -269,20 +269,20 @@ def test_a_raid_fight(tmp_path):
 
 @pytest.mark.needs_game
 def test_a_lost_level_shows_in_the_news(tmp_path):
-    api, clock = game(tmp_path)
-    fight(api)
+    api, clock = raid_game(tmp_path)
+    raid_fight(api)
     clock[0] += 8 * HOUR
     r, _ = ask(api, "updateFaction", last_activity_id="2")
     assert [(n["type"], json.loads(n["data"])) for n in r["faction_news"]] == \
         [(33, {"raid_level": 1, "raid_name": "Sentinel Icarus"})]
-    assert run_of(api)["hp"] == 300
+    assert raid_run(api)["hp"] == 300
 
 
 @pytest.mark.needs_game
 def test_out_of_raid_energy_and_the_refill(tmp_path):
-    api, _ = game(tmp_path)
+    api, _ = raid_game(tmp_path)
     change_run(api, energy=0)
-    r, how = fight(api)
+    r, how = raid_fight(api)
     assert r["result"] is False and r["result_message"] == ["You're out of raid energy."]
     r, how = ask(api, "refillEventBattleEnergy", event_type="2", event_id="161")
     assert r["result"] and how == "raid energy refilled: +25 for 125 war bonds"
@@ -293,11 +293,11 @@ def test_out_of_raid_energy_and_the_refill(tmp_path):
 
 @pytest.mark.needs_game
 def test_clearing_levels_by_fighting(tmp_path):
-    api, _ = game(tmp_path)
+    api, _ = raid_game(tmp_path)
     change_run(api, hp=1, energy=25)
-    r, how = fight(api)
+    r, how = raid_fight(api)
     assert "level 1 cleared" in how
-    run = run_of(api)
+    run = raid_run(api)
     assert (run["level"], run["hp"], run["level_end"]) == (2, 320, 0)
     r, _ = ask(api, "updateFaction", last_activity_id="1")
     assert [n["type"] for n in r["faction_news"]] == [31, 32]              # launched, won
@@ -307,8 +307,8 @@ def test_clearing_levels_by_fighting(tmp_path):
 
 @pytest.mark.needs_game
 def test_forfeit_during_the_replay_gives_the_same_result(tmp_path):
-    api, _ = game(tmp_path)
-    r, _ = fight(api)
+    api, _ = raid_game(tmp_path)
+    r, _ = raid_fight(api)
     bid = r["battle_data"]["battle_id"]
     f, how = ask(api, "forfeitBattle", battle_id=str(bid))
     assert f["result"] and f["battle_data"] == r["battle_data"] and how.startswith("forfeit during a raid fight")
@@ -321,11 +321,11 @@ def owned(api):
 
 @pytest.mark.needs_game
 def test_claiming_the_reward(tmp_path):
-    api, clock = game(tmp_path)
+    api, clock = raid_game(tmp_path)
     change_run(api, damage=1000, level=5)
     r, how = ask(api, "claimRaidReward", raid_id="161")
     assert r["result"] is False and how == "refused raid claim: early"
-    clock[0] = run_of(api)["end"] + 600
+    clock[0] = raid_run(api)["end"] + 600
     before = owned(api)
     r, how = ask(api, "claimRaidReward", raid_id="161")
     # tiers 26-22: 5 epic packs (20), a card, 5 Legendary Packs (20), a card, a card
@@ -340,18 +340,18 @@ def test_claiming_the_reward(tmp_path):
 
 @pytest.mark.needs_game
 def test_a_new_run_after_the_last_one_is_over(tmp_path):
-    api, clock = game(tmp_path)
-    fight(api)
-    clock[0] = run_of(api)["decay"]
+    api, clock = raid_game(tmp_path)
+    raid_fight(api)
+    clock[0] = raid_run(api)["decay"]
     r, _ = ask(api, "getRaidInfo")
-    run = run_of(api)
+    run = raid_run(api)
     assert run["start"] == clock[0] and me(api)["damage"] == 0 and me(api)["energy"] == 13
 
 
 @pytest.mark.needs_game
 def test_leaving_the_guild_mid_raid(tmp_path):
-    api, _ = game(tmp_path)
-    fight(api)
+    api, _ = raid_game(tmp_path)
+    raid_fight(api)
     r, how = ask(api, "leaveFaction")
     assert r["faction"] == {"faction_id": 0} and "disbanded" in how
     r, _ = ask(api, "fightRaidBattle", raid_id="161", raid_level="1")
@@ -360,7 +360,7 @@ def test_leaving_the_guild_mid_raid(tmp_path):
 
 @pytest.mark.needs_game
 def test_reward_packs_from_an_emptied_set(tmp_path):
-    api, _ = game(tmp_path)
+    api, _ = raid_game(tmp_path)
     cards, _ = api._engine_data()
     got = api._open_reward("mini_pack", 94, 2, cards, random.Random(2))   # set 4000: no level-1 cards
     assert got and all(cards[c].set == raids.FALLBACK_REWARD_SET for c in got)
@@ -368,7 +368,7 @@ def test_reward_packs_from_an_emptied_set(tmp_path):
 
 @pytest.mark.needs_game
 def test_a_raid_with_a_battleground_effect(tmp_path):
-    api, _ = game(tmp_path, raid=55)
+    api, _ = raid_game(tmp_path, raid=55)
     slow_deck(api)
     r, how = ask(api, "fightRaidBattle", raid_id="55", raid_level="1")
     assert r["result"], how

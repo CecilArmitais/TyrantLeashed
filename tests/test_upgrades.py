@@ -7,8 +7,8 @@ import pytest
 import game_api as ga
 import paths
 import upgrades
-from player_state import PlayerStore
 from helpers import T, ask, recorded_calls
+from player_state import PlayerStore
 
 pytestmark = pytest.mark.needs_game        # every test here needs the game files
 

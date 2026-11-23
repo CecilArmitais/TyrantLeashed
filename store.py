@@ -46,9 +46,14 @@ from dataclasses import dataclass
 import packs
 from content import PACK_IDS, Content, Promo
 
+# store_promos' item_type: what the game does with an entry (its code: StoreManager.BuyPromoItem)
+MINI_PACK_ITEM_TYPE = 3                         # a mini pack, or a single card sold like one (type 13)
+UPGRADE_ITEM_TYPE = 4                           # +50 Max Energy, +10 Card Slots
+BUNDLE_ITEM_TYPE = 7                            # the real-money bundles
+BOX_ITEM_TYPE = 8                               # an event box
+TIERED_ITEM_TYPE = 10                           # a tiered box (a row of tiers that open in turn)
+
 BOX_DAYS_SHOWN = 7                              # the store shows a box with this long left (ours)
-BOX_ITEM_TYPE = 8                               # store_promos item_type the game shows as an event box
-TIERED_ITEM_TYPE = 10                           # ...and as a tiered box (a row of tiers that open in turn)
 BOX_BANNER_TEXT = "New Event Box!"              # the banner's ribbon for a box (ours; "" shows "0")
 
 
@@ -64,7 +69,8 @@ def promo_entry(mp_id, mp: dict, promo: Promo, available_cards: list[int] | None
         entry["gold_cost"] = str(promo.gold)
     else:
         entry["wb_cost"] = str(promo.war_bonds)
-    entry.update({"item_type": 3, "item_id": int(mp_id), "sub_item_id": "gold" if promo.gold is not None else "wb"})
+    entry.update({"item_type": MINI_PACK_ITEM_TYPE, "item_id": int(mp_id),
+                  "sub_item_id": "gold" if promo.gold is not None else "wb"})
     if available_cards:
         entry["available_cards"] = [str(c) for c in available_cards]
     return entry
@@ -138,14 +144,15 @@ def apply_offers(body: dict, content: Content, promo_entries: list[dict], box_en
             if not isinstance(p, dict):
                 continue
             key, kind = str(p.get("item_id")), str(p.get("item_type"))
-            if kind == "3" and str(p.get("type")) == "13" and str(p.get("card")) in by_card:
+            if kind == str(MINI_PACK_ITEM_TYPE) and str(p.get("type")) == "13" and str(p.get("card")) in by_card:
                 key = by_card[str(p.get("card"))]
             if key in fresh and kind == str(fresh[key]["item_type"]):
                 promos.append(fresh.pop(key))
                 last = len(promos)
-            elif kind == "3" and key in mini_pack_ids:
+            elif kind == str(MINI_PACK_ITEM_TYPE) and key in mini_pack_ids:
                 continue
-            elif kind == "7" and key in {str(x.bundle) for x in content.promos if x.bundle is not None}:
+            elif kind == str(BUNDLE_ITEM_TYPE) and key in {str(x.bundle) for x in content.promos
+                                                           if x.bundle is not None}:
                 continue                                      # ours, bought once: gone for good
             elif content.recorded_extras:
                 promos.append(p)
@@ -170,7 +177,6 @@ def apply_offers(body: dict, content: Content, promo_entries: list[dict], box_en
 
 CARD_ITEM_BASE = 1_000_000          # a single-card promo's item_id: this + the card id (ours)...
 RECORDED_IDS = {70584: 13835}       # ...or the recorded store's id for it (Tabitha's Trooper)
-BUNDLE_ITEM_TYPE = 7                # store_promos item_type of the real-money bundles
 
 
 @dataclass(frozen=True)
@@ -225,7 +231,7 @@ def card_entry(card, scaling: dict, bought: int) -> dict:
             "desc": f"Includes a single copy of the {card.name} card. Price increases with each purchase.",
             "web_picture": "card_package_d.png", "banner_picture": "genericpack_halfsize_banner.png",
             "picture": "tyrantpack", "icon": "banner_graphic_plaguewyrm", "scaling_pricing": dict(scaling),
-            "item_type": 3, "item_id": item_id, "sub_item_id": "wb",
+            "item_type": MINI_PACK_ITEM_TYPE, "item_id": item_id, "sub_item_id": "wb",
             "wb_cost": str(packs.scaling_price(scaling, bought))}
 
 
@@ -322,7 +328,7 @@ def apply_upgrades(body: dict, player, decks_limit: int) -> dict:
     if isinstance(body.get("store_promos"), list):
         kept = []
         for p in body["store_promos"]:
-            up = UPGRADES.get(str(p.get("item_id"))) if str(p.get("item_type")) == "4" else None
+            up = UPGRADES.get(str(p.get("item_id"))) if str(p.get("item_type")) == str(UPGRADE_ITEM_TYPE) else None
             if up is None:
                 kept.append(p)
                 continue

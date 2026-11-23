@@ -36,11 +36,11 @@ from .conquest import ConquestCalls
 from .events import EventCalls
 from .guilds import GuildCalls
 from .items import ItemCalls
-from .messages import (BATTLE_STARTS, BATTLE_TURN, BRAWL_MESSAGES, BUY_UPGRADE, CLAIM, CONQUEST_MESSAGES,
-                       CRATE, ENERGY_REFILL, FORFEIT, FUSE, GUILD_MESSAGES, ITEM_MESSAGES, LOCK, LOGIN,
-                       PACK_GOLD, PACK_WB, PRACTICE, PROMO_GOLD, PROMO_WB, RAID_MESSAGES, REFRESH, REPORTS,
-                       RIVALS_REFRESH, SALVAGE, SALVAGE_ALL, SET_ACTIVE, SET_DECK, SET_DEFENSE, SET_FLAG,
-                       SET_NAME, STAMINA_REFILL, TARGETS, UNLOCK, UPGRADE, WAR_MESSAGES)
+from .messages import (BATTLE_STARTS, BATTLE_TURN, BRAWL_MESSAGES, CLAIM, CONQUEST_MESSAGES, CRATE,
+                       ENERGY_REFILL, FORFEIT, FUSE, GUILD_MESSAGES, ITEM_MESSAGES, LOCK, LOGIN, PRACTICE,
+                       RAID_MESSAGES, REFRESH, REPORTS, RIVALS_REFRESH, SALVAGE, SALVAGE_ALL, SET_ACTIVE,
+                       SET_DECK, SET_DEFENSE, SET_FLAG, SET_NAME, STAMINA_REFILL, STORE_MESSAGES, TARGETS,
+                       UNLOCK, UPGRADE, WAR_MESSAGES)
 from .player_data import PlayerDataCalls
 from .raids import RaidCalls
 from .replay import ReplayCalls, _as_time, echo, personalize, request_key, shift_times
@@ -245,8 +245,11 @@ class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, Gu
             return self._unlock_commander(params)
         if message == REPORTS and self.player() is not None:
             return self._battle_reports(params)
-        if message in (PACK_GOLD, PACK_WB):
-            return self._buy_pack(message, params)
+        if message in STORE_MESSAGES:
+            sold = self._store_message(message, params)
+            if sold is not None:
+                return sold
+            # a promo the server doesn't sell: replayed if recorded, below
         if message in (UPGRADE, SALVAGE, LOCK, FUSE) or message in SALVAGE_ALL:
             return self._upgrade_screen(message, params)
         if message == CLAIM and self.player() is not None:
@@ -268,26 +271,12 @@ class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, Gu
                 return self._item_message(message, params)
             if message == CRATE:
                 return self._open_crate(params)
-            if message == BUY_UPGRADE or (message in (PROMO_GOLD, PROMO_WB) and str(params.get("item_type")) == "4"):
-                return self._buy_store_upgrade(message, params)
             if message == SET_NAME:
                 return self._set_name(params)
             if message in (SET_ACTIVE, SET_DEFENSE):
                 return self._choose_deck(message, params)
             if message in REFRESH:
                 return self._refresh(message, params)
-        if message == PROMO_WB and str(params.get("item_type")) in (str(store.BOX_ITEM_TYPE),
-                                                                    str(store.TIERED_ITEM_TYPE)) \
-                and self.player() is not None:
-            if params.get("box_discount_id") not in (None, ""):
-                return self._buy_box_deal(params)
-            return self._buy_box(params)
-        if message in (PROMO_GOLD, PROMO_WB) and self.player() is not None \
-                and str(params.get("item_type")) in ("3", str(store.BUNDLE_ITEM_TYPE)):
-            sold = self._buy_promo(message, params)
-            if sold is not None:
-                return sold
-            # other promos: replayed if recorded, as before
         if message == RIVALS_REFRESH and self.battle_engine and self.player() is not None:
             return self._refresh_rivals(params)
         if message == TARGETS and self.battle_engine and self.player() is not None:

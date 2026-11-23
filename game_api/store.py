@@ -15,7 +15,7 @@ from player_state import Player, decks_json
 from rewards import DECK_SIZE
 
 from .base import NotSupported
-from .messages import BUY_UPGRADE, PACK_GOLD, PROMO_GOLD, PROMO_WB
+from .messages import BUY_UPGRADE, PACK_GOLD, PACK_WB, PROMO_GOLD, PROMO_WB
 
 
 class StoreCalls:
@@ -140,6 +140,27 @@ class StoreCalls:
         return "\n".join([line] + [f"  {self.content_store.path.name}: {p}" for p in problems])
 
     # ---- buying packs and promos -----------------------------------------------------------------
+
+    def _store_message(self, message: str, params: dict) -> tuple[dict, str] | None:
+        """The store's messages (STORE_MESSAGES): a pack tile, a store upgrade (item_type 4, or
+        the deck screen's buyUpgrade), an event box, or a promo (a mini pack, a single card or
+        a bundle). None for what the server doesn't sell: the dispatcher replays it if it was
+        recorded."""
+        if message in (PACK_GOLD, PACK_WB):
+            return self._buy_pack(message, params)
+        if self.player() is None:
+            return None
+        item_type = str(params.get("item_type"))
+        if message == BUY_UPGRADE or (message in (PROMO_GOLD, PROMO_WB) and item_type == str(store.UPGRADE_ITEM_TYPE)):
+            return self._buy_store_upgrade(message, params)
+        if message == PROMO_WB and item_type in (str(store.BOX_ITEM_TYPE), str(store.TIERED_ITEM_TYPE)):
+            if params.get("box_discount_id") not in (None, ""):
+                return self._buy_box_deal(params)
+            return self._buy_box(params)
+        if message in (PROMO_GOLD, PROMO_WB) and item_type in (str(store.MINI_PACK_ITEM_TYPE),
+                                                               str(store.BUNDLE_ITEM_TYPE)):
+            return self._buy_promo(message, params)
+        return None
 
     def _buy_pack(self, message: str, params: dict) -> tuple[dict, str]:
         """buyPackGold / buyPackTokens pack_id: a `store_packs` pack (packs.py)."""

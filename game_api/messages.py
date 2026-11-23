@@ -41,6 +41,7 @@ ITEM_MESSAGES = {"getUserItems", "consumeItem"}
 RAID_MESSAGES = {"getRaidInfo", "getCurrentRaids", "fightRaidBattle", "claimRaidReward", "refillEventBattleEnergy",
                  "getRaidLeaderboard", "getPreviousRaidTopLeaderboard"}
 BUY_UPGRADE = "buyUpgrade"          # the deck screen's Extra Deck Slot
+STORE_MESSAGES = (PACK_GOLD, PACK_WB, PROMO_GOLD, PROMO_WB, BUY_UPGRADE)   # the store's (StoreCalls)
 SET_NAME = "setUserName"
 SET_ACTIVE, SET_DEFENSE = "setActiveDeck", "setDefenseDeck"
 REFRESH = {"getUserData": ("user_data",), "getUserCards": ("user_data", "user_cards"),

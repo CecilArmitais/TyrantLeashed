@@ -60,6 +60,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
+import event_runs
 import jsonfile
 
 # Recorded (war 94's active_war_event).
@@ -97,12 +98,7 @@ class WarError(Exception):
     """Why something can't be done, in words the player can read."""
 
 
-@dataclass(frozen=True)
-class Tier:
-    id: int
-    rank: int                     # the guild's rank must be this or better
-    min_points: int               # the member's points must be at least this
-    rewards: tuple[tuple[str, int, int], ...]     # (card / mini_pack / pack / item, id, amount)
+Tier = event_runs.Tier            # rank: the guild's; min_points: the member's points (0 when the file sets none)
 
 
 @dataclass(frozen=True)
@@ -128,21 +124,11 @@ def load(asset_dir: Path, file_name: str | None = None) -> dict[int, WarEvent]:
     out = {}
     for w in ET.parse(path).getroot().findall("faction_war"):
         start = int(w.findtext("start_time") or 0)
-        tiers = []
-        for t in (w.find("rewards") if w.find("rewards") is not None else []):
-            rewards = tuple((kind, int(e.get("id")), int(e.get("amount") or 1))
-                            for kind in ("card", "mini_pack", "pack", "item") for e in t.findall(kind))
-            tiers.append(Tier(int(t.findtext("id")), int(t.findtext("rank") or 1),
-                              int(t.findtext("min_points") or 0), rewards))
-        effects = []
-        config = w.find("battleground_config")
-        for e in (config if config is not None else []):
-            day = max(0, (int(e.get("start_time") or start) - start) // 86400)
-            effects.append((day, int(e.get("id"))))
+        tiers = event_runs.tiers_of(w.find("rewards"), 0)
         out[int(w.findtext("id"))] = WarEvent(
             int(w.findtext("id")), w.findtext("name") or "", w.findtext("web_picture") or "",
             w.findtext("web_link") or "", start, int(w.findtext("end_time") or 0),
-            tuple(sorted(tiers, key=lambda t: t.rank)), tuple(sorted(effects)),
+            tuple(sorted(tiers, key=lambda t: t.rank)), event_runs.effects_of(w.find("battleground_config"), start),
             int(w.findtext("repair_item")) if w.findtext("repair_item") else None,
             int(w.findtext("refill_item")) if w.findtext("refill_item") else None)
     return out
@@ -180,14 +166,7 @@ def start_run(state: dict, event: WarEvent, now: int, days: int) -> None:
 
 def phase(state: dict, now: int) -> str | None:
     """"war" (matches can be played), "claim" (the event is over; rewards), or None."""
-    run = state.get("run")
-    if not run:
-        return None
-    if run["start"] <= now <= run["end"]:
-        return "war"
-    if run["end"] < now <= run["decay"]:
-        return "claim"
-    return None
+    return event_runs.phase(state, now, "war")
 
 
 def guild_row(state: dict, gid, name: str) -> dict:
@@ -395,20 +374,17 @@ def record_fight(state: dict, match: dict, uid, gid, defender_uid, slot: int, wo
 
 def effect_on(event: WarEvent, run: dict, now: int) -> int | None:
     """The event's battleground effect today (the last one whose day has come)."""
-    day = max(0, (now - run["start"]) // 86400)
-    today = [e for d, e in event.effects if d <= day]
-    return today[-1] if today else None
+    return event_runs.effect_on(event.effects, run, now)
 
 
 # ---- rewards ------------------------------------------------------------------------------------
 
 def claimable(state: dict, now: int) -> bool:
-    run = state.get("run")
-    return bool(run) and run["end"] + CLAIM_WAIT <= now <= run["decay"]
+    return event_runs.claimable(state, now, CLAIM_WAIT)
 
 
 def earned_tiers(event: WarEvent, rank: int, points: int) -> list[Tier]:
-    return [t for t in event.tiers if rank <= t.rank and points >= t.min_points]
+    return event_runs.earned_tiers(event.tiers, rank, points)
 
 
 def owes_rewards(state: dict, event: WarEvent, uid, gid, now: int) -> bool:
@@ -422,17 +398,7 @@ def owes_rewards(state: dict, event: WarEvent, uid, gid, now: int) -> bool:
 
 # ---- what the client gets ------------------------------------------------------------------------
 
-def tier_json(tier: Tier, mini_packs: dict) -> dict:
-    """A reward tier as the recorded active_war_event had it."""
-    out = {"id": str(tier.id), "rank": str(tier.rank), "min_points": str(tier.min_points)}
-    for kind, rid, amount in tier.rewards:
-        entry = {"id": str(rid), "amount": str(amount)}
-        if kind == "mini_pack":
-            mp = mini_packs.get(str(rid)) or {}
-            entry.update({"name": mp.get("name", ""), "desc": mp.get("desc", ""),
-                          "web_picture": mp.get("web_picture") or mp.get("picture", "")})
-        out[kind] = entry
-    return out
+tier_json = event_runs.tier_json   # a reward tier as the recorded active_war_event had it
 
 
 def event_json(event: WarEvent, run: dict, mini_packs: dict) -> dict:

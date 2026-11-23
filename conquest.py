@@ -39,6 +39,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
+import event_runs
 import jsonfile
 
 # The wiki.
@@ -62,12 +63,7 @@ class ConquestError(Exception):
     """Why something can't be done, in words the player can read."""
 
 
-@dataclass(frozen=True)
-class EventTier:
-    id: int
-    rank: int
-    min_points: int                # the member's influence
-    rewards: tuple[tuple[str, int, int], ...]
+EventTier = event_runs.Tier        # min_points: the member's influence (0 when the file sets none)
 
 
 @dataclass(frozen=True)
@@ -115,11 +111,7 @@ def load(asset_dir: Path) -> tuple[dict[int, ConquestEvent], dict[int, Zone]]:
     text = lambda e, tag: (e.findtext(tag) or "").strip()                # noqa: E731
     events = {}
     for e in root.findall("conquest_event"):
-        tiers = []
-        for t in (e.find("rewards") if e.find("rewards") is not None else []):
-            got = tuple((kind, int(x.get("id")), int(x.get("amount") or 1))
-                        for kind in ("card", "mini_pack", "pack", "item") for x in t.findall(kind))
-            tiers.append(EventTier(int(text(t, "id")), int(text(t, "rank") or 1), int(text(t, "min_points") or 0), got))
+        tiers = event_runs.tiers_of(e.find("rewards"), 0)
         events[int(text(e, "id"))] = ConquestEvent(
             int(text(e, "id")), text(e, "name"), int(text(e, "start_time") or 0), int(text(e, "end_time") or 0),
             int(text(e, "asset_bundle") or 0), text(e, "terrain_prefab"), text(e, "web_link"), tuple(tiers))
@@ -171,14 +163,7 @@ def start_run(state: dict, event: ConquestEvent, now: int) -> None:
 
 def phase(state: dict, now: int) -> str | None:
     """"conquest" (fights), "claim" (over; rewards), or None."""
-    run = state.get("run")
-    if not run:
-        return None
-    if run["start"] <= now <= run["end"]:
-        return "conquest"
-    if run["end"] < now <= run["decay"]:
-        return "claim"
-    return None
+    return event_runs.phase(state, now, "conquest")
 
 
 def guild_row(state: dict, gid, name: str = "") -> dict:
@@ -268,28 +253,12 @@ def fortress_cards(state: dict, gid) -> list[int]:
     return [g["fortresses"][z] for z in zones[:FORTRESSES]]
 
 
-# ---- energy (the client's formula, as for brawls) ---------------------------------------------
+# ---- energy (the client's formula, as for brawls: event_runs.py) ------------------------------
 
-def recharge_stop(run: dict) -> int:
-    return run["end"] - RECHARGE_STOPS
-
-
-def energy_now(run: dict, row: dict | None, now: int) -> int:
-    if row is None:
-        return ENERGY_MAX
-    gained = max(0, (min(now, recharge_stop(run)) - max(row["energy_updated"], run["start"])) // ENERGY_EVERY)
-    return min(ENERGY_MAX, row["energy"] + gained)
-
-
-def spend_energy(run: dict, row: dict, now: int) -> None:
-    since = max(row["energy_updated"], run["start"])
-    gained = max(0, (min(now, recharge_stop(run)) - since) // ENERGY_EVERY)
-    if row["energy"] + gained >= ENERGY_MAX:
-        row["energy"], row["energy_updated"] = ENERGY_MAX, now
-    else:
-        row["energy"] += gained
-        row["energy_updated"] = since + gained * ENERGY_EVERY
-    row["energy"] -= ENERGY_COST
+ENERGY = event_runs.Energy(ENERGY_MAX, ENERGY_EVERY, RECHARGE_STOPS, ENERGY_COST)
+recharge_stop = ENERGY.recharge_stop
+energy_now = ENERGY.current
+spend_energy = ENERGY.spend
 
 
 # ---- fights ------------------------------------------------------------------------------------
@@ -319,14 +288,11 @@ def pick_guild(candidates: list[tuple[str, int]], my_points: int, rng: random.Ra
 # ---- rewards ------------------------------------------------------------------------------------
 
 def claimable(state: dict, now: int) -> bool:
-    run = state.get("run")
-    return bool(run) and run["end"] + CLAIM_WAIT <= now <= run["decay"]
+    return event_runs.claimable(state, now, CLAIM_WAIT)
 
 
 def earned_tiers(event: ConquestEvent, rank: int, influence: int) -> list[EventTier]:
-    if rank < 1:
-        return []
-    return [t for t in event.tiers if rank <= t.rank and influence >= t.min_points]
+    return event_runs.earned_tiers(event.tiers, rank, influence)
 
 
 # ---- what the client gets ------------------------------------------------------------------------

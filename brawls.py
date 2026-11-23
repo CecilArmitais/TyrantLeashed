@@ -38,6 +38,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
+import event_runs
 import jsonfile
 
 # Recorded (brawl 345).
@@ -62,12 +63,7 @@ class BrawlError(Exception):
     """Why something can't be done, in words the player can read."""
 
 
-@dataclass(frozen=True)
-class Tier:
-    id: int
-    rank: int
-    min_points: int | None
-    rewards: tuple[tuple[str, int, int], ...]     # (card / mini_pack / pack / item, id, amount)
+Tier = event_runs.Tier            # a reward tier (a tier without min_points sets none)
 
 
 @dataclass(frozen=True)
@@ -98,23 +94,14 @@ def load(asset_dir: Path, file_name: str | None = None) -> dict[int, BrawlEvent]
     out = {}
     for b in ET.parse(path).getroot().findall("battle_event"):
         start = int(b.findtext("start_time") or 0)
-        tiers = []
-        rewards = b.find("rewards")
-        for t in (rewards if rewards is not None else []):
-            got = tuple((kind, int(e.get("id")), int(e.get("amount") or 1))
-                        for kind in ("card", "mini_pack", "pack", "item") for e in t.findall(kind))
-            mp = t.findtext("min_points")
-            tiers.append(Tier(int(t.findtext("id")), int(t.findtext("rank") or 1), int(mp) if mp else None, got))
-        effects = []
-        config = b.find("battleground_config")
-        for e in (config if config is not None else []):
-            effects.append((max(0, (int(e.get("start_time") or start) - start) // 86400), int(e.get("id"))))
+        tiers = event_runs.tiers_of(b.find("rewards"))
         flag = lambda tag: (b.findtext(tag) or "0").strip() not in ("", "0")    # noqa: E731
         out[int(b.findtext("id"))] = BrawlEvent(
             int(b.findtext("id")), (b.findtext("name") or "").strip(), start, int(b.findtext("end_time") or 0),
             (b.findtext("web_picture") or "").strip(), (b.findtext("web_link") or "").strip(),
             flag("guild_event"), flag("war"), flag("use_forts"),
-            tuple(sorted(tiers, key=lambda t: (t.rank, t.id))), tuple(sorted(effects)))
+            tuple(sorted(tiers, key=lambda t: (t.rank, t.id))),
+            event_runs.effects_of(b.find("battleground_config"), start))
     return out
 
 
@@ -167,14 +154,7 @@ def placement_seeds(state: dict, events: dict) -> dict[str, int]:
 
 def phase(state: dict, now: int) -> str | None:
     """"brawl" (fights), "claim" (over; rewards), or None."""
-    run = state.get("run")
-    if not run:
-        return None
-    if run["start"] <= now <= run["end"]:
-        return "brawl"
-    if run["end"] < now <= run["decay"]:
-        return "claim"
-    return None
+    return event_runs.phase(state, now, "brawl")
 
 
 def player_row(state: dict, uid, name: str = "") -> dict:
@@ -186,35 +166,13 @@ def player_row(state: dict, uid, name: str = "") -> dict:
     return row
 
 
-# ---- energy (the client's own formula, EventEnergyBar.Refresh) --------------------------------------
+# ---- energy (the client's own formula, EventEnergyBar.Refresh: event_runs.py) ------------------------
 
-def recharge_stop(run: dict) -> int:
-    return run["end"] - RECHARGE_STOPS
-
-
-def energy_now(run: dict, row: dict | None, now: int) -> int:
-    """energy + one per ENERGY_EVERY from the last update (not before the start, not past
-    the stop), at most ENERGY_MAX."""
-    if row is None:
-        return ENERGY_MAX
-    gained = max(0, (min(now, recharge_stop(run)) - max(row["energy_updated"], run["start"])) // ENERGY_EVERY)
-    return min(ENERGY_MAX, row["energy"] + gained)
-
-
-def spend_energy(run: dict, row: dict, now: int) -> None:
-    """Brings the energy up to now (keeping the part-way progress), then spends one fight's."""
-    since = max(row["energy_updated"], run["start"])
-    gained = max(0, (min(now, recharge_stop(run)) - since) // ENERGY_EVERY)
-    if row["energy"] + gained >= ENERGY_MAX:
-        row["energy"], row["energy_updated"] = ENERGY_MAX, now
-    else:
-        row["energy"] += gained
-        row["energy_updated"] = since + gained * ENERGY_EVERY
-    row["energy"] -= ENERGY_COST
-
-
-def recharging(run: dict, row: dict | None, now: int) -> bool:
-    return energy_now(run, row, now) < ENERGY_MAX and run["start"] <= now < recharge_stop(run)
+ENERGY = event_runs.Energy(ENERGY_MAX, ENERGY_EVERY, RECHARGE_STOPS, ENERGY_COST)
+recharge_stop = ENERGY.recharge_stop
+energy_now = ENERGY.current
+spend_energy = ENERGY.spend
+recharging = ENERGY.recharging
 
 
 # ---- fights ------------------------------------------------------------------------------------
@@ -252,9 +210,7 @@ def pick_opponent(candidates: list[tuple[str, int]], my_points: int, rng: random
 
 def effect_on(event: BrawlEvent, run: dict, now: int) -> int | None:
     """The brawl's battleground effect today (the last one whose day has come)."""
-    day = max(0, (now - run["start"]) // 86400)
-    today = [e for d, e in event.effects if d <= day]
-    return today[-1] if today else None
+    return event_runs.effect_on(event.effects, run, now)
 
 
 # ---- standings and rewards -------------------------------------------------------------------------
@@ -273,32 +229,17 @@ def rank_of(state: dict, key, guild_event: bool) -> int:
 
 
 def claimable(state: dict, now: int) -> bool:
-    run = state.get("run")
-    return bool(run) and run["end"] + CLAIM_WAIT <= now <= run["decay"]
+    return event_runs.claimable(state, now, CLAIM_WAIT)
 
 
 def earned_tiers(event: BrawlEvent, rank: int, points: int) -> list[Tier]:
     """The tiers a rank (and, where a tier sets one, the points) reach."""
-    if rank < 1:
-        return []
-    return [t for t in event.tiers if rank <= t.rank and (t.min_points is None or points >= t.min_points)]
+    return event_runs.earned_tiers(event.tiers, rank, points)
 
 
 # ---- what the client gets ------------------------------------------------------------------------
 
-def tier_json(tier: Tier, mini_packs: dict) -> dict:
-    """A reward tier as the recorded active_brawl_data had it."""
-    out = {"id": str(tier.id), "rank": str(tier.rank)}
-    for kind, rid, amount in tier.rewards:
-        entry = {"id": str(rid), "amount": str(amount)}
-        if kind == "mini_pack":
-            mp = mini_packs.get(str(rid)) or {}
-            entry.update({"name": mp.get("name", ""), "desc": mp.get("desc", ""),
-                          "web_picture": mp.get("web_picture") or mp.get("picture", "")})
-        out[kind] = entry
-    if tier.min_points is not None:
-        out["min_points"] = str(tier.min_points)
-    return out
+tier_json = event_runs.tier_json   # a reward tier as the recorded active_brawl_data had it
 
 
 def event_json(event: BrawlEvent, run: dict, mini_packs: dict) -> dict:

@@ -54,8 +54,9 @@ def test_wrong_credentials(tmp_path):
     assert r["result"] is False and r["result_message"] == [ga.NOT_LOGGED_IN] and how == "refused init: not logged in"
     r, how = call(api, {}, "setUserFlag", flag="music", value="0")             # no login at all
     assert r["result"] is False
-    r, creds = login(api, {"user_id": a["user_id"], "password": "nope"})     # logging in with them: a new player
-    assert r["new_user"] == 1000002 and creds != a
+    r, how = api.respond("getUserAccount", {"message": "getUserAccount", "user_id": a["user_id"], "password": "nope"})
+    assert r["result_message"] == [ga.NOT_SIGNED_IN] and how == "refused getUserAccount: not signed in"
+    assert api.accounts.ids() == [1000001]                                    # no account made without signing in
 
 
 @pytest.mark.needs_game
@@ -165,11 +166,21 @@ def test_players_playing_at_once_over_http(tmp_path):
     threading.Thread(target=s.serve_forever, daemon=True).start()
     host, port = s.server_address[:2]
 
-    def post(message, params):
+    def sign_in(name):
+        """The sign-in page's request: the session cookie it sets."""
+        conn = http.client.HTTPConnection(host, port, timeout=30)
+        conn.request("POST", "/account/sign-in", json.dumps({"name": name}), {"Content-Type": "application/json"})
+        r = conn.getresponse()
+        cookie = r.getheader("Set-Cookie").split(";")[0]
+        assert json.loads(r.read())["ok"]
+        conn.close()
+        return cookie
+
+    def post(message, params, cookie=""):
         conn = http.client.HTTPConnection(host, port, timeout=30)
         body = "&".join(f"{k}={v}" for k, v in params.items())
         conn.request("POST", f"/tu/mobile.tyrantonline.com/api.php?message={message}", body,
-                     {"Content-Type": "application/x-www-form-urlencoded"})
+                     {"Content-Type": "application/x-www-form-urlencoded", "Cookie": cookie})
         reply = json.loads(conn.getresponse().read())
         conn.close()
         return reply
@@ -178,7 +189,7 @@ def test_players_playing_at_once_over_http(tmp_path):
 
     def play(n):
         try:
-            r = post("getUserAccount", {"udid": f"device{n}"})
+            r = post("getUserAccount", {"udid": f"device{n}"}, sign_in(f"Player {n}"))
             creds = {"user_id": str(r["new_user"]), "password": r["new_password"]}
             players.append(creds["user_id"])
             for i in range(15):
@@ -225,3 +236,20 @@ def test_the_admin_tool_on_a_multi_player_server(tmp_path, monkeypatch, capsys):
     p1 = json.loads((tmp_path / "players" / "1000001.json").read_text("utf-8"))["player"]
     assert (p2["name"], p2["gold"]) == ("Night Hawk", 777) and p1["gold"] != 777
     assert "There's no player 5" in real_cli(monkeypatch, capsys, tmp_path, "--user", "5", "gold", "1")
+
+
+@pytest.mark.needs_game
+def test_the_host_looks_over_and_accepts_an_import(monkeypatch, capsys, tmp_path):
+    api, _ = server(tmp_path)
+    api.sign_in("Donor")
+    _, record = api.export_save(api.accounts.find("Donor"))
+    record["player"]["gold"] = 5555
+    api.sign_in("Newcomer", None, record)
+    out = real_cli(monkeypatch, capsys, tmp_path, "imports")
+    assert "1 import waiting" in out and "Newcomer" in out and "5555 gold" in out
+    assert "is now their save" in real_cli(monkeypatch, capsys, tmp_path, "--user", "newcomer", "accept-import")
+    assert "No imports waiting." in real_cli(monkeypatch, capsys, tmp_path, "imports")
+    shown = real_cli(monkeypatch, capsys, tmp_path, "--user", "Newcomer")
+    assert "gold       5555" in shown and "progress the player brought" in shown
+    out = real_cli(monkeypatch, capsys, tmp_path, "--user", "Newcomer", "export", str(tmp_path / "out.json"))
+    assert "Wrote" in out and json.loads((tmp_path / "out.json").read_text("utf-8"))["player"]["gold"] == 5555

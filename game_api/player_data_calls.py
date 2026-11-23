@@ -9,6 +9,7 @@ from collections import defaultdict
 import daily_crate
 import items
 import upgrades
+from accounts import name_problem
 from rewards import DECK_SIZE
 
 from .base import DEFAULT_REFILL_COST, INVALID_FLAG, NAME_LENGTH, NotSupported, flag_value
@@ -47,6 +48,13 @@ class PlayerDataCalls:
         name = " ".join(str(params.get("name") or "").split())
         if not name or len(name) > NAME_LENGTH:
             return self._refuse(params, f"A name needs 1 to {NAME_LENGTH} characters."), f"refused {SET_NAME}: {name!r}"
+        if not self.single_player:                       # the name is also the one the player signs in with
+            problem = name_problem(name)
+            if problem is None and self.accounts.find(name) not in (None, self.uid):
+                problem = f"The name {name} is taken."
+            if problem:
+                return self._refuse(params, problem), f"refused {SET_NAME}: {name!r}"
+            self.accounts.set_name(self.uid, name)
         before, player.name = player.name, name
         player.name_changes += 1
         self.player_store.save(player)

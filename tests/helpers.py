@@ -96,9 +96,15 @@ def server(tmp_path, content="", engine=False):
     return api, clock
 
 
-def login(api, creds=None):
-    """getUserAccount; returns (reply, the credentials the client now has)."""
-    r, how = api.respond("getUserAccount", {"message": "getUserAccount", "udid": "x", **(creds or {})})
+def login(api, creds=None, name=None):
+    """getUserAccount; returns (reply, the credentials the client now has). A browser
+    without credentials signs in on the server's page first, as `name` (default: the
+    next player's Player<user id>, as players were named before usernames)."""
+    session = None
+    if not creds:
+        _, session, _ = api.sign_in(name or f"Player{api.accounts.next_user_id()}")
+    r, how = api.respond("getUserAccount", {"message": "getUserAccount", "udid": "x", **(creds or {})},
+                         session=session)
     if r.get("new_user"):
         creds = {"user_id": str(r["new_user"]), "password": r["new_password"]}
     return r, creds

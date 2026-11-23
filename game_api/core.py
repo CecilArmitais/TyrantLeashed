@@ -26,6 +26,7 @@ from player_state import PlayerStore
 from rewards import RewardRules
 from settings import Settings, SettingsStore, apply_to_login
 
+from .account_calls import AccountCalls
 from .achievement_calls import AchievementCalls
 from .arena_calls import ArenaCalls
 from .base import (DEFAULT_ENVELOPE, NOT_LOGGED_IN, NotSupported, OFFLINE_USER_ID, Session, mission_costs,
@@ -51,7 +52,7 @@ from .upgrade_calls import UpgradeCalls
 from .war_calls import WarCalls
 
 
-class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, GuildCalls, WarCalls,
+class GameApi(SessionCalls, AccountCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, GuildCalls, WarCalls,
               ConquestCalls, BrawlCalls, RaidCalls, EventCalls, PlayerDataCalls, AchievementCalls,
               UpgradeCalls, ItemCalls):
     """Answers the client's messages. Each base is one feature's calls (its own file in
@@ -125,6 +126,7 @@ class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, Gu
                                      or (body.get("user_data") or {}).get("stamina_recharge_time") or 900)
         if not single_player:
             self._take_in_single_player_save()
+            self._name_accounts()
         self.use_player(OFFLINE_USER_ID)                  # until a request says who it is
         self.replays: dict[tuple, list[dict]] = {}       # request key -> recorded bodies, in order
         self.scripts: dict[tuple, list[dict]] = {}       # battle-start request key -> recorded battles
@@ -157,8 +159,13 @@ class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, Gu
                    + self._conquest_report() + "\n" + self.objectives_report())
         if not self.single_player:
             ids = self.player_ids()
+            c = self.content()
+            waiting = len(list((self._state / "imports").glob("*.json"))) if (self._state / "imports").is_dir() else 0
             line = (f"Players: {len(ids) or 'none yet'}" + ("" if not ids else f" ({ids[0]}-{ids[-1]})")
-                    + "; each browser has its own account (state/accounts.json) and save (state/players/)")
+                    + "; they sign in by name on the server's page"
+                    + (", with a password" if c.account_passwords else "")
+                    + f" (state/accounts.json, saves in state/players/); imports {c.account_imports}"
+                    + (f", {waiting} waiting (python server/player.py imports)" if waiting else ""))
             if self.migrated:
                 line += ("\n  The single-player save (state/player.json) is now player 1000001's; that browser "
                          "gets new login credentials at its next login")
@@ -178,11 +185,12 @@ class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, Gu
 
     # ---- answering -------------------------------------------------------------------------------
 
-    def respond(self, message: str, params: dict) -> tuple[dict, str]:
-        """(reply, how it was answered). Unsupported requests get the error reply."""
+    def respond(self, message: str, params: dict, session: str | None = None) -> tuple[dict, str]:
+        """(reply, how it was answered). Unsupported requests get the error reply.
+        session: the browser's sign-in session (its cookie), which getUserAccount uses."""
         with self._lock:
             try:
-                return self._dispatch(message, params)
+                return self._dispatch(message, params, session)
             except NotSupported as e:
                 return self.unsupported(message, params, e.reason), f"UNSUPPORTED: {e.reason}"
 
@@ -201,13 +209,13 @@ class GameApi(SessionCalls, ReplayCalls, BattleCalls, ArenaCalls, StoreCalls, Gu
         self._ach_changed = False
         self._ach_ready: list[str] = []
 
-    def _dispatch(self, message: str, params: dict) -> tuple[dict, str]:
+    def _dispatch(self, message: str, params: dict, session: str | None = None) -> tuple[dict, str]:
         """Answers a message; replies after something that moved the achievements also
         carry the list (user_achievements) and any just finished (completed_achievements),
         as recorded."""
         if not self.single_player:
             if message == "getUserAccount" and "getUserAccount" in self.fixtures:
-                return self._login(params)
+                return self._login(params, session)
             uid = self._authenticate(params)
             if uid is None:
                 return self._refuse(params, NOT_LOGGED_IN), f"refused {message}: not logged in"

@@ -234,3 +234,49 @@ def test_shim_rewrites_only_game_addresses(tmp_path):
     for url, (got, expected) in out.items():
         assert got == expected, url
     assert rewritten == 7
+
+
+# ---- signing in (a multi-player server) -----------------------------------------------------------
+
+@pytest.fixture
+def players_server(tmp_path, server):
+    """The same files, served by a multi-player API: the page asks players to sign in."""
+    s = srv.OfflineServer(("127.0.0.1", 0), client_dir=server.client_dir, archive_dir=server.archive_dir,
+                          log=lambda line: None,
+                          api=srv.GameApi(fixture_dir=tmp_path / "fixtures", state_dir=tmp_path / "state",
+                                          single_player=False))
+    threading.Thread(target=s.serve_forever, daemon=True).start()
+    yield s
+    s.shutdown()
+    s.server_close()
+
+
+def test_the_page_asks_for_a_name_until_the_browser_signs_in(players_server):
+    status, headers, body = get(players_server, "/")
+    assert status == 200 and b'id="name"' in body and b"shim.js" not in body           # the sign-in page
+    assert json.loads(get(players_server, "/account")[2]) == {"single_player": False, "passwords": False,
+                                                              "imports": "review", "name": None}
+    status, headers, body = get(players_server, "/account/sign-in", "POST", json.dumps({"name": "Alpha"}),
+                                {"Content-Type": "application/json"})
+    reply, cookie = json.loads(body), headers["Set-Cookie"]
+    assert reply["ok"] and reply["name"] == "Alpha" and "HttpOnly" in cookie and "SameSite=Lax" in cookie
+    session = {"Cookie": cookie.split(";")[0]}
+    assert b"shim.js" in get(players_server, "/", headers=session)[2]                    # now the game
+    assert json.loads(get(players_server, "/account", headers=session)[2])["name"] == "Alpha"
+    status, _, body = get(players_server, "/tu/mobile.tyrantonline.com/api.php?message=getUserAccount", "POST",
+                          b"udid=x", {**session, "Content-Type": "application/x-www-form-urlencoded"})
+    login = json.loads(body)
+    assert login["new_user"] == 1000001 and login["new_name"] == "Alpha"
+    assert b'id="name"' in get(players_server, "/signin", headers=session)[2]           # switching players
+    status, headers, _ = get(players_server, "/account/sign-out", "POST", b"", session)
+    assert "Max-Age=0" in headers["Set-Cookie"]
+    assert b"shim.js" not in get(players_server, "/", headers=session)[2]                # signed out
+
+
+def test_a_refused_sign_in_sets_no_cookie(players_server):
+    status, headers, body = get(players_server, "/account/sign-in", "POST", json.dumps({"name": "<script>"}),
+                                {"Content-Type": "application/json"})
+    assert not json.loads(body)["ok"] and "Set-Cookie" not in headers
+    status, headers, body = get(players_server, "/account/sign-in", "POST", b"not json",
+                                {"Content-Type": "application/json"})
+    assert json.loads(body) == {"ok": False, "message": "A name needs 1 to 20 characters."}

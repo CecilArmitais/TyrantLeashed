@@ -62,6 +62,7 @@ SAVE_VERSION = 13         # 2: max_energy; 3: flags and missions; 4: decks, gold
                           # active deck; 10: raids; 11: the raid moved to the guild (guilds.py);
                           # 12: items; 13: promo purchases and the SP cap (older saves are
                           # upgraded on load)
+READABLE_VERSIONS = tuple(range(1, SAVE_VERSION + 1))
 FIRST_CRATE_AFTER = 1799  # recorded: a new account's crate opened 1799 s after its login
 DEFAULT_MAX_ENERGY = 250
 DEFAULT_MAX_STAMINA = 15
@@ -324,6 +325,81 @@ def _like(old, value: int):
     return str(value) if isinstance(old, str) else value
 
 
+def player_from_start(start: dict, now: int, default_max_energy: int = DEFAULT_MAX_ENERGY,
+                      source: dict | None = None) -> Player:
+    """A player from a login reply (an `init`: the recorded one a new save starts from, or a
+    player's own, login_import.py): its gold, war bonds, energy, max energy and cards, and
+    what fill_from_start reads. Energy counts from now."""
+    ud = start.get("user_data") or {}
+    cards = {str(k): {"num_owned": int(v.get("num_owned", 1)), "num_used": int(v.get("num_used", 0))}
+             for k, v in (start.get("user_cards") or {}).items()}
+    player = Player(gold=int(ud.get("money", 0)), war_bonds=int(ud.get("tokens", 0)),
+                    energy=int(ud.get("energy", 0)), energy_updated=int(now),
+                    max_energy=int(start.get("max_energy") or default_max_energy),
+                    cards=cards, created_from=source or {},
+                    daily_bonus={"next": int(now) + first_crate_after(start), "streak": 0, "last": 0})
+    fill_from_start(player, start, int(now))
+    return player
+
+
+def save_version(data: dict) -> int:
+    """A save file's version; ValueError if it isn't one this server reads."""
+    version = data.get("version") if isinstance(data, dict) else None
+    if version not in READABLE_VERSIONS:
+        raise ValueError(f"save version {version}, expected {SAVE_VERSION} or older")
+    return version
+
+
+def player_from_save(data: dict, default_max_energy: int = DEFAULT_MAX_ENERGY) -> Player:
+    """The player in a save file's data ({"version", "player"}), as this server keeps it.
+    KeyError, TypeError or ValueError if it isn't a save."""
+    save_version(data)
+    p = data["player"]
+    return Player(
+        gold=int(p["gold"]), war_bonds=int(p["war_bonds"]), energy=int(p["energy"]),
+        energy_updated=int(p["energy_updated"]),
+        max_energy=int(p.get("max_energy", default_max_energy)),
+        cards={str(k): {"num_owned": int(v["num_owned"]), "num_used": int(v.get("num_used", 0)),
+                        **({"is_locked": 1} if v.get("is_locked") else {})}
+               for k, v in p["cards"].items()},
+        created_from=p.get("created_from", {}),
+        flags=p.get("flags"),
+        missions=None if p.get("missions") is None else {
+            str(k): {f: int(v.get(f, 0)) for f in MISSION_FIELDS} for k, v in p["missions"].items()},
+        mission_wins=int(p.get("mission_wins", 0)),
+        decks=None if p.get("decks") is None else {
+            str(k): {"name": v.get("name"), "commander_id": int(v["commander_id"]),
+                     "cards": {str(c): int(n) for c, n in v["cards"].items()},
+                     "dominion_id": int(v.get("dominion_id", 0))} for k, v in p["decks"].items()},
+        gold_earned=None if p.get("gold_earned") is None else int(p["gold_earned"]),
+        cards_earned=None if p.get("cards_earned") is None else int(p["cards_earned"]),
+        arena=None if p.get("arena") is None else {**copy.deepcopy(ARENA_DEFAULTS), **{
+            k: (list(v) if isinstance(v, list) else int(v)) for k, v in p["arena"].items()}},
+        boxes={str(k): {"received": {str(c): int(n) for c, n in (v.get("received") or {}).items()},
+                        "completes": int(v.get("completes", 0)),
+                        "deals": [int(d) for d in v.get("deals") or []],
+                        **({"tier": int(v["tier"])} if "tier" in v else {})}
+               for k, v in (p.get("boxes") or {}).items()},
+        salvage=None if p.get("salvage") is None else int(p["salvage"]),
+        achievements=copy.deepcopy(p.get("achievements")),
+        daily_bonus=copy.deepcopy(p.get("daily_bonus")),
+        upgrades={k: int(v) for k, v in (p.get("upgrades") or {}).items()},
+        max_cards=None if p.get("max_cards") is None else int(p["max_cards"]),
+        max_decks=None if p.get("max_decks") is None else int(p["max_decks"]),
+        name=p.get("name"), name_changes=int(p.get("name_changes") or 0),
+        active_deck=None if p.get("active_deck") is None else str(p["active_deck"]),
+        defense_deck=None if p.get("defense_deck") is None else str(p["defense_deck"]),
+        items={str(k): int(v) for k, v in (p.get("items") or {}).items() if int(v) > 0},
+        promo_buys={str(k): int(v) for k, v in (p.get("promo_buys") or {}).items()},
+        max_salvage=None if p.get("max_salvage") is None else int(p["max_salvage"]),
+    )
+
+
+def save_json(player: Player, now: int) -> dict:
+    """A save file's data for this player (what PlayerStore writes)."""
+    return {"version": SAVE_VERSION, "saved": int(now), "player": asdict(player)}
+
+
 class PlayerStore:
     """Reads and writes the save file. Re-reads it whenever it changes on disk, so
     edits made with server/player.py while the server runs are picked up."""
@@ -347,56 +423,18 @@ class PlayerStore:
         mtime = self.path.stat().st_mtime
         if self._player is None or mtime != self._mtime:
             data = jsonfile.read(self.path)
-            version = data.get("version")
-            if version not in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, SAVE_VERSION):
-                raise ValueError(f"{self.path}: save version {version}, expected {SAVE_VERSION}")
-            p = data["player"]
-            self._player = Player(
-                gold=int(p["gold"]), war_bonds=int(p["war_bonds"]), energy=int(p["energy"]),
-                energy_updated=int(p["energy_updated"]),
-                max_energy=int(p.get("max_energy", self.default_max_energy)),
-                cards={str(k): {"num_owned": int(v["num_owned"]), "num_used": int(v.get("num_used", 0)),
-                                **({"is_locked": 1} if v.get("is_locked") else {})}
-                       for k, v in p["cards"].items()},
-                created_from=p.get("created_from", {}),
-                flags=p.get("flags"),
-                missions=None if p.get("missions") is None else {
-                    str(k): {f: int(v.get(f, 0)) for f in MISSION_FIELDS} for k, v in p["missions"].items()},
-                mission_wins=int(p.get("mission_wins", 0)),
-                decks=None if p.get("decks") is None else {
-                    str(k): {"name": v.get("name"), "commander_id": int(v["commander_id"]),
-                             "cards": {str(c): int(n) for c, n in v["cards"].items()},
-                             "dominion_id": int(v.get("dominion_id", 0))} for k, v in p["decks"].items()},
-                gold_earned=None if p.get("gold_earned") is None else int(p["gold_earned"]),
-                cards_earned=None if p.get("cards_earned") is None else int(p["cards_earned"]),
-                arena=None if p.get("arena") is None else {**copy.deepcopy(ARENA_DEFAULTS), **{
-                    k: (list(v) if isinstance(v, list) else int(v)) for k, v in p["arena"].items()}},
-                boxes={str(k): {"received": {str(c): int(n) for c, n in (v.get("received") or {}).items()},
-                                "completes": int(v.get("completes", 0)),
-                                "deals": [int(d) for d in v.get("deals") or []],
-                                **({"tier": int(v["tier"])} if "tier" in v else {})}
-                       for k, v in (p.get("boxes") or {}).items()},
-                salvage=None if p.get("salvage") is None else int(p["salvage"]),
-                achievements=copy.deepcopy(p.get("achievements")),
-                daily_bonus=copy.deepcopy(p.get("daily_bonus")),
-                upgrades={k: int(v) for k, v in (p.get("upgrades") or {}).items()},
-                max_cards=None if p.get("max_cards") is None else int(p["max_cards"]),
-                max_decks=None if p.get("max_decks") is None else int(p["max_decks"]),
-                name=p.get("name"), name_changes=int(p.get("name_changes") or 0),
-                active_deck=None if p.get("active_deck") is None else str(p["active_deck"]),
-                defense_deck=None if p.get("defense_deck") is None else str(p["defense_deck"]),
-                items={str(k): int(v) for k, v in (p.get("items") or {}).items() if int(v) > 0},
-                promo_buys={str(k): int(v) for k, v in (p.get("promo_buys") or {}).items()},
-                max_salvage=None if p.get("max_salvage") is None else int(p["max_salvage"]),
-            )
+            try:
+                version = save_version(data)
+            except ValueError as e:
+                raise ValueError(f"{self.path}: {e}") from None
+            self._player = player_from_save(data, self.default_max_energy)
             self._mtime = mtime
             if version != SAVE_VERSION:
                 self.save(self._player)       # upgrade the file in place
         return self._player
 
     def save(self, player: Player) -> None:
-        data = {"version": SAVE_VERSION, "saved": int(self.clock()), "player": asdict(player)}
-        jsonfile.write(self.path, data, sort_keys=True)
+        jsonfile.write(self.path, save_json(player, self.clock()), sort_keys=True)
         self._player, self._mtime = player, self.path.stat().st_mtime
 
     def delete(self) -> None:
@@ -406,17 +444,8 @@ class PlayerStore:
     # ---- the player ------------------------------------------------------------------------------
 
     def create_from(self, start: dict, source: dict | None = None) -> Player:
-        """A new save from a starting reply (the recorded `init`): its gold, war bonds,
-        energy, max energy and cards. Energy counts from now."""
-        ud = start.get("user_data") or {}
-        cards = {str(k): {"num_owned": int(v.get("num_owned", 1)), "num_used": int(v.get("num_used", 0))}
-                 for k, v in (start.get("user_cards") or {}).items()}
-        player = Player(gold=int(ud.get("money", 0)), war_bonds=int(ud.get("tokens", 0)),
-                        energy=int(ud.get("energy", 0)), energy_updated=int(self.clock()),
-                        max_energy=int(start.get("max_energy") or self.default_max_energy),
-                        cards=cards, created_from=source or {},
-                        daily_bonus={"next": int(self.clock()) + first_crate_after(start), "streak": 0, "last": 0})
-        fill_from_start(player, start, int(self.clock()))
+        """A new save from a starting reply (the recorded `init`): player_from_start."""
+        player = player_from_start(start, int(self.clock()), self.default_max_energy, source)
         self.save(player)
         return player
 

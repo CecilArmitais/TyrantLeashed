@@ -1,10 +1,14 @@
 """View or edit a player's save and the server's gold bonuses (state/settings.json).
 
 On a multi-player server (run.py's default: state/accounts.json and state/players/),
-choose the player with --user; with only one player it's that one. A single-player
-server's save is state/player.json.
+choose the player with --user (an id or a name); with only one player it's that one.
+A single-player server's save is state/player.json.
 
     python server/player.py players            # list the players: id, name, level, gold, guild
+    python server/player.py imports            # the progress players brought, waiting for an OK
+    python server/player.py --user Ann accept-import    # ...Ann's becomes her save (or reject-import)
+    python server/player.py --user Ann export save.json # a save to take to another server
+    python server/player.py --user Ann password-reset   # her next sign-in sets a new password
     python server/player.py --user 1000002 gold 500
     python server/player.py name Night Hawk    # rename the player (the game has no way to)
 
@@ -38,6 +42,7 @@ the server). Standard library only.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 import time
@@ -47,6 +52,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import achievements  # noqa: E402
 import items  # noqa: E402
+from accounts import name_problem  # noqa: E402
 from game_api import GameApi  # noqa: E402
 import paths  # noqa: E402
 from player_state import level_info  # noqa: E402
@@ -161,7 +167,9 @@ def show(api: GameApi) -> None:
         cmd = card_names({str(d["commander_id"])}).get(str(d["commander_id"]), d["commander_id"])
         print(f"  deck {did}     {cmd}, {n} cards: {cards}")
     print(f"  gold bonus {api.settings().describe()}")
-    if p.created_from:
+    if p.created_from.get("import"):
+        print("  started from progress the player brought (an import)")
+    elif p.created_from:
         print(f"  started from recorded session {p.created_from.get('session')} (account {p.created_from.get('account')})")
 
 
@@ -185,7 +193,7 @@ def set_bonus(api: GameApi, cmd: str, setting: str) -> None:
 def list_players(api: GameApi) -> None:
     ids = api.player_ids()
     if not ids:
-        print("No players yet: each browser that logs in gets an account.")
+        print("No players yet: each player signs in on the server's page.")
         return
     print(f"{len(ids)} player{'s' * (len(ids) != 1)}:")
     for uid in ids:
@@ -201,13 +209,38 @@ def list_players(api: GameApi) -> None:
               f"guild {guild['name'] if guild else '-':16}  last seen {when}")
 
 
+def list_imports(api: GameApi) -> None:
+    waiting = api.waiting_imports()
+    if not waiting:
+        print("No imports waiting.")
+        return
+    print(f"{len(waiting)} import{'s' * (len(waiting) != 1)} waiting (accept-import or reject-import, with --user):")
+    for w in waiting:
+        s = w["summary"]
+        when = time.strftime("%Y-%m-%d %H:%M", time.localtime(w["received"])) if w["received"] else "?"
+        what = "the game's login data" if w["kind"] == "login" else "a save"
+        print(f"  {w['user_id']}  {w['name'] or '?':20}  {what}, sent {when}")
+        print(f"      level {s['level']}, {s['gold']} gold, {s['war_bonds']} war bonds, {s['sp']} SP, "
+              f"{s['cards']} cards, {s['missions_won']} missions won")
+        if s["rarest"]:
+            print("      rarest: " + ", ".join(s["rarest"]))
+        for note in w["notes"]:
+            print(f"      {note}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--fixtures", default=str(paths.FIXTURE_DIR), help=argparse.SUPPRESS)
     ap.add_argument("--state", help=argparse.SUPPRESS)
-    ap.add_argument("--user", help="the player's user id (multi-player servers; `players` lists them)")
+    ap.add_argument("--user", help="the player's user id or name (multi-player servers; `players` lists them)")
     sub = ap.add_subparsers(dest="cmd")
     sub.add_parser("players", help="list the players")
+    sub.add_parser("imports", help="list the imports waiting for an OK")
+    sub.add_parser("accept-import", help="the player's waiting import becomes their save")
+    sub.add_parser("reject-import", help="turn the player's waiting import down")
+    ex = sub.add_parser("export", help="write the player's save to a file, to take to another server")
+    ex.add_argument("file", nargs="?", help="where (default: tyrant-<name>.json)")
+    sub.add_parser("password-reset", help="clear the player's sign-in password: the next sign-in sets one")
     nm = sub.add_parser("name", help="rename the player")
     nm.add_argument("new_name", nargs="+")
     for name, what in (("gold", "gold"), ("bonds", "war bonds"), ("sp", "salvage points (SP)"),
@@ -239,16 +272,19 @@ def main() -> None:
     api = GameApi(fixture_dir=fixtures, state_dir=state, clock=lambda: CLOCK(), single_player=not multi)
     if args.cmd == "players":
         return list_players(api)
+    if args.cmd == "imports":
+        return list_imports(api) if multi else print("A single-player server takes no imports.")
     if multi:
         ids = api.player_ids()
         if args.user:
-            if not str(args.user).isdigit() or int(args.user) not in ids:
+            uid = int(args.user) if str(args.user).isdigit() else api.accounts.find(args.user)
+            if uid is None or uid not in ids:
                 sys.exit(f"There's no player {args.user}. `python server/player.py players` lists them.")
-            api.use_player(int(args.user))
+            api.use_player(uid)
         elif len(ids) == 1:
             api.use_player(ids[0])
         elif not ids:
-            sys.exit("No players yet: each browser that logs in gets an account.")
+            sys.exit("No players yet: each player signs in on the server's page.")
         else:
             sys.exit(f"This server has {len(ids)} players: choose one with --user "
                      "(`python server/player.py players` lists them).")
@@ -269,11 +305,43 @@ def main() -> None:
         print(f"Deleted {store.path}. The next login starts a new save from the starting data.")
         return
 
+    if args.cmd in ("accept-import", "reject-import", "password-reset") and not multi:
+        sys.exit("A single-player server has no imports or sign-in passwords.")
+    if args.cmd == "accept-import":
+        try:
+            print(api.accept_import(api.uid), "The game shows it after their next login (reload).")
+        except ValueError as e:
+            sys.exit(str(e).capitalize() + ".")
+        return
+    if args.cmd == "reject-import":
+        try:
+            print(api.reject_import(api.uid))
+        except ValueError as e:
+            sys.exit(str(e).capitalize() + ".")
+        return
+    if args.cmd == "password-reset":
+        api.accounts.clear_login_password(api.uid)
+        print(f"{api.accounts.name_of(api.uid)}'s sign-in password is cleared; their next sign-in sets one.")
+        return
+    if args.cmd == "export":
+        name, data = api.export_save(api.uid)
+        out = Path(args.file or name)
+        out.write_text(json.dumps(data, indent=1, sort_keys=True), "utf-8")
+        print(f"Wrote {out}: bring it in on another server's sign-in page (a new name), or with its player.py.")
+        return
+
     p = api.player()
     if args.cmd == "name":
-        new = " ".join(args.new_name).strip()[:20]
+        new = " ".join(" ".join(args.new_name).split())
         if not new:
             sys.exit("Give a name.")
+        if multi:                                   # it's also the name the player signs in with
+            problem = name_problem(new)
+            if problem is None and api.accounts.find(new) not in (None, api.uid):
+                problem = f"The name {new} is taken."
+            if problem:
+                sys.exit(problem)
+            api.accounts.set_name(api.uid, new)
         old, p.name = p.name, new
         store.save(p)
         print(f"Renamed {old or 'the player'} to {new}. The game shows it after the next login (reload).")

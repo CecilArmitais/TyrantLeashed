@@ -53,28 +53,46 @@ unsupported.
 
 ## Players and accounts
 
-Each browser that opens the game gets its own account and save on its first login
-(`state/players/<user_id>.json`), and several players can play at once. They meet in
-guilds, raids, guild wars, brawls and conquest, and as each other's arena rivals (their
-defense decks, played by the AI).
+Before the game, the server shows its own sign-in page. A player types the name they
+want in the game: a new name makes a new player, and a name already on the server signs
+in as that player, from any browser. Several players can play at once, each with their
+own save (`state/players/<user_id>.json`). They meet in guilds, raids, guild wars,
+brawls and conquest, and as each other's arena rivals (their defense decks, played by
+the AI).
 
-- An account lives in the browser's site data. Another browser or profile, another
-  address for the same server (`localhost` and `127.0.0.1` are two), or clearing site
-  data means a new player; there's no way to move a save to another browser.
-- With `--host 0.0.0.0`, anyone who can reach the port can make an account, and the
-  game talks to the server over plain HTTP. Only open it on a network you trust.
+- **No password by default:** whoever types a name plays as that player, which suits a
+  server among friends. `passwords = true` under `[accounts]` in `content.toml` asks for
+  one, set the first time a name signs in and kept hashed. Tell players never to reuse a
+  password from another site, Kongregate's above all.
+- A browser stays signed in for a year. `/signin` (the server's address plus `/signin`)
+  switches players, signs out, or downloads the player's save.
+- With `--host 0.0.0.0`, anyone who can reach the port can sign in, and everything goes
+  over plain HTTP. Only open it on a network you trust.
 
-`python server/player.py players` lists the players. `python server/player.py --user <id>`
+**Bringing progress.** A new name can bring a save from another server like this one
+(`/signin` downloads one), or a player's login data from the official game. The page
+explains how to save the latter from the browser's developer tools; it reads the file
+in the browser and sends only the game data, never the passwords or Kongregate session
+in it. A host can also turn that data into a save with `python server/convert_login.py`.
+Nothing can check either, so `imports` under `[accounts]` decides: `"off"` takes none,
+`"review"` (the default) keeps each one waiting until the host accepts it, and `"on"`
+loads it at once.
+
+`python server/player.py players` lists the players. `python server/player.py --user <id or name>`
 shows a player's save and changes it: gold, war bonds, SP, energy and its cap, cards,
 items, music and sound, the tutorial, the name, or `reset --yes` to start it over.
-`python server/player.py --help` has every command.
+`player.py imports` lists the progress waiting for an OK, with `accept-import` and
+`reject-import`; `export` writes a player's save to a file; `password-reset` clears a
+sign-in password. `python server/player.py --help` has every command.
 
 ## Setting up the server
 
 `state/content.toml`, written with comments on every setting the first time the server
 starts, sets what's on offer: what the store sells, event boxes, the raid, brawls,
 conquest, the objective challenge, guild wars, guild donations, how often other players
-turn up as arena rivals, and the daily crate. The server re-reads it when it changes,
+turn up as arena rivals, the daily crate, and how players sign in (`[accounts]`; a file
+written before that section existed lacks it, and gets the defaults: names only, imports
+reviewed). The server re-reads it when it changes,
 and the game shows the change after a reload.
 
 - A setting with an unusable value is left at its default and reported when the server
@@ -93,13 +111,14 @@ with `player.py mission-gold` and `player.py arena-gold`, kept in `state/setting
 
 | File | What it holds |
 |---|---|
-| `accounts.json` | every account (the password as a hash); made at the first login |
+| `accounts.json` | every account: its name, the browsers' passwords and sessions (as hashes), a sign-in password if it has one; made at the first sign-in |
 | `players/<user_id>.json` | each player's save |
 | `content.toml` | what's on offer (above); written at the first start |
 | `settings.json` | the gold bonuses, once `player.py` changes them |
 | `guilds/<id>.json`, `guilds/counters.json` | each guild, and the next guild and news ids |
 | `wars.json`, `brawls.json`, `conquest.json` | the server's guild war, brawl and conquest runs |
 | `challenge.json` | the objective challenge's current run |
+| `imports/<user_id>.json` | progress a player brought, waiting for the host's OK |
 
 Copy the folder to back the server up. Deleting a file starts that part over at the next
 start or request (an event's run, the challenge), but deleting `accounts.json` or a

@@ -7,9 +7,10 @@ import os
 from pathlib import Path
 
 import guilds
+from accounts import clean_name
 from player_state import Player, PlayerStore
 
-from .base import OFFLINE_NAME, OFFLINE_PASSWORD, OFFLINE_SYNCODE, OFFLINE_USER_ID, Session
+from .base import NOT_SIGNED_IN, OFFLINE_NAME, OFFLINE_PASSWORD, OFFLINE_SYNCODE, OFFLINE_USER_ID, Session
 from .messages import LOGIN
 
 
@@ -75,19 +76,22 @@ class SessionCalls:
             self.accounts.seen(uid, now)
         return int(uid)
 
-    def _login(self, params: dict) -> tuple[dict, str]:
-        """getUserAccount, multi-player: a returning browser's account, or a new one for a
-        browser with none (or with credentials this server doesn't know). A reply with
-        new_user makes the client keep the credentials it carries."""
-        now = int(self.clock())
+    def _login(self, params: dict, session: str | None = None) -> tuple[dict, str]:
+        """getUserAccount, multi-player: the account this browser signed in as on the
+        server's page (its session cookie, account_calls.py), else the one its game
+        credentials are for. A browser signed in as another account than its credentials
+        say gets a game password of that account's: a reply with new_user makes the client
+        keep the credentials it carries. With neither, the login is refused: the player
+        signs in on the page first."""
+        signed_in = self.accounts.session_user(session) if session else None
         uid = self._authenticate(params)
         new = None
-        if uid is None:
-            uid, password, syncode = self.accounts.create(now)
-            new, how = (uid, password, syncode), f"new player {uid}"
-            had = str(params.get("user_id") or "")
-            if had:
-                how += f" (the browser's login for {had} isn't this server's)"
+        if signed_in is not None and signed_in != uid:
+            uid = signed_in
+            new = (uid, self.accounts.add_browser(uid), self.accounts.get(uid)["syncode"])
+            how = f"player {uid} ({self.accounts.name_of(uid)}) logged in on a newly signed-in browser"
+        elif uid is None:
+            return self._refuse(params, NOT_SIGNED_IN), "refused getUserAccount: not signed in"
         elif self.accounts.needs_rotation(uid):
             password, syncode = self.accounts.rotate_credentials(uid)
             new, how = (uid, password, syncode), f"player {uid} logged in; new credentials replace the public ones"
@@ -95,9 +99,9 @@ class SessionCalls:
             how = f"player {uid} logged in"
         self.use_player(uid)
         self._reset_session()
-        if new is not None and self.player_store is not None and self.player_store.load() is None:
-            player = self.player()                           # the new player's save, from the starting data
-            player.name = f"Player{uid}"
+        player = self.player()                               # made from the starting data if need be
+        if player is not None and not player.name and self.accounts.name_of(uid):
+            player.name = self.accounts.name_of(uid)
             self.player_store.save(player)
         body = self._prepare(self.fixtures["getUserAccount"]["body"], params)
         for k in ("new_user", "new_password", "new_name"):
@@ -107,6 +111,18 @@ class SessionCalls:
             body["new_user"], body["new_password"], body["new_syncode"] = new
             body["new_name"] = (self.player() or Player(0, 0, 0)).name if self.player_store else ""
         return body, how
+
+    def _name_accounts(self) -> None:
+        """Accounts from before usernames get one: their player's name, if no one else has
+        it, else Player<user id>. Players sign in with it."""
+        for uid in self.accounts.ids():
+            if self.accounts.name_of(uid):
+                continue
+            saved = PlayerStore(self._save_path(uid)).load() if self._save_path(uid).is_file() else None
+            name = clean_name(saved.name if saved else "")
+            if not name or self.accounts.find(name) is not None:
+                name = f"Player{uid}"
+            self.accounts.set_name(uid, name)
 
     def _login_value(self, key: str):
         """A top-level value from the recorded login (e.g. which data files the game loads)."""

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tyrant Unleashed: sign in</title>
+  <style>
+    :root { --bg: #14161b; --card: #1f232b; --line: #343a46; --text: #e6e8ec; --muted: #a3a9b5;
+            --accent: #d9a441; --error: #f07a6a; --ok: #7cc48a; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+           background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, "Segoe UI", sans-serif; padding: 16px; }
+    main { width: 100%; max-width: 420px; background: var(--card); border: 1px solid var(--line);
+           border-radius: 10px; padding: 28px; }
+    h1 { margin: 0 0 4px; font-size: 22px; }
+    .sub { margin: 0 0 20px; color: var(--muted); font-size: 14px; }
+    label { display: block; margin: 14px 0 6px; font-weight: 600; font-size: 14px; }
+    input[type=text], input[type=password] { width: 100%; padding: 10px 12px; border-radius: 6px;
+           border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: 16px; }
+    input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .note { margin: 6px 0 0; color: var(--muted); font-size: 13px; }
+    .warn { color: var(--accent); }
+    button { margin-top: 20px; width: 100%; padding: 11px; border: 0; border-radius: 6px; font-size: 16px;
+             font-weight: 600; background: var(--accent); color: #1b1404; cursor: pointer; }
+    button.plain { background: transparent; color: var(--muted); border: 1px solid var(--line); font-weight: 500; }
+    button:disabled { opacity: .6; cursor: wait; }
+    .message { min-height: 1.5em; margin: 14px 0 0; font-size: 14px; }
+    .message.error { color: var(--error); }
+    .message.ok { color: var(--ok); }
+    .current { padding: 12px 14px; border: 1px solid var(--line); border-radius: 6px; margin-bottom: 8px; }
+    .current button { margin-top: 10px; }
+    .row { display: flex; gap: 8px; }
+    .row button { margin-top: 10px; }
+    a { color: var(--accent); }
+    details { margin-top: 8px; }
+    summary { cursor: pointer; }
+    ol { padding-left: 20px; margin: 8px 0; }
+    input[type=file] { width: 100%; color: var(--muted); font-size: 14px; }
+    [hidden] { display: none !important; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Tyrant Unleashed</h1>
+    <p class="sub">A private server. Sign in to play.</p>
+
+    <div id="current" class="current" hidden>
+      Signed in as <strong id="current-name"></strong>.
+      <div class="row">
+        <button type="button" id="play">Play</button>
+        <button type="button" id="sign-out" class="plain">Sign out</button>
+      </div>
+      <p class="note"><a href="/account/save">Download your save</a>, to take to another server.</p>
+    </div>
+
+    <form id="form" autocomplete="off" novalidate>
+      <label for="name">Your name in the game</label>
+      <input type="text" id="name" name="name" maxlength="20" required autofocus>
+      <p class="note" id="name-note">A new name makes a new player; a name already here signs in as that player.</p>
+
+      <div id="password-part" hidden>
+        <label for="password">Password for this server</label>
+        <input type="password" id="password" name="password" autocomplete="new-password">
+        <p class="note warn">Choose one just for this server. Never your Kongregate password, or one you use anywhere else.</p>
+      </div>
+      <p class="note" id="no-password-note" hidden>This server asks for no password: whoever types a name plays as that player. Pick a name of your own.</p>
+
+      <div id="import-part" hidden>
+        <label for="record">Bring your progress (optional, a new name only)</label>
+        <input type="file" id="record" accept=".json,.har,application/json">
+        <p class="note">A save from another server like this one, or your login data from the official game.
+          <span id="import-review" hidden>The host looks it over first; until then you start fresh.</span></p>
+        <details class="note">
+          <summary>Getting your login data from the official game</summary>
+          <ol>
+            <li>Open the game in Chrome as you always do, then press F12 and pick the Network tab.</li>
+            <li>Reload the page and let the game load.</li>
+            <li>Right-click any row in the list and choose <em>Save all as HAR with content</em>.</li>
+            <li>Choose that file here.</li>
+          </ol>
+          <p>This page reads the file on your computer and sends only your game data: your
+            passwords and Kongregate session in it stay with you.</p>
+        </details>
+      </div>
+
+      <button type="submit" id="submit">Sign in</button>
+      <p class="message" id="message" role="status"></p>
+    </form>
+  </main>
+  <script src="/tu-offline/signin.js"></script>
+</body>
+</html>

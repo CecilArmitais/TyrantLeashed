@@ -20,6 +20,7 @@ from pathlib import Path
 from daily_crate import DEFAULT_EVERY_HOURS, DEFAULT_REWARDS, Reward
 
 PACK_IDS = {"basic": "1", "epic": "1000"}       # the store's pack tiles (store_packs)
+IMPORT_MODES = ("off", "review", "on")          # [accounts] imports: what happens to a player's import
 
 TEMPLATE = '''# What's on offer in this Tyrant Unleashed server: the store, event boxes, the raid,
 # brawls, conquest, guild wars, guild donations, other players as arena rivals and the
@@ -169,6 +170,19 @@ gold_per_point = 100
 player_chance = 0.5
 rank_reach = 1
 
+[accounts]
+# How players sign in, on the server's own page before the game. By default a player
+# gives only a name: anyone who types that name plays as that player, which suits a
+# server among friends. passwords = true asks for a password too, set the first time a
+# name signs in (state/accounts.json keeps it hashed); tell players never to reuse a
+# password from another site, such as Kongregate.
+passwords = false
+# A new player can bring their progress: a save from a server like this one, or the
+# official game's login data, converted to a save. The server can't check either, so:
+# "off" doesn't take them, "review" keeps each one waiting until the host accepts it
+# (python server/player.py imports), "on" loads it at once.
+imports = "review"
+
 [daily_bonus]
 # The crate on the home screen. It's ready again this many hours after it's opened (a
 # new save's first one 30 minutes after it starts, as recorded).
@@ -225,6 +239,8 @@ class Content:
     arena_rank_reach: int = 1
     crate_every_hours: int = DEFAULT_EVERY_HOURS
     crate_rewards: tuple[Reward, ...] = DEFAULT_REWARDS
+    account_passwords: bool = False
+    account_imports: str = "review"
     problems: list[str] = field(default_factory=list)      # what in the file couldn't be used
 
 
@@ -325,6 +341,17 @@ def parse(text: str) -> Content:
         c.arena_rank_reach = reach
     else:
         problems.append("arena.rank_reach: needs a whole number of ranks, 0 or more")
+    accounts = data.get("accounts") or {}
+    passwords = accounts.get("passwords", False)
+    if isinstance(passwords, bool):
+        c.account_passwords = passwords
+    else:
+        problems.append("accounts.passwords: needs true or false")
+    imports = accounts.get("imports", "review")
+    if imports in IMPORT_MODES:
+        c.account_imports = imports
+    else:
+        problems.append('accounts.imports: needs "off", "review" or "on"')
     crate = data.get("daily_bonus") or {}
     every = crate.get("every_hours", DEFAULT_EVERY_HOURS)
     if isinstance(every, int) and every > 0:

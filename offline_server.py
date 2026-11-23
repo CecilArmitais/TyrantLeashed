@@ -13,7 +13,14 @@ The game page is the original client page with these changes:
     the shim misses is blocked by the browser and reported here, never sent out
 
 URL layout:
-  /                                      the edited game page
+  /                                      the edited game page, once the browser has signed
+                                         in (a single-player server: always); else the
+                                         sign-in page (web/signin.html)
+  /signin                                the sign-in page, to switch players or sign out
+  /account, /account/sign-in, /account/sign-out
+                                         what the sign-in page asks and sends (JSON); signing
+                                         in sets the session cookie, tu_session
+  /account/save                          the signed-in player's save, to download
   /Release/...                           client files (game/client/tyu-web-2.30.80)
   /tu-offline/...                        files from server/web (the shim etc.)
   /tu/<host>/<path>                      archived game files (game/assets/<host>/<path>)
@@ -25,6 +32,7 @@ from __future__ import annotations
 
 import json
 import re
+from http.cookies import SimpleCookie
 import shutil
 import sys
 import threading
@@ -43,6 +51,9 @@ from archive_layout import safe_rel_path  # noqa: E402  (the capture tools' arch
 ARCHIVE_HOSTS = {"mobile.tyrantonline.com", "cdn.synapsegames.com"}
 API_PATH = "/tu/mobile.tyrantonline.com/api.php"
 SHIM_TAG = '<script src="/tu-offline/shim.js"></script>'
+SESSION_COOKIE = "tu_session"
+SESSION_DAYS = 365                  # a signed-in browser stays signed in this long (ours)
+BODY_LIMIT = 8 * 1024 * 1024        # the most a sign-in request may send (an import included)
 
 # Only this server may be contacted. Unity needs inline scripts, eval (the game runs
 # JavaScript strings through it) and blob: URLs (UnityLoader starts the code from one).
@@ -162,6 +173,10 @@ class Handler(BaseHTTPRequestHandler):
         body = self._read_body()
         if path == API_PATH:
             self._api(body)
+        elif path == "/account/sign-in":
+            self._sign_in(body)
+        elif path == "/account/sign-out":
+            self._sign_out()
         elif path == "/__csp":
             self._csp_report(body)
         else:
@@ -169,6 +184,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def _route(self, head: bool):
         path = unquote(urlsplit(self.path).path)
+        if path == "/signin" or (path in ("/", "/index.html") and not self.server.api.signed_in(self._session())):
+            return self._file(self.server.web_dir / "signin.html", head, "web", cache="no-store")
+        if path == "/account":
+            info = self.server.api.sign_in_info(self._session())
+            return self._send(200, json.dumps(info).encode("utf-8"), CONTENT_TYPES[".json"], head,
+                              {"Cache-Control": "no-store"})
+        if path == "/account/save":
+            mine = self.server.api.my_save(self._session())
+            if mine is None:
+                return self._send(403, b"sign in first", "text/plain", head, {"Cache-Control": "no-store"})
+            name, data = mine
+            return self._send(200, json.dumps(data, indent=1, sort_keys=True).encode("utf-8"), CONTENT_TYPES[".json"],
+                              head, {"Cache-Control": "no-store",
+                                     "Content-Disposition": f'attachment; filename="{name}"'})
         if path in ("/", "/index.html"):
             original = (self.server.client_dir / "index.html").read_text("utf-8")
             body = build_index(original).encode("utf-8")
@@ -221,13 +250,46 @@ class Handler(BaseHTTPRequestHandler):
             params.update({k: v[-1] for k, v in parse_qs(body.decode("utf-8", "replace"), keep_blank_values=True).items()})
         message = params.get("message") or "unknown"
         with self.server._lock:  # the API keeps per-player state (battle in progress, replay position)
-            reply, how = self.server.api.respond(message, params)
+            reply, how = self.server.api.respond(message, params, session=self._session())
             if how.startswith("UNSUPPORTED"):
                 self.server.unsupported[message] += 1
             else:
                 self.server.answered[message] += 1
         self.server.note(f"API {message}: {how}")
         self._send(200, encode_reply(reply), CONTENT_TYPES[".json"], False, {"Cache-Control": "no-store"})
+
+    def _sign_in(self, body: bytes):
+        """The sign-in page's form, as JSON: {"name", "password", "record"} (record: an
+        import, account_calls.py). A sign-in that works sets the browser's session cookie."""
+        try:
+            form = json.loads(body.decode("utf-8") or "{}")
+            assert isinstance(form, dict)
+        except (ValueError, AssertionError):
+            form = {}
+        reply, token, how = self.server.api.sign_in(form.get("name"), form.get("password"), form.get("record"))
+        self.server.note(how)
+        extra = {"Cache-Control": "no-store"}
+        if token:
+            extra["Set-Cookie"] = (f"{SESSION_COOKIE}={token}; Path=/; Max-Age={SESSION_DAYS * 86400}; "
+                                   "HttpOnly; SameSite=Lax")
+        self._send(200, json.dumps(reply).encode("utf-8"), CONTENT_TYPES[".json"], False, extra)
+
+    def _sign_out(self):
+        self.server.api.sign_out(self._session())
+        self.server.note("signed out")
+        self._send(200, b'{"ok": true}', CONTENT_TYPES[".json"], False,
+                   {"Cache-Control": "no-store",
+                    "Set-Cookie": f"{SESSION_COOKIE}=; Path=/; Max-Age=0; HttpOnly; SameSite=Lax"})
+
+    def _session(self) -> str | None:
+        """The browser's sign-in session, from its cookie."""
+        cookie = SimpleCookie()
+        try:
+            cookie.load(self.headers.get("Cookie") or "")
+        except Exception:                          # a malformed header: no session
+            return None
+        morsel = cookie.get(SESSION_COOKIE)
+        return morsel.value if morsel else None
 
     def _csp_report(self, body: bytes):
         try:
@@ -251,6 +313,9 @@ class Handler(BaseHTTPRequestHandler):
 
     def _read_body(self) -> bytes:
         length = int(self.headers.get("Content-Length") or 0)
+        if length > BODY_LIMIT:
+            self.rfile.read(length)                # read it all so the connection stays usable
+            return b""
         return self.rfile.read(length) if length > 0 else b""
 
     def _send(self, status: int, body: bytes, ctype: str, head: bool, extra: dict | None = None):

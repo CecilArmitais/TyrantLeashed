@@ -9,8 +9,9 @@
     python server/run.py --single-player # every browser is the one offline player, as
                                          # before accounts (state/player.json)
 
-Several players can play at once, each in their own browser (or browser profile) with
-their own account and save: the first login from a browser makes its account.
+Several players can play at once: each signs in by name on the server's page (and a
+password, if content.toml's [accounts] asks for one), then plays their own account and
+save; a new name makes a new player.
 
 Stop with Ctrl+C; a summary lists anything that was missing, blocked or unsupported.
 Nothing here contacts Kongregate or Synapse: the server only reads local files.

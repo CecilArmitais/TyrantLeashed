@@ -5,9 +5,9 @@ account identifier replaced). The messages below are answered by the server's ow
 anything else is replayed from the recordings:
 
   getUserAccount, init   the recorded login. With several players (run.py's default),
-                         getUserAccount also makes a new browser's account, or gives a
-                         returning one new credentials in place of public ones
-                         (accounts.py, session_calls.py)
+                         getUserAccount logs in the account the browser signed in as on
+                         the server's page (account_calls.py), giving the browser its own
+                         credentials for it (accounts.py, session_calls.py)
   startMission/playCard  recorded battles, replayed as scripts: a mission starts the
                          next recorded battle of that mission, and each card played
                          must be the card the recording played at that point. Starting
@@ -119,6 +119,7 @@ from __future__ import annotations
 
 # GameApi, and the few names the tools and tests use; the rest stays in its own file
 # (game_api.messages, game_api.base...).
-from .base import NOT_LOGGED_IN, OFFLINE_NAME, OFFLINE_PASSWORD, OFFLINE_SYNCODE, OFFLINE_USER_ID  # noqa: F401
+from .base import (NOT_LOGGED_IN, NOT_SIGNED_IN, OFFLINE_NAME, OFFLINE_PASSWORD, OFFLINE_SYNCODE,  # noqa: F401
+                   OFFLINE_USER_ID)
 from .core import GameApi  # noqa: F401
 from .replay import NOT_REPLAYED, VOLATILE_PARAMS, encode, personalize, shift_times  # noqa: F401

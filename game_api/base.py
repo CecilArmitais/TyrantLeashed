@@ -8,8 +8,8 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
 
+from accounts import NAME_LENGTH  # noqa: F401  (a name's limit, ours: shared with the usernames)
 
-NAME_LENGTH = 20                    # ours: the real limit isn't known
 DEFAULT_STAMINA_REFILL_COST = 30    # wb_stamina_cost in the recorded init
 DEFAULT_REFRESH_COST = 50           # gold_rivals_cost in the recorded init
 
@@ -44,6 +44,7 @@ class Session:
 
 
 NOT_LOGGED_IN = "Your login wasn't recognized on this server. Reload the game to log in again."
+NOT_SIGNED_IN = "Sign in on the server's page first: reload the game."
 
 
 class NotSupported(Exception):

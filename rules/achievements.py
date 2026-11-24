@@ -57,7 +57,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import jsonfile
+from common import jsonfile
 
 PERMANENT_TYPES = {1, 2, 3, 4, 5, 8}
 DAILY = 9

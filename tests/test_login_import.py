@@ -9,11 +9,11 @@ from functools import lru_cache
 
 import pytest
 
-import achievements
-import convert_login
-import login_import as li
-import paths
+from common import paths
 from helpers import T, init_body
+from rules import achievements
+from rules import login_import as li
+from tools import convert_login
 
 
 @lru_cache(maxsize=None)

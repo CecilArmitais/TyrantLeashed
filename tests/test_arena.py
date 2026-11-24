@@ -6,12 +6,12 @@ import random
 
 import pytest
 
-import arena
 import game_api as ga
-import paths
 from battle.engine import Battle, BattleError, RandomChooser, Setup, shuffled_deck
+from common import paths
 from helpers import arena_api, real_cards, DB, T, ask, mission_api, recorded_calls
-from player_state import LEVELS, Player, PlayerStore, SAVE_VERSION, arena_from_start, level_for, level_info
+from rules import arena
+from rules.player_state import LEVELS, Player, PlayerStore, SAVE_VERSION, arena_from_start, level_for, level_info
 
 
 # ---- Skip and Surrender --------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 """Run the optimizer's own test decks on our engine: a crash test.
 
-    python server/battle_tuo_check.py            # 100 battles per test line
-    python server/battle_tuo_check.py -n 20      # quicker
+    python server/tools/battle_tuo_check.py            # 100 battles per test line
+    python server/tools/battle_tuo_check.py -n 20      # quicker
 
 Each line of reference/tuo/tests/*.csv pits two decks against each other. The
 optimizer's own suite only checks that these battles run (its win check is
@@ -17,10 +17,10 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # the server folder
 from battle.cards import CardDB  # noqa: E402
 from battle.tuo_tests import Names, parse_deck, test_lines, win_rate  # noqa: E402
-from paths import TUO_DIR  # noqa: E402
+from common.paths import TUO_DIR  # noqa: E402
 
 
 def main() -> None:

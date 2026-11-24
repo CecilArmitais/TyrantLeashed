@@ -9,9 +9,9 @@ import threading
 import pytest
 
 import game_api as ga
-import offline_server as srv
-import paths
+from common import paths
 from helpers import T, ask, call, login, run_cli, server
+from web import offline_server as srv
 
 
 # ---- accounts and logins -------------------------------------------------------------------------

@@ -34,7 +34,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, field
 
-from player_state import Player, deck_size
+from rules.player_state import Player, deck_size
 
 DECK_SIZE = 10          # cards in a deck, besides the commander
 PROLOGUE = 0            # the location whose reward cards go into the deck

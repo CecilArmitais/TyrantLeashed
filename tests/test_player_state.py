@@ -6,7 +6,7 @@ import os
 import pytest
 
 from helpers import SAVE_START, T, ask, run_player_cli, save_api
-from player_state import SAVE_VERSION, Player, PlayerStore, refill
+from rules.player_state import SAVE_VERSION, Player, PlayerStore, refill
 
 # ---- energy refill -------------------------------------------------------------------------------
 

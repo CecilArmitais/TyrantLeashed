@@ -6,11 +6,10 @@ from functools import lru_cache
 
 import pytest
 
-import brawls
-import event_runs
 import game_api as ga
-import paths
+from common import paths
 from helpers import call, login, server, init_body
+from rules import brawls, event_runs
 
 T0 = 1_800_000_000
 

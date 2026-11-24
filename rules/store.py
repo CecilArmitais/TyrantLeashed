@@ -43,8 +43,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import packs
-from content import PACK_IDS, Content, Promo
+from rules import packs
+from rules.content import PACK_IDS, Content, Promo
 
 # store_promos' item_type: what the game does with an entry (its code: StoreManager.BuyPromoItem)
 MINI_PACK_ITEM_TYPE = 3                         # a mini pack, or a single card sold like one (type 13)

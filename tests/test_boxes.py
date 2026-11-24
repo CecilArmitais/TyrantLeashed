@@ -7,10 +7,9 @@ from collections import Counter
 
 import pytest
 
-import boxes
-import content
-import paths
+from common import paths
 from helpers import T, ask, init_body, real_cards, shop
+from rules import boxes, content
 
 HOUR13 = 8099
 

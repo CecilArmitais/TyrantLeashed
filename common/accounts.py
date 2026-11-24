@@ -26,7 +26,7 @@ import re
 import secrets
 from pathlib import Path
 
-import jsonfile
+from common import jsonfile
 
 FIRST_USER_ID = 1000001
 NAME_LENGTH = 20                    # ours: the real limit isn't known

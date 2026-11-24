@@ -8,7 +8,7 @@ import threading
 
 import pytest
 
-import offline_server as srv
+from web import offline_server as srv
 
 REAL_INDEX = srv.CLIENT_DIR / "index.html"
 PAGE = """<!doctype html>

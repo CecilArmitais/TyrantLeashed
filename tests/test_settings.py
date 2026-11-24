@@ -7,9 +7,9 @@ import random
 import pytest
 
 import game_api as ga
-import paths
+from common import paths
 from helpers import T, ask, mission_api, play_mission, run_player_cli, init_body
-from settings import Bonus, Settings, SettingsStore, apply_to_login
+from rules.settings import Bonus, Settings, SettingsStore, apply_to_login
 
 
 def test_defaults_and_switching(tmp_path):

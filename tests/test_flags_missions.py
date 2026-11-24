@@ -7,10 +7,10 @@ import json
 import pytest
 
 import game_api as ga
-import paths
-import player as cli
+from common import paths
 from helpers import T, ask, run_cli
-from player_state import SAVE_VERSION
+from rules.player_state import SAVE_VERSION
+from tools import player as cli
 
 NOW = T + 100
 

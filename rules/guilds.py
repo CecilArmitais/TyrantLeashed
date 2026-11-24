@@ -18,7 +18,7 @@ import json
 import re
 from pathlib import Path
 
-import jsonfile
+from common import jsonfile
 
 FIRST_GUILD_ID = 900001
 MAX_MEMBERS = 50          # the client's default max_members (it doesn't enforce it)

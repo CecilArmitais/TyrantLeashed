@@ -39,7 +39,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
-import event_runs
+from rules import event_runs
 
 # The wiki.
 WIN_INFLUENCE, LOSS_INFLUENCE = 50, 5

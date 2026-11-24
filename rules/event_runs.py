@@ -27,7 +27,7 @@ import random
 from dataclasses import dataclass
 from pathlib import Path
 
-import jsonfile
+from common import jsonfile
 
 REWARD_KINDS = ("card", "mini_pack", "pack", "item")
 DAY = 86400

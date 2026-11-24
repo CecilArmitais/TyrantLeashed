@@ -1,8 +1,8 @@
 """Turn the official game's login data into a save for this server (login_import.py).
 
-    python server/convert_login.py init.json            # the init reply, as the browser showed it
-    python server/convert_login.py session.har          # or a HAR recording with it in
-    python server/convert_login.py init.json -o mine.json
+    python server/tools/convert_login.py init.json            # the init reply, as the browser showed it
+    python server/tools/convert_login.py session.har          # or a HAR recording with it in
+    python server/tools/convert_login.py init.json -o mine.json
 
 The save it writes can be brought in on the sign-in page (a new name), or by a host
 with player.py. The account's credentials in the data are dropped first. Standard
@@ -17,11 +17,11 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import achievements  # noqa: E402
-import paths  # noqa: E402
-from login_import import login_from_har, player_from_login  # noqa: E402
-from player_state import save_json  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # the server folder
+from common import paths  # noqa: E402
+from rules import achievements  # noqa: E402
+from rules.login_import import login_from_har, player_from_login  # noqa: E402
+from rules.player_state import save_json  # noqa: E402
 
 
 def main() -> None:

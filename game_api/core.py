@@ -11,21 +11,15 @@ import threading
 import time
 from pathlib import Path
 
-import achievements
-import brawls
-import conquest
-import guilds
-import paths
-import raids
-import store
-import wars
-from accounts import AccountStore
 from battle.cards import CardDB
-from debug import DebugOptions, DebugStore
-from content import Content, ContentStore
-from player_state import PlayerStore
-from rewards import RewardRules
-from settings import Settings, SettingsStore, apply_to_login
+from common import paths
+from common.accounts import AccountStore
+from common.debug import DebugOptions, DebugStore
+from rules import achievements, brawls, conquest, guilds, raids, store, wars
+from rules.content import Content, ContentStore
+from rules.player_state import PlayerStore
+from rules.rewards import RewardRules
+from rules.settings import Settings, SettingsStore, apply_to_login
 
 from .account_calls import AccountCalls
 from .achievement_calls import AchievementCalls
@@ -167,7 +161,7 @@ class GameApi(SessionCalls, AccountCalls, ReplayCalls, BattleCalls, ArenaCalls, 
                     + "; they sign in by name on the server's page"
                     + (", with a password" if c.account_passwords else "")
                     + f" (state/accounts.json, saves in state/players/); imports {c.account_imports}"
-                    + (f", {waiting} waiting (python server/player.py imports)" if waiting else ""))
+                    + (f", {waiting} waiting (python server/tools/player.py imports)" if waiting else ""))
             if self.migrated:
                 line += ("\n  The single-player save (state/player.json) is now player 1000001's; that browser "
                          "gets new login credentials at its next login")

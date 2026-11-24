@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 from .cards import COMMANDER, STRUCTURE, Card, CardDB
 from .engine import Battle, RandomChooser, Setup, shuffled_deck, FIRST_UID, ATTACKER, DEFENDER
-from paths import TUO_DIR   # the optimizer's source, beside the workspace
+from common.paths import TUO_DIR   # the optimizer's source, beside the workspace
 
 TEST_FILES = ("test_sinlge_units.csv", "test_multi_units.csv", "test_whole_decks.csv", "test_crash.csv")
 

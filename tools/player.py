@@ -4,35 +4,35 @@ On a multi-player server (run.py's default: state/accounts.json and state/player
 choose the player with --user (an id or a name); with only one player it's that one.
 A single-player server's save is state/player.json.
 
-    python server/player.py players            # list the players: id, name, level, gold, guild
-    python server/player.py imports            # the progress players brought, waiting for an OK
-    python server/player.py --user Ann accept-import    # ...Ann's becomes her save (or reject-import)
-    python server/player.py --user Ann export save.json # a save to take to another server
-    python server/player.py --user Ann password-reset   # her next sign-in sets a new password
-    python server/player.py --user 1000002 gold 500
-    python server/player.py name Night Hawk    # rename the player (the game has no way to)
+    python server/tools/player.py players            # list the players: id, name, level, gold, guild
+    python server/tools/player.py imports            # the progress players brought, waiting for an OK
+    python server/tools/player.py --user Ann accept-import    # ...Ann's becomes her save (or reject-import)
+    python server/tools/player.py --user Ann export save.json # a save to take to another server
+    python server/tools/player.py --user Ann password-reset   # her next sign-in sets a new password
+    python server/tools/player.py --user 1000002 gold 500
+    python server/tools/player.py name Night Hawk    # rename the player (the game has no way to)
 
-    python server/player.py                    # show gold, war bonds, energy, tutorial, missions,
-                                               # arena, cards, deck, and the gold bonuses
-    python server/player.py gold 500           # set gold
-    python server/player.py bonds 100          # set war bonds
-    python server/player.py sp 500             # set salvage points (SP, for upgrades)
-    python server/player.py energy 120         # set energy (it refills from now on)
-    python server/player.py max-energy 300     # set the cap that refilling stops at
-    python server/player.py card 1001 +2       # add 2 copies of card 1001
-    python server/player.py card 1001 -1       # remove one copy
-    python server/player.py card 1001 =3       # set the count (0 removes the card)
-    python server/player.py item 2000 +500     # add 500 Epic Shards (Home, Items); -N and =N too
-    python server/player.py music off          # music on/off (the game's own toggle saves it too)
-    python server/player.py sound off          # sound effects on/off
-    python server/player.py tutorial skip      # mark the tutorial finished (and mission 1 won,
-                                               # as finishing it does); the next login goes
-                                               # straight to the map
-    python server/player.py reset --yes        # delete the save; the next login starts it
-                                               # again from the starting data
-    python server/player.py mission-gold 7     # missions pay their listed gold x 7 (the default)
-    python server/player.py mission-gold off   # ... x 1; "on" brings the multiplier back
-    python server/player.py arena-gold 3       # AI rivals pay 25 x 3 (the default); also off/on
+    python server/tools/player.py                    # show gold, war bonds, energy, tutorial, missions,
+                                                     # arena, cards, deck, and the gold bonuses
+    python server/tools/player.py gold 500           # set gold
+    python server/tools/player.py bonds 100          # set war bonds
+    python server/tools/player.py sp 500             # set salvage points (SP, for upgrades)
+    python server/tools/player.py energy 120         # set energy (it refills from now on)
+    python server/tools/player.py max-energy 300     # set the cap that refilling stops at
+    python server/tools/player.py card 1001 +2       # add 2 copies of card 1001
+    python server/tools/player.py card 1001 -1       # remove one copy
+    python server/tools/player.py card 1001 =3       # set the count (0 removes the card)
+    python server/tools/player.py item 2000 +500     # add 500 Epic Shards (Home, Items); -N and =N too
+    python server/tools/player.py music off          # music on/off (the game's own toggle saves it too)
+    python server/tools/player.py sound off          # sound effects on/off
+    python server/tools/player.py tutorial skip      # mark the tutorial finished (and mission 1 won,
+                                                     # as finishing it does); the next login goes
+                                                     # straight to the map
+    python server/tools/player.py reset --yes        # delete the save; the next login starts it
+                                                     # again from the starting data
+    python server/tools/player.py mission-gold 7     # missions pay their listed gold x 7 (the default)
+    python server/tools/player.py mission-gold off   # ... x 1; "on" brings the multiplier back
+    python server/tools/player.py arena-gold 3       # AI rivals pay 25 x 3 (the default); also off/on
 
 Works while the server runs: it re-reads the save on change, and the game shows the
 new values after its next server call (a reload, or opening any screen that asks
@@ -49,13 +49,12 @@ import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import achievements  # noqa: E402
-import items  # noqa: E402
-from accounts import name_problem  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # the server folder
+from common import paths  # noqa: E402
+from common.accounts import name_problem  # noqa: E402
 from game_api import GameApi  # noqa: E402
-import paths  # noqa: E402
-from player_state import level_info  # noqa: E402
+from rules import achievements, items  # noqa: E402
+from rules.player_state import level_info  # noqa: E402
 
 CARD_XML_DIR = None   # the card files (None: paths.ASSET_DIR); tests point it elsewhere
 CLOCK = time.time  # replaced in tests
@@ -279,7 +278,7 @@ def main() -> None:
         if args.user:
             uid = int(args.user) if str(args.user).isdigit() else api.accounts.find(args.user)
             if uid is None or uid not in ids:
-                sys.exit(f"There's no player {args.user}. `python server/player.py players` lists them.")
+                sys.exit(f"There's no player {args.user}. `python server/tools/player.py players` lists them.")
             api.use_player(uid)
         elif len(ids) == 1:
             api.use_player(ids[0])
@@ -287,11 +286,11 @@ def main() -> None:
             sys.exit("No players yet: each player signs in on the server's page.")
         else:
             sys.exit(f"This server has {len(ids)} players: choose one with --user "
-                     "(`python server/player.py players` lists them).")
+                     "(`python server/tools/player.py players` lists them).")
     elif args.user and int(args.user) != api.uid:
         sys.exit("This is a single-player server: its one player is 1000001.")
     if api.player_store is None:
-        sys.exit("No starting data (game/fixtures/init.json). Build it with: python server/make_fixtures.py")
+        sys.exit("No starting data (game/fixtures/init.json). Build it with: python server/tools/make_fixtures.py")
     store = api.player_store
 
     if args.cmd in (None, "show"):

@@ -14,10 +14,10 @@ from __future__ import annotations
 
 import json
 
-import jsonfile
-from accounts import clean_name, name_problem
-from login_import import player_from_login
-from player_state import Player, player_from_save, save_json
+from common import jsonfile
+from common.accounts import clean_name, name_problem
+from rules.login_import import player_from_login
+from rules.player_state import Player, player_from_save, save_json
 
 LOGIN_PASSWORD_LENGTH = 6           # the least a sign-in password may have (ours)
 CARDS_SHOWN = 5                     # the rarest cards a waiting import's summary names
@@ -108,7 +108,7 @@ class AccountCalls:
                     jsonfile.write(self._import_path(uid), {"name": shown, "kind": kind, "received": now,
                                                             "notes": notes, "save": save_json(player, now)})
                     reply["import"] = "waiting"
-                    how += f"; their {kind} import waits for the host (python server/player.py imports)"
+                    how += f"; their {kind} import waits for the host (python server/tools/player.py imports)"
             return reply, token, how
 
     def sign_out(self, session: str | None) -> None:

@@ -31,7 +31,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
-import packs
+from rules import packs
 
 ENERGY_REFILL = 1          # the energy bar's +: used in place of war bonds when owned
 SALVAGE_POINTS = 1999      # never owned: shows SP given in new_items (ours: the file has it, unused)

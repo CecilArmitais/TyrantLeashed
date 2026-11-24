@@ -3,11 +3,10 @@ Part of GameApi (core.py), as ArenaCalls."""
 
 from __future__ import annotations
 
-import achievements
-import arena
 from battle.engine import ATTACKER, Battle, DEFENDER, FIRST_UID, RandomChooser, Setup, shuffled_deck
 from battle.protocol import BattleSession
-from player_state import Player
+from rules import achievements, arena
+from rules.player_state import Player
 
 from .base import ARENA_FIELDS, DEFAULT_REFRESH_COST, DEFAULT_STAMINA_REFILL_COST, NotSupported
 from .messages import TARGETS

@@ -71,8 +71,8 @@ import random
 from dataclasses import dataclass, field
 
 from battle.cards import ASSAULT, COMMANDER, STRUCTURE, Card, CardDB
-from player_state import Player, level_for
-from settings import DEFAULT_ARENA_GOLD
+from rules.player_state import Player, level_for
+from rules.settings import DEFAULT_ARENA_GOLD
 
 # (id, name, commander, rating), as recorded.
 RIVALS = (

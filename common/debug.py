@@ -1,6 +1,6 @@
 """Debug options for a host testing the server, all off unless turned on in debug.toml,
-beside this file. That file is the host's own: .gitignore keeps it out of the
-repository, and without it every option is off.
+in the server folder (beside run.py). That file is the host's own: .gitignore keeps it
+out of the repository, and without it every option is off.
 
     unlimited_gold = true          # each true or false; a missing one is false
     unlimited_war_bonds = true

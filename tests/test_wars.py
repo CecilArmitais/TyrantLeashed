@@ -7,11 +7,10 @@ from functools import lru_cache
 
 import pytest
 
-import event_runs
 import game_api as ga
-import paths
-import wars
+from common import paths
 from helpers import call, login, server
+from rules import event_runs, wars
 
 
 @lru_cache(maxsize=None)
@@ -128,7 +127,7 @@ def test_a_placement_brawl_seeds_the_matchmaking(seeds, pairs):
 
 @pytest.mark.needs_game
 def test_placement_seeds_come_from_the_placement_brawl():
-    import brawls
+    from rules import brawls
     events = brawls.load(paths.ASSET_DIR)
     assert events[345].war and events[345].use_forts and not events[344].war
     state = brawls.new_state()

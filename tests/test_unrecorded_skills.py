@@ -3,10 +3,10 @@ optimizer, reference/tuo), and the optimizer's own test decks as a crash test. R
 
 import pytest
 
-import paths
 from battle import tuo_tests as tt
 from battle.cards import CardDB
 from battle.engine import Battle, Setup
+from common import paths
 
 CARDS = """<root>
   <unit><id>1300</id><name>Captain</name><health>40</health></unit>

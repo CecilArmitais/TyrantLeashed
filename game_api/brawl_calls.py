@@ -3,12 +3,10 @@ Part of GameApi (core.py), as BrawlCalls."""
 
 from __future__ import annotations
 
-import achievements
-import brawls
-import guilds
 from battle import effects as bge
 from battle.engine import ATTACKER, Battle, DEFENDER, FIRST_UID, RandomChooser, Setup, shuffled_deck
 from battle.protocol import BattleSession
+from rules import achievements, brawls, guilds
 
 
 class BrawlCalls:

@@ -7,7 +7,7 @@ import random
 import pytest
 
 import game_api as ga
-import paths
+from common import paths
 from helpers import T, ask, init_body
 
 pytestmark = pytest.mark.needs_game        # every test here needs the game files

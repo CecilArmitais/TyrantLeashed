@@ -9,9 +9,9 @@ from pathlib import Path
 import pytest
 
 import game_api as ga
-import make_fixtures as mf
-import paths
+from common import paths
 from helpers import T
+from tools import make_fixtures as mf
 
 REAL_UID, REAL_PW, REAL_SYNC = "1400000042", "ab12cd34ef56ab12cd34ef56ab12cd34", "99ffee11223344556677889900aabbccddeeff00"
 REAL_NAME, UDID = "Commander8812", "5f3c-device-id-0001"

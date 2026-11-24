@@ -1,6 +1,6 @@
 """Server-wide settings: the gold bonuses. Kept in state/settings.json, next to
 the save. Without the file, the defaults apply. The server re-reads the file whenever
-it changes, so `python server/player.py mission-gold ...` works while it runs.
+it changes, so `python server/tools/player.py mission-gold ...` works while it runs.
 
   mission gold   each mission pays its listed <gold> times this. Default 7: every
                  recorded mission paid 7x, under the game's "Sunset Gold Bonus" event
@@ -24,7 +24,7 @@ import copy
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import jsonfile
+from common import jsonfile
 
 DEFAULT_MISSION_GOLD = 7
 DEFAULT_ARENA_GOLD = 3

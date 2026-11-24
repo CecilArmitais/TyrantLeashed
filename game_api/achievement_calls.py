@@ -3,8 +3,7 @@ Part of GameApi (core.py), as AchievementCalls."""
 
 from __future__ import annotations
 
-import achievements
-import items
+from rules import achievements, items
 
 from .messages import CLAIM
 

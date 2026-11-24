@@ -5,12 +5,10 @@ from __future__ import annotations
 
 import json
 
-import achievements
-import guilds
-import raids
 from battle import effects as bge
 from battle.engine import ATTACKER, Battle, DEFENDER, FIRST_UID, RandomChooser, Setup, shuffled_deck
 from battle.protocol import BattleSession
+from rules import achievements, guilds, raids
 
 
 class RaidCalls:

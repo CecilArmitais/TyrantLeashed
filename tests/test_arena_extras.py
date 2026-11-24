@@ -8,12 +8,12 @@ import random
 
 import pytest
 
-import arena
 import game_api as ga
-import paths
 from battle.recorded import capture_calls
+from common import paths
 from helpers import T, arena_api, arena_fight, ask, real_cards
-from player_state import Player, arena_from_start
+from rules import arena
+from rules.player_state import Player, arena_from_start
 
 ENVELOPE = {"time", "version", "daily_bonus_time", "guild_donations_enabled", "guild_supplies_enabled", "request"}
 

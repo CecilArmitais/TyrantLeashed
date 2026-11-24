@@ -6,9 +6,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import guilds
-from accounts import clean_name
-from player_state import Player, PlayerStore
+from common.accounts import clean_name
+from rules import guilds
+from rules.player_state import Player, PlayerStore
 
 from .base import NOT_SIGNED_IN, OFFLINE_NAME, OFFLINE_PASSWORD, OFFLINE_SYNCODE, OFFLINE_USER_ID, Session
 from .messages import LOGIN

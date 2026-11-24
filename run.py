@@ -14,6 +14,8 @@ password, if content.toml's [accounts] asks for one), then plays their own accou
 save; a new name makes a new player.
 
 Stop with Ctrl+C; a summary lists anything that was missing, blocked or unsupported.
+The host's other tools are in tools/ (players and saves: python server/tools/player.py;
+each has --help).
 Nothing here contacts Kongregate or Synapse: the server only reads local files.
 """
 
@@ -25,9 +27,9 @@ import webbrowser
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from common.paths import ARCHIVE_DIR, CLIENT_DIR  # noqa: E402
 from game_api import GameApi  # noqa: E402
-from offline_server import OfflineServer  # noqa: E402
-from paths import ARCHIVE_DIR, CLIENT_DIR  # noqa: E402
+from web.offline_server import OfflineServer  # noqa: E402
 
 
 def main() -> None:
@@ -55,7 +57,7 @@ def main() -> None:
         print(f"  other machines: http://<this machine's address>:{args.port}/ (players sign in on the server's page)")
     if server.api.missing_fixtures:
         print(f"  NOTE: no fixtures for {', '.join(server.api.missing_fixtures)}; those calls will be unsupported.")
-        print("        Build them from a recorded session with: python server/make_fixtures.py")
+        print("        Build them from a recorded session with: python server/tools/make_fixtures.py")
     else:
         who = "the offline player" if api.single_player else "each player"
         print(f"  replaying {', '.join(server.api.fixtures)} for {who} (from game/fixtures)")

@@ -4,7 +4,7 @@ day and battle energy. Made-up data only (the events' own tests use the game fil
 import random
 import xml.etree.ElementTree as ET
 
-import event_runs as er
+from rules import event_runs as er
 
 DAY = 86400
 RUN = {"event": 1, "start": 1000, "end": 1000 + 3 * DAY, "decay": 1000 + 6 * DAY}

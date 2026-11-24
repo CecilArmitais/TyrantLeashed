@@ -111,7 +111,7 @@ Standard library only.
 
 The package: core.py holds GameApi and the dispatcher, joining one part per feature, each
 an XCalls class in x_calls.py (session_calls.py, store_calls.py, war_calls.py, ...: the
-calls; the feature's rules are the top-level module, store.py, wars.py, ...); base.py,
+calls; the feature's rules are in rules/, store.py, wars.py, ...); base.py,
 messages.py and replay.py hold what they share.
 """
 

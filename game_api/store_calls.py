@@ -6,13 +6,10 @@ from __future__ import annotations
 import copy
 import dataclasses
 
-import boxes
-import items
-import packs
-import store
-from content import PACK_IDS, Content, Promo
-from player_state import Player, decks_json
-from rewards import DECK_SIZE
+from rules import boxes, items, packs, store
+from rules.content import PACK_IDS, Content, Promo
+from rules.player_state import Player, decks_json
+from rules.rewards import DECK_SIZE
 
 from .base import NotSupported
 from .messages import BUY_UPGRADE, PACK_GOLD, PACK_WB, PROMO_GOLD, PROMO_WB

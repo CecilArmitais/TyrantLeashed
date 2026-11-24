@@ -6,11 +6,9 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 
-import daily_crate
-import items
-import upgrades
-from accounts import name_problem
-from rewards import DECK_SIZE
+from common.accounts import name_problem
+from rules import daily_crate, items, upgrades
+from rules.rewards import DECK_SIZE
 
 from .base import DEFAULT_REFILL_COST, INVALID_FLAG, NAME_LENGTH, NotSupported, flag_value
 from .messages import CRATE, REFRESH, SET_ACTIVE, SET_DECK, SET_NAME

@@ -6,8 +6,8 @@ import os
 
 import pytest
 
-import paths
-from debug import CURRENCIES, DebugOptions, DebugStore, parse
+from common import paths
+from common.debug import CURRENCIES, DebugOptions, DebugStore, parse
 from helpers import T, arena_api, ask, make_api, raid_game, shop
 
 NOT_CHARGED = " (debug: not charged)"

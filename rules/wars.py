@@ -60,7 +60,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
-import event_runs
+from rules import event_runs
 
 # Recorded (war 94's active_war_event).
 WAR_LENGTH = 28800

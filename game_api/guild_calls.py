@@ -3,10 +3,8 @@ Part of GameApi (core.py), as GuildCalls."""
 
 from __future__ import annotations
 
-import guilds
-import raids
-import wars
-from player_state import level_info
+from rules import guilds, raids, wars
+from rules.player_state import level_info
 
 from .base import NotSupported
 

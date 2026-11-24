@@ -6,15 +6,15 @@ from __future__ import annotations
 import dataclasses
 from pathlib import Path
 
-import achievements
 from battle import effects as bge
 from battle.cards import CardDB
+from rules import achievements
 from battle.engine import (ATTACKER, Battle, BattleError, DEFENDER, FIRST_UID, RandomChooser, Setup,
                            shuffled_deck)
 from battle.missions import load_missions
 from battle.protocol import BattleSession
-from player_state import deck_from_json
-from rewards import MissionResult, finish_mission
+from rules.player_state import deck_from_json
+from rules.rewards import MissionResult, finish_mission
 
 from .base import ARENA_FIELDS, BASIC_LAST, BASIC_MISSIONS, FULL_MISSIONS, NotSupported, mission_costs
 from .replay import battle_won

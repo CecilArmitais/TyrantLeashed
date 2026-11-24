@@ -8,10 +8,10 @@ import random
 import pytest
 
 import game_api as ga
-import paths
-import raids
 from battle.engine import ATTACKER, DEFENDER, FIRST_UID, Battle, RandomChooser, Setup, shuffled_deck
+from common import paths
 from helpers import T, ask, raid_fight, raid_game, raid_run, real_cards
+from rules import raids
 
 DAY = 86400
 HOUR = 3600

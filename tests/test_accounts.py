@@ -6,8 +6,8 @@ import json
 
 import pytest
 
-import accounts
 import game_api as ga
+from common import accounts
 from helpers import T, call, init_body, server
 
 

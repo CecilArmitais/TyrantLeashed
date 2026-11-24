@@ -6,10 +6,9 @@ import random
 
 import pytest
 
-import arena
-import content
 from helpers import T, call, login, real_cards, server
-from player_state import arena_from_start
+from rules import arena, content
+from rules.player_state import arena_from_start, level_for
 
 # The account's recorded list (rating 735): each real rival's rating, rank and gold.
 RECORDED_PLAYERS = [(1663, 6, 159), (1624, 6, 156), (1309, 6, 129), (1302, 6, 126), (1259, 6, 123),
@@ -25,7 +24,7 @@ def rival(uid, rating, level, commander=1000, name=None, guild=None):
 def an_arena(rating=735, wins=20):
     a = arena_from_start({"user_data": {}}, T)
     a.update(hunting_wins=wins, rating=rating)
-    a["level"] = max(a["level"], __import__("player_state").level_for(rating))
+    a["level"] = max(a["level"], level_for(rating))
     return a
 
 

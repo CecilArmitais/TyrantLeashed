@@ -1,13 +1,23 @@
-"""Tests for where things are (paths.py): the state folder is the one paths.STATE_DIR names
-when it's needed, so the tests' temporary one (conftest.py) reaches the API and player.py."""
+"""Tests for where things are (common/paths.py): the folders are found from the server
+folder, and the state folder is the one paths.STATE_DIR names when it's needed, so the
+tests' temporary one (conftest.py) reaches the API and player.py."""
 
+import importlib.util
 import sys
 
 import pytest
 
-import paths
-import player as cli
+from common import paths
 from game_api import GameApi
+from tools import player as cli
+
+
+def test_the_folders_are_found_from_the_server_folder():
+    """paths.py is in server/common/, two levels below the server folder. A wrong count
+    would make the game files look missing, and every test that needs them would skip."""
+    assert (paths.SERVER_DIR / "run.py").is_file() and paths.ROOT_DIR == paths.SERVER_DIR.parent
+    assert (paths.WEB_DIR / "shim.js").is_file() and (paths.WEB_DIR / "signin.html").is_file()
+    assert importlib.util.find_spec("paths") is None     # one copy only, common.paths, which conftest patches
 
 
 def test_the_game_fixtures_save_in_the_state_folder(tmp_path):

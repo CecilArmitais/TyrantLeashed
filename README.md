@@ -24,7 +24,7 @@ This repository holds no game files. You need your own copy of them, beside it:
     client/tyu-web-2.30.80/    the web client: index.html, Release/...
     assets/<host>/<path>       the game's files: mobile.tyrantonline.com/assets/*.xml,
                                cdn.synapsegames.com/unleashed/... (bundles, images),
-                               with file names as archive_layout.py makes them safe
+                               with file names as web/archive_layout.py makes them safe
     fixtures/                  getUserAccount.json, init.json, replay.json: a recorded
                                login and the calls after it (see "Making the fixtures")
   state/                       the server's own data, made as it's needed (see "State")
@@ -73,17 +73,18 @@ the AI).
 (`/signin` downloads one), or a player's login data from the official game. The page
 explains how to save the latter from the browser's developer tools; it reads the file
 in the browser and sends only the game data, never the passwords or Kongregate session
-in it. A host can also turn that data into a save with `python server/convert_login.py`.
-Nothing can check either, so `imports` under `[accounts]` decides: `"off"` takes none,
+in it. A host can also turn that data into a save with
+`python server/tools/convert_login.py`. Nothing can check either, so `imports` under `[accounts]` decides: `"off"` takes none,
 `"review"` (the default) keeps each one waiting until the host accepts it, and `"on"`
 loads it at once.
 
-`python server/player.py players` lists the players. `python server/player.py --user <id or name>`
-shows a player's save and changes it: gold, war bonds, SP, energy and its cap, cards,
-items, music and sound, the tutorial, the name, or `reset --yes` to start it over.
-`player.py imports` lists the progress waiting for an OK, with `accept-import` and
-`reject-import`; `export` writes a player's save to a file; `password-reset` clears a
-sign-in password. `python server/player.py --help` has every command.
+`python server/tools/player.py players` lists the players.
+`python server/tools/player.py --user <id or name>` shows a player's save and changes it:
+gold, war bonds, SP, energy and its cap, cards, items, music and sound, the tutorial,
+the name, or `reset --yes` to start it over. `player.py imports` lists the progress
+waiting for an OK, with `accept-import` and `reject-import`; `export` writes a player's
+save to a file; `password-reset` clears a sign-in password.
+`python server/tools/player.py --help` has every command.
 
 ## Setting up the server
 
@@ -103,7 +104,7 @@ and the game shows the change after a reload.
   defaults, which turns off a raid or war you had set.
 
 The gold bonuses (missions pay their gold x 7 and AI rivals 25 x 3 by default) are set
-with `player.py mission-gold` and `player.py arena-gold`, kept in `state/settings.json`.
+with `tools/player.py mission-gold` and `arena-gold`, kept in `state/settings.json`.
 
 ## State
 
@@ -126,13 +127,13 @@ player's save loses those players, and a guild file its guild.
 
 ## Making the fixtures
 
-`make_fixtures.py` builds `game/fixtures/` from a recorded session: a recorded login and
+`tools/make_fixtures.py` builds `game/fixtures/` from a recorded session: a recorded login and
 the calls after it, with every account identifier (user id, password, syncode, name,
 device id) replaced by the offline player's, checked before anything is written.
 
 ```
-python server/make_fixtures.py                       # the newest suitable session
-python server/make_fixtures.py --session <folder>    # one session
+python server/tools/make_fixtures.py                       # the newest suitable session
+python server/tools/make_fixtures.py --session <folder>    # one session
 ```
 
 It reads sessions from `captures/api/` (raw recordings) or `captures/api-sanitized/`
@@ -144,12 +145,25 @@ Kongregate are refused by default: that's a real account.
 ## Checking it
 
 ```
-python -m pytest server -q            # without game/ beside it, tests that need it are skipped
-python server/battle_check.py         # replays the recorded battles through the engine
+python -m pytest server -q              # without game/ beside it, tests that need it are skipped
+python server/tools/battle_check.py     # replays the recorded battles through the engine
 ```
 
-`battle_tuo_check.py` runs the optimizer's own test decks through the engine as a crash
+`tools/battle_tuo_check.py` runs the optimizer's own test decks through the engine as a crash
 test; it needs the optimizer's source in `reference/tuo/` beside the server.
+
+## What's where
+
+| Path | What |
+|---|---|
+| `run.py` | Starts the server. |
+| `web/` | The HTTP server (`offline_server.py`) and the files it serves of its own (`static/`: the script the game page loads first, the sign-in page). |
+| `game_api/` | Answers the game's API calls: `core.py` hands each message to the part for its feature (`store_calls.py`, `raid_calls.py`...). |
+| `rules/` | The game's rules, one module per feature (`store.py`, `raids.py`...), and the player's save (`player_state.py`). |
+| `battle/` | The battle engine. |
+| `common/` | What the rest shares that knows nothing of the game: where things are (`paths.py`), JSON files, accounts. |
+| `tools/` | The host's command-line tools: `player.py`, `convert_login.py`, `make_fixtures.py`, `battle_check.py`, `battle_tuo_check.py`. Each has `--help`. |
+| `tests/` | The tests (pytest), one file per topic. |
 
 ## License and credits
 

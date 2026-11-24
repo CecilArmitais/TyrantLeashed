@@ -6,9 +6,9 @@ import random
 import pytest
 
 import game_api as ga
-import guilds as gd
-import paths
+from common import paths
 from helpers import T, ask, real_cards
+from rules import guilds as gd
 
 NAMES = {"1": "Ann", "2": "Bo", "3": "Cy", "4": "Di"}
 

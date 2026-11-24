@@ -9,9 +9,9 @@ from functools import lru_cache
 from types import SimpleNamespace
 
 import game_api as ga
-import paths
-import player as cli
 from battle.cards import CardDB
+from common import paths
+from tools import player as cli
 
 
 # ---- the real game files (read on first use) -----------------------------------------------------

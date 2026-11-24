@@ -7,11 +7,9 @@ from pathlib import Path
 
 import pytest
 
-import content
-import packs
-import paths
-import upgrades
+from common import paths
 from helpers import ask, real_cards, shop
+from rules import content, packs, upgrades
 
 
 @pytest.fixture(scope="module")

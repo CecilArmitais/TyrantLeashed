@@ -3,10 +3,10 @@ cards, plus the reporting rules the recordings showed, and every recorded battle
 
 import pytest
 
-import paths
 from battle.cards import CardDB
 from battle.engine import Battle, Setup
 from battle.recorded import compare, from_fixtures
+from common import paths
 
 CARDS = """<root>
   <unit><id>1300</id><name>Captain</name><health>40</health></unit>

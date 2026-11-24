@@ -5,7 +5,7 @@ import os
 
 import pytest
 
-import jsonfile
+from common import jsonfile
 
 
 def test_written_data_reads_back(tmp_path):

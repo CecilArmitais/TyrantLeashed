@@ -6,11 +6,11 @@ from functools import lru_cache
 
 import pytest
 
-import items
-import paths
 from battle.cards import CardDB
+from common import paths
 from helpers import call, login, server
-from player_state import SAVE_VERSION, PlayerStore
+from rules import items
+from rules.player_state import SAVE_VERSION, PlayerStore
 
 
 @lru_cache(maxsize=None)

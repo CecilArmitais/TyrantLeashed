@@ -3,8 +3,7 @@ Part of GameApi (core.py), as ItemCalls."""
 
 from __future__ import annotations
 
-import items
-import packs
+from rules import items, packs
 
 
 class ItemCalls:

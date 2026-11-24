@@ -38,7 +38,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
-import event_runs
+from rules import event_runs
 
 # Recorded (brawl 345).
 CLAIM_WAIT = 1200

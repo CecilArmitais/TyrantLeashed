@@ -8,12 +8,12 @@ import xml.etree.ElementTree as ET
 import pytest
 
 import game_api as ga
-import paths
 from battle.missions import Mission, load_missions, parse_missions
 from battle.recorded import capture_calls
+from common import paths
 from helpers import T, ask, mission_api, play_mission
-from player_state import Player, SAVE_VERSION, completions_json, deck_from_json, decks_json, fill_from_start
-from rewards import DECK_SIZE, RewardRules, finish_mission
+from rules.player_state import Player, SAVE_VERSION, completions_json, deck_from_json, decks_json, fill_from_start
+from rules.rewards import DECK_SIZE, RewardRules, finish_mission
 
 NOW = 1_795_000_000
 RULES = RewardRules(gold_multiplier=7)

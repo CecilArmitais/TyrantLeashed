@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict
 from pathlib import Path
 
-from accounts import NAME_LENGTH  # noqa: F401  (a name's limit, ours: shared with the usernames)
+from common.accounts import NAME_LENGTH  # noqa: F401  (a name's limit, ours: shared with the usernames)
 
 DEFAULT_STAMINA_REFILL_COST = 30    # wb_stamina_cost in the recorded init
 DEFAULT_REFRESH_COST = 50           # gold_rivals_cost in the recorded init

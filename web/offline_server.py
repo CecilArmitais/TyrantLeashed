@@ -15,14 +15,14 @@ The game page is the original client page with these changes:
 URL layout:
   /                                      the edited game page, once the browser has signed
                                          in (a single-player server: always); else the
-                                         sign-in page (web/signin.html)
+                                         sign-in page (web/static/signin.html)
   /signin                                the sign-in page, to switch players or sign out
   /account, /account/sign-in, /account/sign-out
                                          what the sign-in page asks and sends (JSON); signing
                                          in sets the session cookie, tu_session
   /account/save                          the signed-in player's save, to download
   /Release/...                           client files (game/client/tyu-web-2.30.80)
-  /tu-offline/...                        files from server/web (the shim etc.)
+  /tu-offline/...                        files from server/web/static (the shim, the sign-in page)
   /tu/<host>/<path>                      archived game files (game/assets/<host>/<path>)
   /tu/mobile.tyrantonline.com/api.php    the game API
   /__csp                                 where the browser reports blocked requests
@@ -42,11 +42,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlsplit
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from game_api import GameApi  # noqa: E402
-from game_api import encode as encode_reply  # noqa: E402
-from paths import ARCHIVE_DIR, CLIENT_DIR, WEB_DIR  # noqa: E402
-from archive_layout import safe_rel_path  # noqa: E402  (the capture tools' archive layout)
+from common.paths import ARCHIVE_DIR, CLIENT_DIR, WEB_DIR
+from game_api import GameApi
+from game_api import encode as encode_reply
+from web.archive_layout import safe_rel_path   # the capture tools' archive layout
 
 ARCHIVE_HOSTS = {"mobile.tyrantonline.com", "cdn.synapsegames.com"}
 API_PATH = "/tu/mobile.tyrantonline.com/api.php"

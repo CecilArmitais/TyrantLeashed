@@ -19,9 +19,9 @@ account fingerprint comes from the copy's sessions.json. Without --session it tr
 the raw sessions first, newest first, then the sanitized ones. Standard library only.
 From the Tyrant folder:
 
-    python server/make_fixtures.py                      # newest suitable session
-    python server/make_fixtures.py --session captures/api/20261120-012700
-    python server/make_fixtures.py --session captures/api-sanitized/20261120-012700
+    python server/tools/make_fixtures.py                      # newest suitable session
+    python server/tools/make_fixtures.py --session captures/api/20261120-012700
+    python server/tools/make_fixtures.py --session captures/api-sanitized/20261120-012700
 """
 
 from __future__ import annotations
@@ -32,10 +32,10 @@ import json
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # the server folder
+from common.paths import CAPTURES_DIR, FIXTURE_DIR  # noqa: E402
 from game_api import (NOT_REPLAYED, OFFLINE_NAME, OFFLINE_PASSWORD,  # noqa: E402
                       OFFLINE_SYNCODE, OFFLINE_USER_ID, VOLATILE_PARAMS)
-from paths import CAPTURES_DIR, FIXTURE_DIR  # noqa: E402
 KONG_PARAMS = ("kong_id", "kong_token", "kong_name")
 RECORDING_DIRS = ("api", "api-sanitized")   # under --captures: raw recordings, then the sanitized copy
 SANITIZED_INDEX = "sessions.json"           # the sanitized copy's list of sessions and their accounts

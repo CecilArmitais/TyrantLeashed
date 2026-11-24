@@ -7,9 +7,7 @@ from __future__ import annotations
 
 import dataclasses
 
-import items
-import packs
-import raids
+from rules import items, packs, raids
 
 
 class EventCalls:

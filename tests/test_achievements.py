@@ -5,10 +5,10 @@ from types import SimpleNamespace
 
 import pytest
 
-import achievements as ach
-import paths
+from common import paths
 from helpers import T, arena_fight, ask, init_body, objectives_game, recorded_calls, recorded_fight
-from player_state import PlayerStore
+from rules import achievements as ach
+from rules.player_state import PlayerStore
 
 pytestmark = pytest.mark.needs_game        # every test here needs the game files
 

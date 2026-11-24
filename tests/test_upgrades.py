@@ -5,10 +5,10 @@ against the recorded upgradeCard / salvageL1CommonCards replies."""
 import pytest
 
 import game_api as ga
-import paths
-import upgrades
+from common import paths
 from helpers import T, ask, recorded_calls
-from player_state import PlayerStore
+from rules import upgrades
+from rules.player_state import PlayerStore
 
 pytestmark = pytest.mark.needs_game        # every test here needs the game files
 

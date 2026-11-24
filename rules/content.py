@@ -17,7 +17,7 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from daily_crate import DEFAULT_EVERY_HOURS, DEFAULT_REWARDS, Reward
+from rules.daily_crate import DEFAULT_EVERY_HOURS, DEFAULT_REWARDS, Reward
 
 PACK_IDS = {"basic": "1", "epic": "1000"}       # the store's pack tiles (store_packs)
 IMPORT_MODES = ("off", "review", "on")          # [accounts] imports: what happens to a player's import
@@ -180,7 +180,7 @@ passwords = false
 # A new player can bring their progress: a save from a server like this one, or the
 # official game's login data, converted to a save. The server can't check either, so:
 # "off" doesn't take them, "review" keeps each one waiting until the host accepts it
-# (python server/player.py imports), "on" loads it at once.
+# (python server/tools/player.py imports), "on" loads it at once.
 imports = "review"
 
 [daily_bonus]

@@ -4,10 +4,10 @@ take the first candidate."""
 
 import pytest
 
-import paths
 from battle import effects as fx
 from battle.cards import CardDB
 from battle.engine import DEFENDER, Battle, Setup
+from common import paths
 
 CARDS = """<root>
   <unit><id>1300</id><name>Captain</name><health>40</health></unit>

@@ -7,9 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
-import achievements as ach
-import paths
+from common import paths
 from helpers import arena_fight, ask, objectives_game, raid_fight, raid_game, recorded_fight
+from rules import achievements as ach
 
 pytestmark = pytest.mark.needs_game        # every test here needs the game files
 

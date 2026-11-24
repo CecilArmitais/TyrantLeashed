@@ -5,7 +5,7 @@ Saved in state/players/<user_id>.json (state/player.json with --single-player).
 Whenever a reply carries the player's data (`user_data`, `user_cards`, `user_decks`,
 `user_items`, `max_energy`, `max_decks`, `max_stamina`, `mission_completions`), the
 saved values replace the recorded ones (PlayerStore.apply), so the game always shows
-the save. server/player.py
+the save. server/tools/player.py
 edits them by hand.
 
 How the game stores them:
@@ -23,7 +23,7 @@ How the game stores them:
               user_data.mission_wins counts every mission won, user_data.stars the stars
   decks       user_decks (top level) = {deck_id: {"deck_id": 1, "name": null, "commander_id": "1000",
               "cards": {card_id: "1"}, "dominion_id": 0}}. Set by setDeckCards; a mission's
-              reward card also goes in while the deck has room (server/rewards.py)
+              reward card also goes in while the deck has room (server/rules/rewards.py)
   earned      user_data.gold_earned and user_data.cards_earned: everything ever earned
   stamina     user_data.stamina, user_data.last_stam_update_time: refills like energy (one
               point per stamina_recharge_time, 900 s, up to max_stamina, 15); arena fights cost 1
@@ -53,8 +53,8 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-import items
-import jsonfile
+from common import jsonfile
+from rules import items
 
 SAVE_VERSION = 13         # 2: max_energy; 3: flags and missions; 4: decks, gold/cards earned;
                           # 5: stamina and the arena; 6: event boxes; 7: salvage points and card
@@ -402,7 +402,7 @@ def save_json(player: Player, now: int) -> dict:
 
 class PlayerStore:
     """Reads and writes the save file. Re-reads it whenever it changes on disk, so
-    edits made with server/player.py while the server runs are picked up."""
+    edits made with server/tools/player.py while the server runs are picked up."""
 
     def __init__(self, path: Path, clock=time.time, default_max_energy: int = DEFAULT_MAX_ENERGY) -> None:
         self.path = Path(path)

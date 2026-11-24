@@ -6,10 +6,10 @@ from functools import lru_cache
 
 import pytest
 
-import conquest
 import game_api as ga
-import paths
+from common import paths
 from helpers import call, login, server
+from rules import conquest
 
 
 @lru_cache(maxsize=None)

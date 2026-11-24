@@ -17,7 +17,7 @@ for folder in (SERVER, TESTS):
     if str(folder) not in sys.path:
         sys.path.insert(0, str(folder))
 
-import paths  # noqa: E402
+from common import paths  # noqa: E402
 
 GAME_FILES = (paths.FIXTURE_DIR / "init.json").is_file() and paths.ASSET_DIR.is_dir()
 SKIP_REASON = f"needs the game files (not found at {paths.GAME_DIR})"

@@ -2,7 +2,7 @@
 their real progress over: the reply to the game's `init` call, which holds the player's
 cards, decks, gold, war bonds, energy, missions, arena rating and level, items and
 objectives. The sign-in page takes it (game_api/account_calls.py), or a host converts it
-with `python server/convert_login.py`.
+with `python server/tools/convert_login.py`.
 
 - **Getting it:** in the official game, the browser's developer tools (Network) show the
   `api.php?message=init` call; its response is the login data. A HAR file of a session
@@ -28,8 +28,8 @@ import base64
 import json
 import re
 
-import achievements
-from player_state import DEFAULT_MAX_ENERGY, Player, player_from_start
+from rules import achievements
+from rules.player_state import DEFAULT_MAX_ENERGY, Player, player_from_start
 
 SECRET_KEYS = {"request", "password", "new_password", "syncode", "new_syncode", "hash", "client_signature",
                "udid", "kong_id", "kong_name", "kong_token", "kongregate_id", "kongregate_token"}

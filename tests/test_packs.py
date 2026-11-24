@@ -7,9 +7,9 @@ from collections import Counter
 
 import pytest
 
-import packs
-import paths
+from common import paths
 from helpers import shop, ask, real_cards, init_body
+from rules import packs
 
 RECORDED_DRAWS = [9, 6763, 75, 4, 2024, 112, 109, 45, 314, 169, 2100, 9, 109, 172, 115, 100, 197, 104,
                   4, 317, 2024, 71, 254, 504, 115]   # every recorded basic draw, both accounts

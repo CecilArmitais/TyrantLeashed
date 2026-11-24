@@ -1,8 +1,8 @@
 """Check the battle engine against recorded battles.
 
-    python server/battle_check.py               # the scrubbed recordings in game/fixtures
-    python server/battle_check.py --captures    # also every recorded session in captures/api
-    python server/battle_check.py -v            # show where each battle first differs
+    python server/tools/battle_check.py               # the scrubbed recordings in game/fixtures
+    python server/tools/battle_check.py --captures    # also every recorded session in captures/api
+    python server/tools/battle_check.py -v            # show where each battle first differs
 
 Each recorded battle is played again with the same decks and the same cards played.
 A battle "matches" when every turn is identical; every recorded battle does now. One
@@ -17,10 +17,10 @@ import sys
 from collections import Counter
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))   # the server folder
 from battle.cards import CardDB  # noqa: E402
 from battle.recorded import compare, from_capture, from_fixtures  # noqa: E402
-from paths import ASSET_DIR, FIXTURE_DIR, RAW_CAPTURES_DIR  # noqa: E402
+from common.paths import ASSET_DIR, FIXTURE_DIR, RAW_CAPTURES_DIR  # noqa: E402
 
 
 def main() -> None:

@@ -3,8 +3,7 @@ Part of GameApi (core.py), as UpgradeCalls."""
 
 from __future__ import annotations
 
-import achievements
-import upgrades
+from rules import achievements, upgrades
 
 from .base import NotSupported
 from .messages import LOCK, SALVAGE, SALVAGE_ALL, UPGRADE

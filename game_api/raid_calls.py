@@ -162,17 +162,17 @@ class RaidCalls:
         cost = missing * raids.REFILL_WB
         if missing <= 0:
             return self._refuse(params, "Your raid energy is already full."), "refused raid refill: full"
-        if player.war_bonds < cost:
+        if self._short(player, "war_bonds", cost):
             reply = self._refuse(params, f"Not enough war bonds: a refill costs {cost}, and you have {player.war_bonds}.")
             return reply, "refused raid refill: war bonds"
-        player.war_bonds -= cost
+        unpaid = self._spend(player, "war_bonds", cost)
         m["energy"], m["energy_updated"] = raids.ENERGY_MAX, int(self.clock())
         self.player_store.save(player)
         self.guild_store.save(guild)
         reply = self._ok(params)
         reply.update(self._player_parts(params, ("user_data",)))
         reply["raid_info"] = self._raid_info((raid, run, scale))
-        return reply, f"raid energy refilled: +{missing} for {cost} war bonds"
+        return reply, f"raid energy refilled: +{missing} for {cost} war bonds{unpaid}"
 
     def _raid_claim(self, params, guild, raid, run, m, scale) -> tuple[dict, str]:
         """claimRaidReward raid_id: every reward tier the player's damage and the guild's

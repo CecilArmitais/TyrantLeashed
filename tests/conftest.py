@@ -35,8 +35,10 @@ def pytest_report_header(config):
 @pytest.fixture(autouse=True)
 def _never_the_real_state(monkeypatch, tmp_path_factory):
     """A server built without a state folder would use the real one beside the server
-    (the player's own saves): every test gets a temporary one instead."""
+    (the player's own saves): every test gets a temporary one instead, and no debug
+    options (a host's server/debug.toml would turn them on)."""
     monkeypatch.setattr(paths, "STATE_DIR", tmp_path_factory.mktemp("state"))
+    monkeypatch.setattr(paths, "DEBUG_FILE", paths.STATE_DIR / "debug.toml")    # none: a host's own stay out
 
 
 def pytest_runtest_setup(item):

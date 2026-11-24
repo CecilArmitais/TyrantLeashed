@@ -133,13 +133,13 @@ class ArenaCalls:
             enemy_commander, enemy_deck = arena.rival_deck(rival, cards)
             whose = tid
         a = player.arena
-        if a["stamina"] < arena.STAMINA_COST:
+        if self._short(player, "stamina", arena.STAMINA_COST):
             reply = self._refuse(params, f"Not enough stamina: a fight needs {arena.STAMINA_COST}, and you have "
                                          f"{a['stamina']}.")
             reply["user_data"] = self.current_user_data(params)
             return reply, f"refused arena fight: stamina {a['stamina']}"
         before = a["stamina"]
-        a["stamina"] -= arena.STAMINA_COST
+        unpaid = self._spend(player, "stamina", arena.STAMINA_COST)
         if revenge is not None:
             revenge["revenge"] = arena.REVENGE_TAKEN
         self.player_store.save(player)
@@ -160,7 +160,7 @@ class ArenaCalls:
         reply["hunting_targets"] = self._targets(player)
         what = "revenge on" if revenge is not None else "arena fight with"
         return reply, (f"engine: started {what} {rival['name']} ({whose}, rated {rival['hunting_elo']}): "
-                       f"{len(deck)} cards against {len(enemy_deck)}; stamina {before} -> {a['stamina']}")
+                       f"{len(deck)} cards against {len(enemy_deck)}; stamina {before} -> {a['stamina']}{unpaid}")
 
     def _battle_reports(self, params: dict) -> tuple[dict, str]:
         """getBattleReports (no parameters): the player's recent arena fights, newest
@@ -205,7 +205,7 @@ class ArenaCalls:
             raise NotSupported("there is no starting data (game/fixtures/init.json) to keep stamina in.")
         cost = int(self._start.get("wb_stamina_cost") or DEFAULT_STAMINA_REFILL_COST)
         a = player.arena
-        if player.war_bonds < cost:
+        if self._short(player, "war_bonds", cost):
             reply = self._refuse(params, f"Not enough war bonds: a refill costs {cost}, and you have "
                                          f"{player.war_bonds}.")
             reply["user_data"] = self.current_user_data(params)
@@ -213,12 +213,12 @@ class ArenaCalls:
         before = (a["stamina"], player.war_bonds)
         a["stamina"] = max(a["stamina"], a["max_stamina"])
         a["stamina_updated"] = int(self.clock())   # at the max: the refill clock waits from now
-        player.war_bonds -= cost
+        unpaid = self._spend(player, "war_bonds", cost)
         self.player_store.save(player)
         reply = self._ok(params)
         reply["user_data"] = self.current_user_data(params)
         return reply, (f"stamina refill: {before[0]} -> {a['stamina']}, "
-                       f"{cost} war bonds ({before[1]} -> {player.war_bonds})")
+                       f"{cost} war bonds ({before[1]} -> {player.war_bonds}){unpaid}")
 
     def _refresh_rivals(self, params: dict) -> tuple[dict, str]:
         """buyRivalsRefresh (no parameters, no confirmation): a new set of rivals for
@@ -230,16 +230,16 @@ class ArenaCalls:
             reply = self._refuse(params, "The rivals can't be refreshed before your first arena win.")
             reply["user_data"] = self.current_user_data(params)
             return reply, "refused rivals refresh: no arena win yet (the tutorial rival)"
-        if player.gold < cost:
+        if self._short(player, "gold", cost):
             reply = self._refuse(params, f"Not enough gold: a refresh costs {cost}, and you have {player.gold}.")
             reply["user_data"] = self.current_user_data(params)
             return reply, f"refused rivals refresh: it costs {cost} gold, has {player.gold}"
         before = player.gold
-        player.gold -= cost
+        unpaid = self._spend(player, "gold", cost)
         arena.refresh_rivals(player.arena)
         self.player_store.save(player)
         reply, how = self._hunting_targets(params)
-        return reply, f"rivals refreshed for {cost} gold ({before} -> {player.gold}); {how}"
+        return reply, f"rivals refreshed for {cost} gold ({before} -> {player.gold}){unpaid}; {how}"
 
     def _unlock_commander(self, params: dict) -> tuple[dict, str]:
         """unlockCommander commander_id (Promote, after "Unlock this Commander?"): the

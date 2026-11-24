@@ -21,6 +21,7 @@ import store
 import wars
 from accounts import AccountStore
 from battle.cards import CardDB
+from debug import DebugOptions, DebugStore
 from content import Content, ContentStore
 from player_state import PlayerStore
 from rewards import RewardRules
@@ -103,6 +104,7 @@ class GameApi(SessionCalls, AccountCalls, ReplayCalls, BattleCalls, ArenaCalls, 
         self.brawl_store = brawls.BrawlStore(state / "brawls.json")      # the server's brawls
         self.challenge_store = achievements.ChallengeStore(state / "challenge.json")   # the objective challenge
         self.conquest_store = conquest.ConquestStore(state / "conquest.json")    # the server's conquest
+        self.debug_store = DebugStore(paths.DEBUG_FILE)                   # the host's debug options, if any (debug.py)
         self.single_player = single_player
         self._state = state
         self.accounts = AccountStore(state / "accounts.json")             # who may play (multi-player)
@@ -151,12 +153,12 @@ class GameApi(SessionCalls, AccountCalls, ReplayCalls, BattleCalls, ArenaCalls, 
         """Lines for the server's startup: the save (or the players), the energy that came
         back while the server was off (counted from the save's sync point to now), the gold
         bonuses, the store, the guilds and raid, the war, brawl and conquest events, and the
-        objectives."""
+        objectives, and the host's debug options if any are on."""
         if self.player_store is None:
             return None
         bonuses = ("\nGold bonuses: " + self.settings().describe() + "\n" + self.store_report()
                    + "\n" + self.guild_report() + self._war_report() + self._brawl_report()
-                   + self._conquest_report() + "\n" + self.objectives_report())
+                   + self._conquest_report() + "\n" + self.objectives_report() + self._debug_report())
         if not self.single_player:
             ids = self.player_ids()
             c = self.content()
@@ -318,6 +320,40 @@ class GameApi(SessionCalls, AccountCalls, ReplayCalls, BattleCalls, ArenaCalls, 
         reply = self.envelope(params)
         reply["result"] = True
         return reply
+
+    def debug_options(self) -> DebugOptions:
+        """The host's debug options now (debug.toml, re-read when it changes; none: all off)."""
+        return self.debug_store.load()
+
+    def _debug_report(self) -> str:
+        """Startup lines for the host's debug options: none without debug.toml or with
+        every option off, and any problem with the file."""
+        c = self.debug_options()
+        lines = list(c.problems)
+        if c.on():
+            names = ", ".join("unlimited " + currency.replace("_", " ") for currency in c.on())
+            lines.insert(0, f"Debug options on (debug.toml): {names}; spending those costs nothing, for every player")
+        return "".join("\n" + line for line in lines)
+
+    def _short(self, player, currency: str, amount: int) -> bool:
+        """Whether the player has less than `amount` of a currency (gold, war_bonds,
+        energy, stamina) and no debug option makes it free: the server's "not enough"
+        refusals."""
+        if self.debug_options().free(currency):
+            return False
+        have = player.arena["stamina"] if currency == "stamina" else getattr(player, currency)
+        return have < amount
+
+    def _spend(self, player, currency: str, amount: int) -> str:
+        """Takes `amount` of a currency from the player, unless a debug option makes it
+        free: then nothing is taken, and the note for the log says so."""
+        if self.debug_options().free(currency):
+            return " (debug: not charged)"
+        if currency == "stamina":
+            player.arena["stamina"] -= amount
+        else:
+            setattr(player, currency, getattr(player, currency) - amount)
+        return ""
 
     def _start_parts(self, params: dict, keys) -> dict:
         """The recorded login's parts `keys` (those it has), brought up to now with the save

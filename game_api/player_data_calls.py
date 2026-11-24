@@ -128,7 +128,7 @@ class PlayerDataCalls:
             return reply, (f"energy refill: +{player.max_energy} ({before} -> {player.energy}), an Energy Refill "
                            f"({items.owned(player.items, items.ENERGY_REFILL)} left)")
         cost = int(self._start.get("wb_energy_cost") or DEFAULT_REFILL_COST)
-        if player.war_bonds < cost:
+        if self._short(player, "war_bonds", cost):
             # The game checks its own copy first ("You do not have enough war bonds to buy
             # a refill..."), so this only happens when the two disagree.
             reply = self._refuse(params, f"Not enough war bonds: a refill costs {cost}, and you have "
@@ -137,12 +137,12 @@ class PlayerDataCalls:
             return reply, f"refused: a refill costs {cost} war bonds, has {player.war_bonds}"
         before = (player.energy, player.war_bonds)
         self._refill_energy(player)
-        player.war_bonds -= cost
+        unpaid = self._spend(player, "war_bonds", cost)
         self.player_store.save(player)
         reply = self._ok(params)
         reply["user_data"] = self.current_user_data(params)
         return reply, (f"energy refill: +{player.max_energy} ({before[0]} -> {player.energy}), "
-                       f"{cost} war bonds ({before[1]} -> {player.war_bonds})")
+                       f"{cost} war bonds ({before[1]} -> {player.war_bonds}){unpaid}")
 
     def _refill_energy(self, player) -> None:
         player.energy += player.max_energy

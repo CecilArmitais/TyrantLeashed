@@ -52,7 +52,7 @@ def main() -> None:
     server = OfflineServer((args.host, args.port), quiet_static=args.quiet, api=api)
     print(f"Tyrant Unleashed offline server: {server.url}")
     if args.host in ("0.0.0.0", "::", ""):
-        print(f"  other machines: http://<this machine's address>:{args.port}/ (each browser is its own player)")
+        print(f"  other machines: http://<this machine's address>:{args.port}/ (players sign in on the server's page)")
     if server.api.missing_fixtures:
         print(f"  NOTE: no fixtures for {', '.join(server.api.missing_fixtures)}; those calls will be unsupported.")
         print("        Build them from a recorded session with: python server/make_fixtures.py")

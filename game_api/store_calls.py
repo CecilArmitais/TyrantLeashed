@@ -191,13 +191,14 @@ class StoreCalls:
         (war bonds, upgrades). A pack's SP shows in new_items as "Salvage Points"."""
         player = self.player()
         have = player.gold if currency == "gold" else player.war_bonds
+        paid_in = "gold" if currency == "gold" else "war_bonds"
         problem = None
         expected = params.get("expected_cost")
         cap = self._card_cap(player)
         n = pack.size if n is None else n
         if expected not in (None, "") and str(expected).isdigit() and int(expected) != price:
             problem = f"The price has changed: the {pack.name} costs {price} {currency} now."
-        elif have < price:
+        elif self._short(player, paid_in, price):
             problem = f"Not enough {currency}: the {pack.name} costs {price}, and you have {have}."
         elif player.card_count + n > cap:
             problem = f"Your inventory is full: {player.card_count} of {cap} cards."
@@ -215,10 +216,7 @@ class StoreCalls:
             reply = self._refuse(params, problem)
             reply["user_data"] = self.current_user_data(params)
             return reply, f"refused {pack.name}: {problem}"
-        if currency == "gold":
-            player.gold -= price
-        else:
-            player.war_bonds -= price
+        unpaid = self._spend(player, paid_in, price)
         for cid in new:
             player.add_card(cid)
         extras, shown = [], {}
@@ -272,7 +270,8 @@ class StoreCalls:
             reply["store_promos"] = parts.get("store_promos", [])
         names = ", ".join(f"{cards[c].name} ({'?CRELVM'[cards[c].rarity] if 0 < cards[c].rarity < 7 else '?'})"
                           for c in new)
-        return reply, (f"bought {pack.name} for {price} {currency} ({have} -> {have - price}): "
+        return reply, (f"bought {pack.name} for {price} {currency} ({have} -> {have - (0 if unpaid else price)})"
+                       f"{unpaid}: "
                        + "; ".join(x for x in (names, *extras) if x)
                        + ("; into the deck (tutorial)" if into_deck else ""))
 
@@ -400,8 +399,9 @@ class StoreCalls:
         currency = "gold" if message == PROMO_GOLD else "wb"
         if up is None or (message != BUY_UPGRADE and up.currency != currency):
             return self._refuse(params, "That upgrade isn't for sale."), f"refused {message}: upgrade {uid!r}"
+        free = self.debug_options().free("war_bonds" if up.currency == "wb" else "gold")
         try:
-            price = store.buy_upgrade(player, up, params.get("expected_cost"), self._decks_limit())
+            price = store.buy_upgrade(player, up, params.get("expected_cost"), self._decks_limit(), free=free)
         except store.StoreError as e:
             reply = self._refuse(params, str(e))
             reply["user_data"] = self.current_user_data(params)
@@ -425,4 +425,4 @@ class StoreCalls:
         unit = "war bonds" if up.currency == "wb" else "gold"
         now = {"energy": f"max energy {player.max_energy}", "decks": f"{player.max_decks} deck slots"}.get(
             up.kind, f"{player.max_cards} card slots")
-        return reply, f"bought {up.name} for {price} {unit}; {now}"
+        return reply, f"bought {up.name} for {price} {unit}{' (debug: not charged)' if free else ''}; {now}"

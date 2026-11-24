@@ -287,8 +287,9 @@ class StoreError(Exception):
     """Why the store can't sell something, in words the player can read."""
 
 
-def buy_upgrade(player, upgrade: Upgrade, expected_cost, decks_limit: int) -> int:
-    """Buys one: the price paid. Raises StoreError with words for the player."""
+def buy_upgrade(player, upgrade: Upgrade, expected_cost, decks_limit: int, free: bool = False) -> int:
+    """Buys one: its price. Raises StoreError with words for the player. free: a debug
+    option makes it cost nothing (debug.py): nothing is taken, and having too little is fine."""
     bought = player.upgrades.get(upgrade.kind, 0)
     price = upgrade.price(bought)
     if upgrade.kind == "decks" and (player.max_decks or 1) >= decks_limit:
@@ -299,13 +300,14 @@ def buy_upgrade(player, upgrade: Upgrade, expected_cost, decks_limit: int) -> in
         raise StoreError(f"The price has changed: {upgrade.name} costs {price} "
                            f"{'war bonds' if upgrade.currency == 'wb' else 'gold'} now.")
     have = player.war_bonds if upgrade.currency == "wb" else player.gold
-    if have < price:
+    if have < price and not free:
         unit = "war bonds" if upgrade.currency == "wb" else "gold"
         raise StoreError(f"Not enough {unit}: {upgrade.name} costs {price}, and you have {have}.")
-    if upgrade.currency == "wb":
-        player.war_bonds -= price
-    else:
-        player.gold -= price
+    if not free:
+        if upgrade.currency == "wb":
+            player.war_bonds -= price
+        else:
+            player.gold -= price
     player.upgrades[upgrade.kind] = bought + 1
     if upgrade.kind == "energy":
         player.max_energy += upgrade.value              # the cap only (ours: no energy now)

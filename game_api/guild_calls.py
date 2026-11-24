@@ -196,15 +196,16 @@ class GuildCalls:
         except (TypeError, ValueError):
             raise guilds.GuildError("How much gold?")
         cost = gold // c.gold_per_point * c.gold_per_point
-        if cost > player.gold:
+        if self._short(player, "gold", cost):
             raise guilds.GuildError(f"Not enough gold: that's {cost}, and you have {player.gold}.")
         points = guilds.donate(guild, self.uid, me["name"], cost, c.gold_per_point, int(self.clock()))
-        player.gold -= cost
+        unpaid = self._spend(player, "gold", cost)
         self.player_store.save(player)
         self.guild_store.save(guild)
         reply = self._guild_reply(params, guild)
         reply.update(self._player_parts(params, ("user_data",)))
-        return reply, f"donated {cost} gold to {guild['name']} for {points} guild points ({guild['guild_points']} now)"
+        return reply, (f"donated {cost} gold to {guild['name']} for {points} guild points "
+                       f"({guild['guild_points']} now){unpaid}")
 
     def _fortress(self, message: str, params: dict, guild: dict, me: dict) -> tuple[dict, str]:
         """buyFactionCard slot_id card_id / removeFactionCard slot_id (guilds.py). Not

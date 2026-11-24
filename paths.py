@@ -20,6 +20,7 @@ ASSET_DIR = ARCHIVE_DIR / "mobile.tyrantonline.com" / "assets"   # the game data
 CLIENT_DIR = GAME_DIR / "client" / "tyu-web-2.30.80"         # the web client
 STATE_DIR = ROOT_DIR / "state"
 WEB_DIR = SERVER_DIR / "web"                                  # what the offline page loads (the shim)
+DEBUG_FILE = SERVER_DIR / "debug.toml"                        # the host's debug options, if any (debug.py; gitignored)
 CAPTURES_DIR = ROOT_DIR / "captures"                          # recordings (optional checks only):
 RAW_CAPTURES_DIR = CAPTURES_DIR / "api"                       # the raw ones (login tokens: in no repository)
 SANITIZED_CAPTURES_DIR = CAPTURES_DIR / "api-sanitized"       # every secret replaced

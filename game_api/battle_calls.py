@@ -313,7 +313,7 @@ class BattleCalls:
             return None, ""
         if cost is None:
             return None, "; no energy cost in the mission data" if costs else ""
-        if player.energy < cost:
+        if self._short(player, "energy", cost):
             # The game checks its own copy first and only asks when it thinks there's
             # enough, so this means the two disagree. The refusal carries the real
             # user_data, which the game adopts (tested offline); the wording is ours.
@@ -322,9 +322,9 @@ class BattleCalls:
             reply["user_data"] = self.current_user_data(params)
             return (reply, f"refused mission {mid}: needs {cost} energy, has {player.energy}"), ""
         before = player.energy
-        player.energy -= cost
+        unpaid = self._spend(player, "energy", cost)
         self.player_store.save(player)
-        return None, f"; {cost} energy ({before} -> {player.energy})"
+        return None, f"; {cost} energy ({before} -> {player.energy}){unpaid}"
 
     def _bge_defs(self) -> dict:
         if self._bges is None:

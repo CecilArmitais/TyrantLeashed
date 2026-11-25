@@ -50,7 +50,10 @@ DEFENSIVE = {"armored", "avenge", "scavenge", "corrosive", "counter", "evade", "
              "payback", "revenge", "tribute", "refresh", "wall", "barrier"}
 INSTANT_DEBUFF = {"inhibit", "sabotage", "disease"}
 TRIGGERED = {"allegiance", "flurry", "valor", "stasis", "summon", "bravery", "enhance"}
-BUILT = set(ACTIVATION) | DEFENSIVE | INSTANT_DEBUFF | TRIGGERED | {
+# War Metal Tyrant's skills, brought back (Tyrant Unleashed dropped them; the client still has
+# their icons). Regeneration is War Metal's Regenerate, named after its icon (regeneration16).
+WAR_METAL = {"antiair", "fear", "crush", "siphon", "regeneration"}
+BUILT = set(ACTIVATION) | DEFENSIVE | INSTANT_DEBUFF | TRIGGERED | WAR_METAL | {
     "pierce", "swipe", "hunt", "poison", "legion", "coalition", "rupture", "venom", "leech", "drain",
     "berserk", "mark"}
 
@@ -639,11 +642,14 @@ class Battle:
         foe = self.sides[1 - att.side]
         slot = self.slot(att)
         across = foe.assaults[slot] if slot < len(foe.assaults) else None
-        if across is not None and across.alive:
+        if across is not None and across.alive and not att.has("fear"):
             target = across
-        else:
+        else:                       # nothing across, or Fear: a Wall if there is one, else the commander
             target = next((s for s in foe.structures if s.alive and s.has("wall")), None) or foe.commander
-        if target.has("flying") and self.rng.random() < 0.5:       # flies away: the attack misses
+        if (target.has("flying") and not att.has("antiair") and not att.has("flying")
+                and self.rng.random() < 0.5):
+            # flies away: the attack misses (never against Anti-Air, nor another Flying
+            # card: War Metal Tyrant's rule; the optimizer lets Flying dodge any attack)
             # shown as a 0-damage attack: the client's skill table has no animation for Flying
             if target.is_commander:
                 self._action(att, 0, [target], 0, self._own_health(att))
@@ -672,6 +678,8 @@ class Battle:
                                        and u.card.faction == att.card.faction)
                 damage += brigade
             damage += self._bloodlust
+            if target.has("flying"):
+                damage += att.skill("antiair")
             coalition = att.skill("coalition")
             if coalition:
                 damage += coalition * len({u.card.faction for u in self.sides[att.side].assaults if u.alive})
@@ -701,6 +709,7 @@ class Battle:
         if rule and dealt and att not in self._bloodlusted:               # once per assault a turn
             self._bloodlust += rule[0]
             self._bloodlusted.add(att)
+        felled = False                                  # brought to 0 (dead, or back by Regeneration)
         if target.is_commander:                         # the rest of the attack still follows
             target.hp -= dealt
             self._action(att, 0, [target], dealt, self._own_health(att))
@@ -715,7 +724,7 @@ class Battle:
                 block.append({"card_uid": self._ref(target.uid, "status"), "skill": "protect", "value": protect_left})
             if armor_left:
                 block.append({"card_uid": self._ref(target.uid, "status"), "skill": "armored", "value": armor_left})
-            self._damage(target, dealt)
+            felled = self._damage(target, dealt)
             self._action(att, 0, [target], dealt, [self._health(target)] + self._own_health(att), block=block)
         venom = att.skill("venom")
         if venom and dealt and on_assault and target.alive:      # Venom poisons what it hits (stacking)
@@ -750,6 +759,14 @@ class Battle:
             att.corroded_rate = corrosive
             # no "corrosive" status: the client rejected the similar table-listed "subdue" and "mark"
             self._action(target, "corrosive", [att], corrosive, self._shown_health([att]) + self._own_health(target))
+        crush = att.skill("crush")
+        if crush and felled and on_assault and not self.over:
+            self._crush(att, crush)
+            if self.over:
+                return True
+        siphon = min(dealt, att.skill("siphon"))
+        if siphon and on_assault:
+            self._siphon(att, siphon)
         leech = min(dealt, att.skill("leech"))
         if leech and att.alive and on_assault:                              # raises max health too (leech_increase_max_hp)
             gain = self._ext_hp(att, leech)
@@ -819,6 +836,55 @@ class Battle:
                 # recorded as "swipe": the server shows Hunt with Swipe's animation
                 self._action(att, "swipe", [prey], hunt, [self._health(prey)] + self._own_health(att), block=[])
                 self._after_damage()
+        return True
+
+    def _crush(self, att: Unit, amount: int) -> None:
+        """Crush (War Metal Tyrant): a kill by attack damage also hits the enemy commander for
+        `amount`, through a Wall first. Shown as a Strike at it: the client's Strike takes
+        a commander's damage off its health bar, and plays its own animation."""
+        foe = self.sides[1 - att.side]
+        wall = next((s for s in foe.structures if s.alive and s.has("wall")), None)
+        if wall is not None:                    # as Strike's: Absorb, then protection
+            hit = self._absorb(wall, amount)
+            protect = wall.protection
+            self._damage(wall, max(0, hit - protect))
+            block = [{"card_uid": self._ref(wall.uid, "status"), "skill": "protect",
+                      "value": min(protect, hit)}] if protect else []
+            self._action(att, "strike", [wall], amount, [self._health(wall)] + self._own_health(att), block=block)
+        else:
+            self._damage(foe.commander, amount)
+            self._action(att, "strike", [foe.commander], amount, self._own_health(att))
+        self._after_damage()
+
+    def _siphon(self, att: Unit, amount: int) -> None:
+        """Siphon (War Metal Tyrant): attack damage to an assault heals the attacker's own
+        commander by up to `amount`. Shown as a Heal on the commander: the client's Heal
+        adds a commander's healing to its health bar."""
+        commander = self.sides[att.side].commander
+        healed = self._heal_hp(commander, amount)
+        if healed:
+            self._action(att, "heal", [commander], healed, self._own_health(att))
+
+    def _regenerates(self, unit: Unit, hit: int) -> bool:
+        """Regeneration X (War Metal Tyrant's Regenerate): at 0 health, a 50% chance to be
+        back with X (no more than its max health). Disease soaks it, as healing: War
+        Metal's Disease stopped Regenerate. It can happen again later, the same turn too.
+
+        Shown before the hit that felled it, as the card's own "regeneration" (the Heal
+        effect, through skills_set.xml's generic entry) raising its health by the hit's
+        damage: the client takes a hit's damage off the card itself and kills it at 0,
+        whatever health status comes after (CombatSkillAttack, CombatSkillStrike...; tested
+        2026-11-25), so the hit then leaves it at its new health. The client has no way to
+        bring a card back (BattleUIController.ResurrectCard is empty)."""
+        x = unit.skill("regeneration")
+        if not x or self.rng.random() >= 0.5:
+            return False
+        back = self._cure(unit, x)
+        if back <= 0:
+            return False
+        unit.hp = min(back, unit.max_hp)
+        self._shown.add(unit)
+        self._action(unit, "regeneration", [unit], unit.hp, [self._status(unit, "h", unit.hp + hit)])
         return True
 
     # ---- active skills ---------------------------------------------------------------------------
@@ -1438,19 +1504,24 @@ class Battle:
         self._hits = Counter()
         self._section_name = "actions"
 
-    def _damage(self, unit: Unit, amount: int, counts_for_barrier: bool = True) -> None:
+    def _damage(self, unit: Unit, amount: int, counts_for_barrier: bool = True) -> bool:
+        """True if it brought the unit to 0 health, even if Regeneration brought it back
+        (Crush counts that as a kill, as in War Metal Tyrant). A card that regenerates
+        isn't dead: no death skills."""
         if amount <= 0:
-            return
+            return False
         was_alive = unit.alive
         unit.hp -= amount
         if counts_for_barrier:
             self._hits[unit] += 1
-        if was_alive and not unit.alive:
-            if unit.is_commander:
-                self.winner = 1 if unit.side == DEFENDER else 0
-            else:
-                self._killed[unit.side].append(unit.uid)
-                self._pending_deaths.append(unit)
+        if not (was_alive and not unit.alive):
+            return False
+        if unit.is_commander:
+            self.winner = 1 if unit.side == DEFENDER else 0
+        elif not self._regenerates(unit, amount):
+            self._killed[unit.side].append(unit.uid)
+            self._pending_deaths.append(unit)
+        return True
 
     def _absorb(self, unit: Unit, amount: int) -> int:
         """Absorb soaks skill damage first."""

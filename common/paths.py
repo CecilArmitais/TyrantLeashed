@@ -20,6 +20,7 @@ FIXTURE_DIR = GAME_DIR / "fixtures"                           # the recorded log
 ARCHIVE_DIR = GAME_DIR / "assets"                             # the archived game files, by host
 ASSET_DIR = ARCHIVE_DIR / "mobile.tyrantonline.com" / "assets"   # the game data (cards, missions...)
 CLIENT_DIR = GAME_DIR / "client" / "tyu-web-2.30.80"         # the web client
+MODS_DIR = GAME_DIR / "mods"                                  # a host's additions, if any (rules/mod_bundles.py)
 STATE_DIR = ROOT_DIR / "state"
 WEB_DIR = SERVER_DIR / "web" / "static"                       # served as /tu-offline/ (the shim, the sign-in page)
 DEBUG_FILE = SERVER_DIR / "debug.toml"                        # the host's debug options, if any (common/debug.py; gitignored)
@@ -34,3 +35,10 @@ def state_dir_for(fixture_dir: Path) -> Path:
     state/ beside the fixtures folder (a test's made-up game)."""
     fixture_dir = Path(fixture_dir)
     return STATE_DIR if fixture_dir.resolve() == FIXTURE_DIR.resolve() else fixture_dir.parent / "state"
+
+
+def mods_dir_for(fixture_dir: Path) -> Path:
+    """Where the mods are for a set of fixtures: MODS_DIR for the game's own, else a mods/
+    beside the fixtures folder (a test's made-up game)."""
+    fixture_dir = Path(fixture_dir)
+    return MODS_DIR if fixture_dir.resolve() == FIXTURE_DIR.resolve() else fixture_dir.parent / "mods"

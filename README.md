@@ -27,6 +27,7 @@ This repository holds no game files. You need your own copy of them, beside it:
                                with file names as web/archive_layout.py makes them safe
     fixtures/                  getUserAccount.json, init.json, replay.json: a recorded
                                login and the calls after it (see "Making the fixtures")
+    mods/                      optional: a host's additions (see "Mods")
   state/                       the server's own data, made as it's needed (see "State")
 ```
 
@@ -105,6 +106,23 @@ and the game shows the change after a reload.
 
 The gold bonuses (missions pay their gold x 7 and AI rivals 25 x 3 by default) are set
 with `tools/player.py mission-gold` and `arena-gold`, kept in `state/settings.json`.
+
+## Mods
+
+`game/mods/` holds a host's additions to the game, if any. At the start the server reads
+`game/mods/bundles.json`: asset bundles, kept in `game/mods/bundles/`, that it adds to the
+login, with the sprite names each one holds. The game looks those names up before its own
+pictures and fetches a bundle the first time it needs one, so a bundle can give icons to
+skills the game has none for: a skill's icon is its id plus `16` (small cards) or `32`
+(battle).
+
+```json
+{"bundles": [{"file": "my_icons_Unity5_4_2_WebGL.unity3d", "sprites": ["shock16", "shock32"]}]}
+```
+
+A bundle must be built for Unity 5.4.2 (WebGL), with its sprites in a 2D Toolkit sprite
+collection. Restart the server after changing mods; a broken list stops the start and
+says why. The details are in `rules/mod_bundles.py`.
 
 ## State
 

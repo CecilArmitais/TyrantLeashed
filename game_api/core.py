@@ -15,7 +15,7 @@ from battle.cards import CardDB
 from common import paths
 from common.accounts import AccountStore
 from common.debug import DebugOptions, DebugStore
-from rules import achievements, brawls, conquest, guilds, raids, store, wars
+from rules import achievements, brawls, conquest, guilds, mod_bundles, raids, store, wars
 from rules.content import Content, ContentStore
 from rules.player_state import PlayerStore
 from rules.rewards import RewardRules
@@ -54,10 +54,13 @@ class GameApi(SessionCalls, AccountCalls, ReplayCalls, BattleCalls, ArenaCalls, 
     this package); they all work on this object's state, set up in __init__."""
 
     def __init__(self, fixture_dir: Path | None = None, clock=time.time, state_dir: Path | None = None,
-                 asset_dir: Path | None = None, battle_engine: bool = False, single_player: bool = True) -> None:
+                 asset_dir: Path | None = None, battle_engine: bool = False, single_player: bool = True,
+                 mods_dir: Path | None = None) -> None:
         """fixture_dir: the recorded login and replies (default: paths.FIXTURE_DIR).
         state_dir: where the saves live (default: paths.state_dir_for(fixture_dir)).
         asset_dir: the game data files (default: paths.ASSET_DIR).
+        mods_dir: the host's mods (default: paths.mods_dir_for(fixture_dir)); its bundle
+        list is read now (rules/mod_bundles.py), and a broken one stops the start.
         battle_engine: missions are real battles from the battle engine instead of
         replayed recordings (battle/).
         single_player: every login is the offline player (1000001), saved in
@@ -90,6 +93,8 @@ class GameApi(SessionCalls, AccountCalls, ReplayCalls, BattleCalls, ArenaCalls, 
         # The saved player starts from the recorded init (gold, war bonds, energy, cards).
         self.player_store: PlayerStore | None = None
         self.reward_rules = RewardRules()
+        self.mods_dir = paths.mods_dir_for(fixture_dir) if mods_dir is None else Path(mods_dir)
+        self.mod_bundles = mod_bundles.load(self.mods_dir)       # extra asset bundles (skill icons...)
         state = paths.state_dir_for(fixture_dir) if state_dir is None else Path(state_dir)
         self.settings_store = SettingsStore(state / "settings.json")     # the gold bonuses
         self.content_store = ContentStore(state / "content.toml")        # the store and event boxes
@@ -377,6 +382,8 @@ class GameApi(SessionCalls, AccountCalls, ReplayCalls, BattleCalls, ArenaCalls, 
         body["request"] = echo(params)
         if self.uid != OFFLINE_USER_ID:
             personalize(body, self.uid)
+        if "asset_bundles" in body:
+            mod_bundles.apply_to_login(body, self.mod_bundles)     # the host's bundles, and their sprites
         if "gold_multiplier_missions" in body or "event_popups" in body or "event_popup" in body:
             apply_to_login(body, self.settings())   # the mission gold bonus in use, as the game shows it
         if isinstance(body.get("store_promos"), list) or isinstance(body.get("store_packs"), dict):

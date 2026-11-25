@@ -24,6 +24,9 @@ URL layout:
   /Release/...                           client files (game/client/tyu-web-2.30.80)
   /tu-offline/...                        files from server/web/static (the shim, the sign-in page)
   /tu/<host>/<path>                      archived game files (game/assets/<host>/<path>)
+  /tu/cdn.synapsegames.com/unleashed/asset_bundles/mods/<file>
+                                         a host's mod bundle (game/mods/bundles/<file>;
+                                         rules/mod_bundles.py)
   /tu/mobile.tyrantonline.com/api.php    the game API
   /__csp                                 where the browser reports blocked requests
 """
@@ -45,7 +48,11 @@ from urllib.parse import parse_qs, unquote, urlsplit
 from common.paths import ARCHIVE_DIR, CLIENT_DIR, WEB_DIR
 from game_api import GameApi
 from game_api import encode as encode_reply
+from rules import mod_bundles
 from web.archive_layout import safe_rel_path   # the capture tools' archive layout
+
+MOD_HOST = "cdn.synapsegames.com"                    # where the game asks for asset bundles
+MOD_BUNDLES = "unleashed/asset_bundles/" + mod_bundles.PREFIX
 
 ARCHIVE_HOSTS = {"mobile.tyrantonline.com", "cdn.synapsegames.com"}
 API_PATH = "/tu/mobile.tyrantonline.com/api.php"
@@ -214,6 +221,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._file(_inside(self.server.client_dir, path.lstrip("/")), head, "client")
         if path.startswith("/tu/"):
             host, _, rest = path[len("/tu/"):].partition("/")
+            if host == MOD_HOST and rest.startswith(MOD_BUNDLES):           # the host's own bundles
+                name = rest[len(MOD_BUNDLES):]
+                return self._file(mod_bundles.file_path(self.server.api.mods_dir, name), head, "mod",
+                                  label=f"{host}/{rest}")
             if host in ARCHIVE_HOSTS:
                 return self._file(self.server.archive_dir / safe_rel_path(host, "/" + rest), head, "archive",
                                   label=f"{host}/{rest}")

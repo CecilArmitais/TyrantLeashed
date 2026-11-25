@@ -111,7 +111,8 @@ def test_summon_on_play():
     b.start()
     turns = b.play(1)
     summon, = acts(turns, 1, "summon")
-    assert summon["targets"] == ["5"] and summon["value"] == 23     # the next uid after the deck
+    assert summon["targets"] == ["5"]                                # the next uid after the deck
+    assert summon["value"] == 1          # the client's Summon: 1 = on the side whose turn it is
     assert (5, 23) in b.played and len(b.sides[0].assaults) == 2
 
 

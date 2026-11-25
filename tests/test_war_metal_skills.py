@@ -5,6 +5,7 @@ take the first candidate; random() rolls are fixed per battle."""
 import random
 
 from battle.cards import CardDB
+from battle import engine
 from battle.engine import BUILT, Battle, Setup
 
 CARDS = """<root>
@@ -23,6 +24,19 @@ CARDS = """<root>
   <unit><id>37</id><name>Flying Hitter</name><attack>2</attack><health>20</health><skill id="flying"/></unit>
   <unit><id>2100</id><name>Wall</name><health>6</health><skill id="wall"/></unit>
   <unit><id>2101</id><name>Big Wall</name><health>20</health><skill id="wall"/></unit>
+  <unit><id>40</id><name>Shocker</name><attack>0</attack><health>10</health><skill id="shock" x="3"/></unit>
+  <unit><id>41</id><name>Repairer</name><attack>0</attack><health>10</health><skill id="repair" x="4"/></unit>
+  <unit><id>42</id><name>Supplier</name><attack>0</attack><health>10</health><skill id="supply" x="2"/></unit>
+  <unit><id>43</id><name>Cleanser</name><attack>0</attack><health>10</health><skill id="cleanse"/></unit>
+  <unit><id>44</id><name>Splitter</name><attack>0</attack><health>5</health><skill id="split"/></unit>
+  <unit><id>45</id><name>Burster</name><attack>2</attack><health>10</health><skill id="burst" x="3"/></unit>
+  <unit><id>46</id><name>Interceptor</name><attack>0</attack><health>20</health><skill id="intercept"/></unit>
+  <unit><id>47</id><name>Backfirer</name><attack>0</attack><health>1</health><skill id="backfire" x="5"/></unit>
+  <unit><id>48</id><name>Striker</name><attack>0</attack><health>10</health><skill id="strike" x="3"/></unit>
+  <unit><id>49</id><name>Reckless</name><attack>1</attack><health>1</health><skill id="backfire" x="4"/></unit>
+  <unit><id>50</id><name>Counterer</name><attack>0</attack><health>10</health><skill id="counter" x="2"/></unit>
+  <unit><id>51</id><name>Last Shocker</name><attack>0</attack><health>1</health><skill id="shock" x="3" trigger="death"/></unit>
+  <unit><id>52</id><name>Last Summoner</name><attack>0</attack><health>1</health><skill id="summon" card_id="23" trigger="death"/></unit>
 </root>"""
 DB = CardDB.from_xml(CARDS)
 
@@ -50,7 +64,7 @@ class First:
 
 def battle(att, dfn, roll=0.0):
     return Battle(Setup(DB[1300], [(i + 1, DB[c]) for i, c in enumerate(att)],
-                        DB[1300], [(101 + i, DB[c]) for i, c in enumerate(dfn)]), chooser=First(roll))
+                        DB[1300], [(101 + i, DB[c]) for i, c in enumerate(dfn)]), chooser=First(roll), cards=DB)
 
 
 def actions(turns, turn, skill=None):
@@ -232,3 +246,142 @@ def test_crush_counts_a_kill_that_regenerates():
     turns = b.play(2)
     assert actions(turns, 3, "regeneration") and actions(turns, 3, "strike")
     assert b.sides[1].assaults[0].hp == 2 and b.sides[1].commander.hp == 40 - 3 - 4
+
+
+# ---- the second batch: Shock, Repair, Supply, Cleanse, Split, Burst, Intercept, Backfire ----
+
+def test_the_second_batch_is_built():
+    assert {"shock", "repair", "supply", "cleanse", "split", "burst", "intercept", "backfire"} <= BUILT
+
+
+def test_shock_hits_the_commander_past_a_wall():
+    b = battle(att=(40, 23, 23, 23, 23, 23), dfn=(2101, 23, 23))
+    b.start()
+    turns = b.play(1)                                      # turn 1: it shocks as it's played
+    shock, = actions(turns, 1, "strike")                   # the client's Strike lowers the bar
+    assert shock == {"card_uid": 1, "skill_id": "strike", "targets": [-2], "value": 3, "status": []}
+    turns = b.play(2)                                      # turn 2: the Wall; turn 3: past it
+    assert actions(turns, 3, "strike")[0]["targets"] == [-2]
+    assert b.sides[1].commander.hp == 40 - 3 - 3 and b.sides[1].structures[0].hp == 20
+
+
+def test_shock_on_the_shocked_sides_turn_is_a_negative_heal():
+    b = battle(att=(51, 23, 23, 23), dfn=(36, 23, 23))      # it shocks on death, on the enemy's turn
+    b.start()
+    turns = b.play(1)
+    shock, = actions(turns, 2, "heal")                     # the client's Heal moves the active side's bar
+    assert (shock["card_uid"], shock["targets"], shock["value"]) == (1, [-2], -3)
+    assert b.sides[1].commander.hp == 37
+
+
+def test_repair_heals_a_damaged_structure():
+    b = battle(att=(2101, 41, 23, 23, 23), dfn=(23, 23, 23))
+    b.start()
+    b.play(1)
+    b.sides[0].structures[0].hp = 10
+    turns = b.play(2)
+    repair, = actions(turns, 3, "heal")                    # shown as a Heal on it
+    wall = b.sides[0].structures[0]
+    assert repair["card_uid"] == 2 and repair["targets"] == [str(wall.uid)] and repair["value"] == 4
+    assert wall.hp == 14
+
+
+def test_supply_heals_itself_and_its_hurt_neighbours():
+    b = battle(att=(23, 42, 23, 23, 23), dfn=(23, 23, 23))
+    b.start()
+    b.play(1)
+    b.sides[0].assaults[0].hp = 19                         # the neighbour is hurt; the Supplier isn't
+    turns = b.play(2)
+    supply, = actions(turns, 3, "heal")
+    assert supply["card_uid"] == 2 and supply["targets"] == ["1"] and supply["value"] == 2
+    assert b.sides[0].assaults[0].hp == 20                 # no more than its max
+    turns = b.play(3)                                      # nobody hurt: nothing
+    assert not actions(turns, 5, "heal")
+
+
+def test_cleanse_takes_the_bad_statuses_off():
+    b = battle(att=(23, 43, 23, 23, 23), dfn=(23, 23, 23))
+    b.start()
+    b.play(1)
+    dummy = b.sides[0].assaults[0]
+    dummy.poisoned, dummy.diseased, dummy.jammed = 3, 2, True
+    turns = b.play(2)
+    cleanse, = actions(turns, 3, "cleanse")
+    assert cleanse["card_uid"] == 2 and cleanse["targets"] == ["1"]
+    assert cleanse["status"] == [{"card_uid": "1", "status_flag": "poison", "value": 0},
+                                 {"card_uid": "1", "status_flag": "disease", "value": 0},
+                                 {"card_uid": "1", "status_flag": "jammed", "value": 0}]
+    assert (dummy.poisoned, dummy.diseased, dummy.jammed) == (0, 0, False)
+
+
+def test_split_copies_the_card_onto_its_own_side():
+    b = battle(att=(44, 23, 23, 23), dfn=(23, 23, 23))
+    b.start()
+    turns = b.play(1)
+    split, = actions(turns, 1, "summon")                   # the client's Summon: 1 = this side's turn
+    assert split == {"card_uid": 1, "skill_id": "summon", "targets": ["5"], "value": 1, "status": []}
+    copy = b.sides[0].assaults[1]
+    assert copy.uid == 5 and copy.card.id == 44 and copy.hp == copy.max_hp and (5, 44) in b.played
+    assert len(b.sides[0].assaults) == 2                   # the copy waits for its next turn
+    turns = b.play(2)                                      # both split on turn 3, then a Dummy
+    assert len(actions(turns, 3, "summon")) == 2 and len(b.sides[0].assaults) == 5
+
+
+def test_split_stops_when_the_row_is_full(monkeypatch):
+    monkeypatch.setitem(engine.ROW_SLOTS, engine.ASSAULT, 2)
+    b = battle(att=(44, 23, 23, 23), dfn=(23, 23, 23))
+    b.start()
+    b.play(1)                                              # the copy makes 2
+    turns = b.play(2)                                      # a Dummy makes 3... and no more copies
+    assert not actions(turns, 3, "summon") and len(b.sides[0].assaults) == 3
+
+
+def test_a_death_summon_on_the_other_sides_turn_says_so():
+    b = battle(att=(52, 23, 23, 23), dfn=(36, 23, 23))
+    b.start()
+    turns = b.play(1)
+    summon, = actions(turns, 2, "summon")                  # killed on the enemy's turn
+    assert summon["value"] == 0 and summon["targets"] == ["5"]
+
+
+def test_burst_hits_an_unhurt_assault_harder():
+    b = battle(att=(45, 23, 23, 23, 23), dfn=(23, 23, 23))
+    b.start()
+    b.play(1)                                              # turn 1: the commander (no Burst)
+    turns = b.play(2)
+    hit, = attacks(turns, 3)
+    assert hit["targets"] == [101] and hit["value"] == 2 + 3
+    turns = b.play(3)
+    hit, = attacks(turns, 5)
+    assert hit["value"] == 2                               # hurt now
+
+
+def test_intercept_takes_a_skill_aimed_at_its_neighbour():
+    b = battle(att=(23, 46, 23, 23, 23), dfn=(48, 23, 23))
+    b.start()
+    b.play(1)                                              # turn 2: the Striker hits the Dummy
+    turns = b.play(2)                                      # turn 3: the Interceptor beside it
+    intercept, = actions(turns, 4, "intercept")
+    strike, = actions(turns, 4, "strike")
+    assert intercept == {"card_uid": 2, "skill_id": "intercept", "targets": ["2"], "value": 0, "status": []}
+    assert strike["targets"] == ["2"]
+    assert b.sides[0].assaults[1].hp == 17 and b.sides[0].assaults[0].hp == 17   # turn 2's 3, then none
+
+
+def test_backfire_hurts_its_own_commander():
+    b = battle(att=(47, 23, 23, 23), dfn=(36, 23, 23))      # killed on the enemy's turn
+    b.start()
+    turns = b.play(1)
+    backfire, = actions(turns, 2, "strike")              # its health comes along (shown this reply)
+    assert (backfire["card_uid"], backfire["targets"], backfire["value"]) == (1, [-1], 5)
+    assert b.sides[0].commander.hp == 35
+
+
+def test_backfire_on_its_own_turn_is_a_negative_heal():
+    b = battle(att=(49, 23, 23, 23, 23), dfn=(50, 23, 23))  # Counter kills it as it attacks
+    b.start()
+    b.play(1)
+    turns = b.play(2)
+    backfire, = actions(turns, 3, "heal")
+    assert backfire["targets"] == [-1] and backfire["value"] == -4
+    assert b.sides[0].commander.hp == 36

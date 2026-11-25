@@ -44,20 +44,25 @@ from .effects import ARRIVAL, FILTERS
 # Skill groups, as in the optimizer's tyrant.h
 HOSTILE = ("enfeeble", "jam", "besiege", "siege", "strike", "sunder", "weaken", "mimic")
 HELPFUL = ("heal", "mend", "overload", "protect", "rally", "fortify", "enrage", "entrap", "rush", "evolve")
-ACTIVATION = HOSTILE + HELPFUL
-X_ACTIVATION = {"enfeeble", "besiege", "siege", "strike", "sunder", "weaken", "mimic"}   # Sabotage lowers these
+# War Metal Tyrant's activation skills, brought back (see WAR_METAL below)
+WAR_METAL_HOSTILE = ("shock",)
+WAR_METAL_HELPFUL = ("repair", "supply", "cleanse", "split")
+ACTIVATION = HOSTILE + HELPFUL + WAR_METAL_HOSTILE + WAR_METAL_HELPFUL
+X_ACTIVATION = {"enfeeble", "besiege", "siege", "strike", "sunder", "weaken", "mimic", "shock"}   # Sabotage lowers these
 DEFENSIVE = {"armored", "avenge", "scavenge", "corrosive", "counter", "evade", "subdue", "absorb", "flying",
              "payback", "revenge", "tribute", "refresh", "wall", "barrier"}
 INSTANT_DEBUFF = {"inhibit", "sabotage", "disease"}
 TRIGGERED = {"allegiance", "flurry", "valor", "stasis", "summon", "bravery", "enhance"}
 # War Metal Tyrant's skills, brought back (Tyrant Unleashed dropped them; the client still has
 # their icons). Regeneration is War Metal's Regenerate, named after its icon (regeneration16).
-WAR_METAL = {"antiair", "fear", "crush", "siphon", "regeneration"}
+WAR_METAL = {"antiair", "fear", "crush", "siphon", "regeneration", "burst", "intercept", "backfire",
+             *WAR_METAL_HOSTILE, *WAR_METAL_HELPFUL}
 BUILT = set(ACTIVATION) | DEFENSIVE | INSTANT_DEBUFF | TRIGGERED | WAR_METAL | {
     "pierce", "swipe", "hunt", "poison", "legion", "coalition", "rupture", "venom", "leech", "drain",
     "berserk", "mark"}
 
 ATTACKER, DEFENDER = 0, 1
+ROW_SLOTS = {ASSAULT: 20, STRUCTURE: 9}      # the client's battle rows hold this many cards (BattleScreen)
 COMMANDER_UID = (-1, -2)            # how actions name the attacking / defending commander
 FIRST_UID = (1, 101)                # the attacker's cards are 1.., the defender's 101..
 HAND_SIZE = 3
@@ -255,6 +260,7 @@ class Battle:
         self._killed: tuple[list[int], list[int]] = ([], [])
         self._hits: Counter = Counter()             # Barrier: hits taken during the current action
         self._pending_deaths: list[Unit] = []
+        self._new_copies: set = set()               # Split's copies made this turn: they first act next turn
         self._shown: set = set()                    # cards whose health this reply has reported (see _own_health)
         self._section_name = "actions"
         self._in_bge = False                        # during a battleground effect's skills
@@ -426,13 +432,13 @@ class Battle:
         for unit in list(side.structures):
             if self.over:
                 break
-            if unit.active:
+            if unit.active and unit not in self._new_copies:
                 self._act(unit)
         self._bloodlust, self._bloodlusted = 0, set()
         i = 0
         while i < len(side.assaults) and not self.over:
             unit = side.assaults[i]
-            if unit.active:
+            if unit.active and unit not in self._new_copies:
                 if unit.protected_stasis:                   # Stasis ends when it first acts
                     unit.protected_stasis = 0
                     self._section("begin").append(self._status(unit, "stasis", 0))
@@ -576,6 +582,7 @@ class Battle:
 
     def _end_turn(self) -> None:
         side = self.active
+        self._new_copies = set()
         self._section_name = "actions"
         if not self.over:
             for unit in side.assaults:                     # Refresh heals, then poison ticks
@@ -680,6 +687,8 @@ class Battle:
             damage += self._bloodlust
             if target.has("flying"):
                 damage += att.skill("antiair")
+            if on_assault and target.hp >= target.max_hp:
+                damage += att.skill("burst")
             coalition = att.skill("coalition")
             if coalition:
                 damage += coalition * len({u.card.faction for u in self.sides[att.side].assaults if u.alive})
@@ -918,7 +927,7 @@ class Battle:
 
     def _hostile(self, unit: Unit, spec, cands: list[Unit], apply, statuses, damage: bool = False,
                  after_hit=None) -> bool:
-        picked = self._pick(unit, spec, cands)
+        picked = self._intercepted(spec, self._pick(unit, spec, cands), cands)
         if not picked:
             return False
         hit, evaded = [], []
@@ -1036,7 +1045,7 @@ class Battle:
         Enhance of it), for any faction. It can't be evaded or paid back."""
         def copyable(t: Unit) -> list:
             return [s for s in t.card.skills if s.trigger in ("activate", "attacked") and s.id in ACTIVATION
-                    and s.id != "mimic" and (unit.is_assault or s.id not in ("mend", "fortify"))]
+                    and s.id not in ("mimic", "split") and (unit.is_assault or s.id not in ("mend", "fortify"))]
         picked = self._pick(unit, spec, [u for u in self._candidates(unit, spec, True) if u.alive and copyable(u)])
         if not picked:
             return False
@@ -1053,8 +1062,10 @@ class Battle:
 
     # helpful: blocked by Inhibit, shared by Tribute
 
-    def _helpful(self, unit: Unit, spec, targets: list[Unit], apply, statuses, check) -> bool:
-        """`targets` already picked; `check(t)`: may it apply to t (for Tribute)."""
+    def _helpful(self, unit: Unit, spec, targets: list[Unit], apply, statuses, check,
+                 shown_as: str | None = None) -> bool:
+        """`targets` already picked; `check(t)`: may it apply to t (for Tribute). `shown_as`:
+        the skill the client is told (one whose class shows the result)."""
         done = []
         for t in targets:
             if self._inhibits(unit, t):
@@ -1068,7 +1079,7 @@ class Battle:
                 done.append(unit)
         if not done:
             return False
-        self._action(unit, spec.id, done, spec.x, statuses(done) + self._own_health(unit))
+        self._action(unit, shown_as or spec.id, done, spec.x, statuses(done) + self._own_health(unit))
         return True
 
     def _skill_heal(self, unit: Unit, spec) -> bool:
@@ -1222,6 +1233,100 @@ class Battle:
             return True
         return False
 
+    # ---- War Metal Tyrant's activation skills, and Intercept -------------------------------------
+
+    def _skill_shock(self, unit: Unit, spec) -> bool:
+        """Shock X: X damage to the enemy commander, past any Wall."""
+        commander = self.sides[1 - unit.side].commander
+        if not commander.alive:
+            return False
+        self._hit_commander(unit, commander, spec.x)
+        return True
+
+    def _skill_repair(self, unit: Unit, spec) -> bool:
+        """Repair X: heals a random damaged allied structure by X (to its max at most).
+        Shown as a Heal on it."""
+        ok = lambda u: u.alive and u.hp < u.max_hp                    # noqa: E731
+        targets = self._pick(unit, spec, [u for u in self._candidates(unit, spec, False, "structures") if ok(u)])
+        return self._helpful(unit, spec, targets, lambda s, t, x: self._heal_hp(t, x),
+                             lambda ts: [self._health(t) for t in ts], ok, shown_as="heal")
+
+    def _skill_supply(self, unit: Unit, spec) -> bool:
+        """Supply X: heals itself and its neighbours by X each, when any of them is hurt
+        (assaults only, as War Metal's: a commander's Mimic of it does nothing). Shown as
+        one Heal on the hurt ones."""
+        if not unit.is_assault:
+            return False
+        ok = lambda u: u.alive and u.hp < u.max_hp                    # noqa: E731
+        targets = [u for u in [unit] + self._adjacent_allies(unit, spec, ok) if ok(u)]
+        return self._helpful(unit, spec, targets, lambda s, t, x: self._heal_hp(t, x),
+                             lambda ts: [self._health(t) for t in ts], ok, shown_as="heal")
+
+    def _skill_cleanse(self, unit: Unit, spec) -> bool:
+        """Cleanse: takes Poison, Disease, Jam and Enfeeble off a random ally that has any
+        (Weaken stays, as in War Metal). Each cleared status is sent at 0."""
+        def ok(u):
+            return u.alive and (u.poisoned > 0 or u.diseased > 0 or u.jammed or u.enfeebled > 0)
+        targets = self._pick(unit, spec, [u for u in self._candidates(unit, spec, False) if ok(u)])
+        cleared: dict = {}
+
+        def apply(s, t, x):
+            cleared[t] = [flag for flag, on in (("poison", t.poisoned > 0), ("disease", t.diseased > 0),
+                                                ("jammed", t.jammed), ("enfeeble", t.enfeebled > 0)) if on]
+            t.poisoned = t.diseased = t.enfeebled = 0
+            t.poisoned_by = None
+            t.jammed = False
+        return self._helpful(unit, spec, targets, apply,
+                             lambda ts: [self._status(t, f, 0) for t in ts for f in cleared.get(t, [])]
+                             + self._shown_health(ts), ok)
+
+    def _skill_split(self, unit: Unit, spec) -> bool:
+        """Split: a copy of the card joins its side, as if just played: full health, no
+        statuses, its whole delay, and Split too. It first acts on its side's next turn
+        (ours: the row is walked as it grows, so a copy acting at once would split again
+        in the same turn, up to a full row; War Metal's copies doubled turn by turn).
+        Mimic can't copy it."""
+        if unit.is_commander:
+            return False
+        copy = self._bring_in(unit, unit.card)
+        if copy is None:
+            return False
+        self._new_copies.add(copy)
+        return True
+
+    def _intercepted(self, spec, picked: list[Unit], cands: list[Unit]) -> list[Unit]:
+        """Intercept: an enemy skill aimed at one card (not one on all) goes to a neighbour
+        of it with Intercept instead, if that one is a fair target too and isn't one
+        already; the left neighbour first, and a jammed one can't. Shown as the
+        interceptor's own "intercept" just before the skill."""
+        if spec.all:
+            return picked
+        out = []
+        for t in picked:
+            if t.is_assault:
+                row, i = self.sides[t.side].assaults, self.slot(t)
+                for j in (i - 1, i + 1):
+                    g = row[j] if 0 <= j < len(row) else None
+                    if (g is not None and g.alive and g.has("intercept") and not g.jammed and g in cands
+                            and g not in picked and g not in out):
+                        self._action(g, "intercept", [g], 0, [])
+                        t = g
+                        break
+            out.append(t)
+        return out
+
+    def _hit_commander(self, actor: Unit, commander: Unit, amount: int) -> None:
+        """Damage to a commander from a skill (Shock, Backfire), shown so the client's
+        health bar follows: its Strike takes the damage off the bar of the side whose
+        turn it isn't; its Heal adds to the bar of the side whose turn it is, so a
+        negative Heal takes it off that one (with no animation: the client animates only
+        values above 0)."""
+        self._damage(commander, amount)
+        if self.turn and commander.side == self.active.index:
+            self._action(actor, "heal", [commander], -amount, self._own_health(actor))
+        else:
+            self._action(actor, "strike", [commander], amount, self._own_health(actor))
+
     # ---- triggered skills ------------------------------------------------------------------------
 
     def _barrier(self, unit: Unit, amount: int) -> None:
@@ -1313,11 +1418,25 @@ class Battle:
         if card is None:
             self.ignored_skills.add("summon (no card data)")
             return
+        self._bring_in(unit, card)
+
+    def _bring_in(self, unit: Unit, card: Card) -> Unit | None:
+        """A card one of `unit`'s skills brings onto its side (Summon, Split), unless the
+        client's row for it is full. Announced as a "summon" before it arrives, so the
+        client knows it before its arrival skills: the client's Summon puts the card on
+        the side whose turn it is when the value is 1, else on the other side
+        (CombatSkillSummon)."""
         side = self.sides[unit.side]
+        row = side.structures if card.type == STRUCTURE else side.assaults
+        if sum(u.alive for u in row) >= ROW_SLOTS.get(card.type, ROW_SLOTS[ASSAULT]):
+            return None
         uid = side.next_uid
         side.next_uid += 1
-        summoned = self._place(side, card, uid, summoner=unit)
-        self._action(unit, "summon", [summoned], card.id, [])
+        here = 1 if self.turn and unit.side == self.active.index else 0
+        self._section(self._section_name).append({"card_uid": self._ref(unit.uid, "actor"), "skill_id": "summon",
+                                                  "targets": [self._ref(uid, "target")], "value": here,
+                                                  "status": []})
+        return self._place(side, card, uid, summoner=unit)
 
     def _after_damage(self) -> None:
         """Deaths from the last hit: Scavenge, Avenge, Virulence, and the dead card's own
@@ -1363,6 +1482,9 @@ class Battle:
                         self._summon_on(dead, "death")
                     else:
                         self._triggered(dead, spec)
+            backfire = dead.skill("backfire")            # Backfire X (War Metal Tyrant): X to its own commander
+            if backfire and not self.over:
+                self._hit_commander(dead, self.sides[dead.side].commander, backfire)
 
     # ---- battleground rule effects (the optimizer's passive BGEs; Ballroom Blitz) ----------------
 

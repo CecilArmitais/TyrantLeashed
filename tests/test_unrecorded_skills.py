@@ -5,6 +5,7 @@ import pytest
 
 from battle import tuo_tests as tt
 from battle.cards import CardDB
+from battle import engine
 from battle.engine import Battle, Setup
 from common import paths
 
@@ -35,6 +36,7 @@ CARDS = """<root>
   <unit><id>49</id><name>Loyal</name><attack>1</attack><health>9</health><type>2</type><skill id="allegiance" x="1"/></unit>
   <unit><id>50</id><name>Raider</name><attack>0</attack><health>9</health><type>2</type></unit>
   <unit><id>51</id><name>Diseaser</name><attack>0</attack><health>20</health><skill id="disease" x="3"/></unit>
+  <unit><id>52</id><name>Last Summoner</name><attack>0</attack><health>1</health><skill id="summon" card_id="23" trigger="death"/></unit>
 </root>"""
 DB = CardDB.from_xml(CARDS)
 
@@ -111,8 +113,26 @@ def test_summon_on_play():
     b.start()
     turns = b.play(1)
     summon, = acts(turns, 1, "summon")
-    assert summon["targets"] == ["5"] and summon["value"] == 23     # the next uid after the deck
+    assert summon["targets"] == ["5"]                                # the next uid after the deck
+    assert summon["value"] == 1          # the client's Summon: 1 = on the side whose turn it is
     assert (5, 23) in b.played and len(b.sides[0].assaults) == 2
+
+
+def test_a_death_summon_on_the_other_sides_turn_says_so():
+    b = battle((52, 23, 23, 23), (24, 23, 23))
+    b.start()
+    turns = b.play(1)                                      # the Hitter kills it on the enemy's turn
+    summon, = acts(turns, 2, "summon")
+    assert summon["targets"] == ["5"] and summon["value"] == 0    # 0: the other side (its own)
+    assert b.sides[0].assaults[-1].uid == 5
+
+
+def test_summons_stop_at_a_full_row(monkeypatch):
+    monkeypatch.setitem(engine.ROW_SLOTS, engine.ASSAULT, 1)     # the client's rows hold 20
+    b = battle((37, 23, 23, 23), (23, 23, 23))
+    b.start()
+    turns = b.play(1)
+    assert not acts(turns, 1, "summon") and len(b.sides[0].assaults) == 1
 
 
 def test_absorb_soaks_skill_damage():

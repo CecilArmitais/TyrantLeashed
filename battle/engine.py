@@ -55,6 +55,7 @@ BUILT = set(ACTIVATION) | DEFENSIVE | INSTANT_DEBUFF | TRIGGERED | {
     "berserk", "mark"}
 
 ATTACKER, DEFENDER = 0, 1
+ROW_SLOTS = {ASSAULT: 20, STRUCTURE: 9}      # the client's battle rows hold this many cards (BattleScreen)
 COMMANDER_UID = (-1, -2)            # how actions name the attacking / defending commander
 FIRST_UID = (1, 101)                # the attacker's cards are 1.., the defender's 101..
 HAND_SIZE = 3
@@ -1247,11 +1248,25 @@ class Battle:
         if card is None:
             self.ignored_skills.add("summon (no card data)")
             return
+        self._bring_in(unit, card)
+
+    def _bring_in(self, unit: Unit, card: Card) -> Unit | None:
+        """A card one of `unit`'s skills brings onto its side (Summon, Split), unless the
+        client's row for it is full. Announced as a "summon" before it arrives, so the
+        client knows it before its arrival skills: the client's Summon puts the card on
+        the side whose turn it is when the value is 1, else on the other side
+        (CombatSkillSummon)."""
         side = self.sides[unit.side]
+        row = side.structures if card.type == STRUCTURE else side.assaults
+        if sum(u.alive for u in row) >= ROW_SLOTS.get(card.type, ROW_SLOTS[ASSAULT]):
+            return None
         uid = side.next_uid
         side.next_uid += 1
-        summoned = self._place(side, card, uid, summoner=unit)
-        self._action(unit, "summon", [summoned], card.id, [])
+        here = 1 if self.turn and unit.side == self.active.index else 0
+        self._section(self._section_name).append({"card_uid": self._ref(unit.uid, "actor"), "skill_id": "summon",
+                                                  "targets": [self._ref(uid, "target")], "value": here,
+                                                  "status": []})
+        return self._place(side, card, uid, summoner=unit)
 
     def _after_damage(self) -> None:
         """Deaths from the last hit: Scavenge, Avenge, Virulence, and the dead card's own

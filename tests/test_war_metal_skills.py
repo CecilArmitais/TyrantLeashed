@@ -37,6 +37,11 @@ CARDS = """<root>
   <unit><id>50</id><name>Counterer</name><attack>0</attack><health>10</health><skill id="counter" x="2"/></unit>
   <unit><id>51</id><name>Last Shocker</name><attack>0</attack><health>1</health><skill id="shock" x="3" trigger="death"/></unit>
   <unit><id>52</id><name>Last Summoner</name><attack>0</attack><health>1</health><skill id="summon" card_id="23" trigger="death"/></unit>
+  <unit><id>60</id><name>Chaoser</name><attack>0</attack><health>10</health><skill id="chaos"/></unit>
+  <unit><id>62</id><name>Immobilizer</name><attack>2</attack><health>20</health><skill id="immobilize"/></unit>
+  <unit><id>63</id><name>Fuser</name><attack>0</attack><health>10</health><skill id="fusion"/><skill id="strike" x="2"/></unit>
+  <unit><id>64</id><name>Emulator</name><attack>0</attack><health>20</health><skill id="emulate"/></unit>
+  <unit><id>65</id><name>Healer</name><attack>0</attack><health>9</health><skill id="heal" x="4"/></unit>
 </root>"""
 DB = CardDB.from_xml(CARDS)
 
@@ -385,3 +390,71 @@ def test_backfire_on_its_own_turn_is_a_negative_heal():
     backfire, = actions(turns, 3, "heal")
     assert backfire["targets"] == [-1] and backfire["value"] == -4
     assert b.sides[0].commander.hp == 36
+
+
+# ---- the third batch: Chaos, Immobilize, Fusion, Emulate --------------------------------------
+
+def test_the_third_batch_is_built():
+    assert {"chaos", "immobilize", "fusion", "emulate"} <= BUILT
+
+
+def test_chaos_turns_an_enemy_skill_on_its_own_side():
+    b = battle(att=(60, 23, 23, 23, 23), dfn=(48, 23, 23))
+    b.start()
+    b.play(1)                                              # turn 2: the Striker arrives (and strikes us)
+    turns = b.play(2)                                      # turn 3: the Chaoser chaoses it
+    chaos, = actions(turns, 3, "chaos")
+    assert chaos["card_uid"] == 1 and chaos["targets"] == [101]
+    assert {"card_uid": 101, "status_flag": "chaos", "value": 1} in chaos["status"]
+    strike, = actions(turns, 4, "strike")                  # turn 4: it strikes its own side
+    assert strike["card_uid"] == 101 and strike["targets"] == [102]
+    assert b.sides[1].assaults[1].hp == 20 - 3
+    assert {"card_uid": 101, "status_flag": "chaos", "value": 0} in turns[4]["end"]
+    assert not b.sides[1].assaults[0].chaosed
+
+
+def test_immobilize_stops_the_next_attack():
+    b = battle(att=(62, 23, 23, 23, 23), dfn=(24, 23, 23), roll=0.0)    # every roll succeeds
+    b.start()
+    b.play(1)
+    turns = b.play(2)                                      # turn 3: it hits the Hitter
+    immobilize, = actions(turns, 3, "immobilize")
+    assert immobilize["targets"] == [101]
+    assert {"card_uid": 101, "status_flag": "immobilized", "value": 1} in immobilize["status"]
+    assert not [a for a in attacks(turns, 4) if a["card_uid"] == 101]        # turn 4: no attack
+    assert {"card_uid": 101, "status_flag": "immobilized", "value": 0} in turns[4]["end"]
+
+
+def test_immobilize_can_fail():
+    b = battle(att=(62, 23, 23, 23, 23), dfn=(24, 23, 23), roll=0.9)
+    b.start()
+    b.play(1)
+    turns = b.play(2)
+    assert not actions(turns, 3, "immobilize") and [a for a in attacks(turns, 4) if a["card_uid"] == 101]
+
+
+def test_fusion_doubles_skills_with_three_active():
+    b = battle(att=(63, 63, 63, 23, 23, 23), dfn=(23, 23, 23))
+    b.start()
+    b.play(1)
+    turns = b.play(2)                                      # two: no Fusion yet
+    assert not actions(turns, 3, "fusion") and {a["value"] for a in actions(turns, 3, "strike")} == {2}
+    turns = b.play(3)                                      # the third: all three double up
+    fusions = actions(turns, 5, "fusion")
+    assert [f["card_uid"] for f in fusions] == [1, 2, 3]
+    assert fusions[0]["status"] == [{"card_uid": "1", "status_flag": "enhance_strike", "value": 2}]
+    assert {a["value"] for a in actions(turns, 5, "strike")} == {4}
+
+
+def test_emulate_copies_a_help_given_across_from_it():
+    b = battle(att=(64, 23, 23, 23, 23), dfn=(23, 65, 23))
+    b.start()
+    b.play(1)                                              # turn 2: an enemy Dummy across the Emulator
+    b.sides[0].assaults[0].hp = 10
+    b.sides[1].assaults[0].hp = 10
+    turns = b.play(2)                                      # turn 4: the enemy Healer heals that Dummy
+    heal, copy = actions(turns, 4, "heal")
+    assert heal["card_uid"] == 102 and heal["targets"] == [101]
+    assert copy["card_uid"] == 1 and copy["targets"] == ["1"] and copy["value"] == 4
+    assert copy["status"] == [{"card_uid": "1", "status_flag": "h", "value": 14}]   # once
+    assert b.sides[0].assaults[0].hp == 14

@@ -45,7 +45,7 @@ from .effects import ARRIVAL, FILTERS
 HOSTILE = ("enfeeble", "jam", "besiege", "siege", "strike", "sunder", "weaken", "mimic")
 HELPFUL = ("heal", "mend", "overload", "protect", "rally", "fortify", "enrage", "entrap", "rush", "evolve")
 # War Metal Tyrant's activation skills, brought back (see WAR_METAL below)
-WAR_METAL_HOSTILE = ("shock",)
+WAR_METAL_HOSTILE = ("shock", "chaos")
 WAR_METAL_HELPFUL = ("repair", "supply", "cleanse", "split")
 ACTIVATION = HOSTILE + HELPFUL + WAR_METAL_HOSTILE + WAR_METAL_HELPFUL
 X_ACTIVATION = {"enfeeble", "besiege", "siege", "strike", "sunder", "weaken", "mimic", "shock"}   # Sabotage lowers these
@@ -56,7 +56,7 @@ TRIGGERED = {"allegiance", "flurry", "valor", "stasis", "summon", "bravery", "en
 # War Metal Tyrant's skills, brought back (Tyrant Unleashed dropped them; the client still has
 # their icons). Regeneration is War Metal's Regenerate, named after its icon (regeneration16).
 WAR_METAL = {"antiair", "fear", "crush", "siphon", "regeneration", "burst", "intercept", "backfire",
-             *WAR_METAL_HOSTILE, *WAR_METAL_HELPFUL}
+             "immobilize", "fusion", "emulate", *WAR_METAL_HOSTILE, *WAR_METAL_HELPFUL}
 BUILT = set(ACTIVATION) | DEFENSIVE | INSTANT_DEBUFF | TRIGGERED | WAR_METAL | {
     "pierce", "swipe", "hunt", "poison", "legion", "coalition", "rupture", "venom", "leech", "drain",
     "berserk", "mark"}
@@ -112,6 +112,10 @@ class Unit:
         self.skill_cd: dict[str, int] = {}   # skill -> turns of cooldown left
         self.enhanced: dict[str, int] = {}   # Enhance: skill -> extra; until the end of the opponent's turn
         self.evolved: dict[str, str] = {}    # Evolve: skill -> skill it acts as, for the same time
+        self.chaosed = False         # Chaos: its attack skills hit its own side, until it has used them
+        self.chaos_shown = False     # the Chaos marker on it in the client, until the end of its turn
+        self.immobilized = False     # Immobilize: no attack on its next turn
+        self.fused = False           # Fusion: its skill values doubled (3+ active Fusion cards)
 
     @property
     def alive(self) -> bool:
@@ -164,6 +168,8 @@ class Unit:
         """The skill's current value: Sabotage lowers amount-based active skills,
         Enhance raises any."""
         value = self.base_skill(skill_id)
+        if self.fused and skill_id != "fusion":
+            value *= 2
         if skill_id in X_ACTIVATION:
             value = max(0, value - self.sabotaged)
         return value + self.enhanced.get(skill_id, 0)
@@ -529,6 +535,7 @@ class Battle:
         n = 0
         while n < actions and not self.over and unit.alive:
             self._begin_action()
+            self._update_fusion()
             self._note_skills(unit)
             if unit.is_assault:
                 unit.step = "attacking"
@@ -540,8 +547,9 @@ class Battle:
                         and not unit.jammed:
                     if self._use(unit, replace(spec, id=sid)) and spec.c:
                         unit.skill_cd[spec.id] = spec.c             # used: wait c turns
+            unit.chaosed = False                                    # Chaos fades once its skills are used
             if not self.over and unit.is_assault:
-                if unit.can_act and self._attack(unit):
+                if unit.can_act and not unit.immobilized and self._attack(unit):
                     if unit.corroded_rate:                          # Corrosion bites each time it attacks
                         bite = min(unit.corroded_rate, unit.attack_power(),
                                    unit.card.attack + unit.perm_attack - unit.corroded_weakened)
@@ -560,7 +568,7 @@ class Battle:
 
     def _use(self, unit: Unit, spec) -> bool:
         """An active skill at its current value. True if it did something."""
-        x = spec.x
+        x = spec.x * (2 if unit.fused and spec.id != "fusion" else 1)
         if spec.id in X_ACTIVATION:
             x = max(0, x - unit.sabotaged)
         x += unit.enhanced.get(spec.id, 0)
@@ -607,11 +615,13 @@ class Battle:
             if unit.alive:
                 for flag, value, cleared in (("attack_boost", unit.temp_attack, 0), ("jammed", unit.jammed, 0),
                                              ("inhibited", unit.inhibited, 0), ("sabotaged", unit.sabotaged, 0),
-                                             ("overloaded", unit.overloaded, 0)):
+                                             ("overloaded", unit.overloaded, 0), ("immobilized", unit.immobilized, 0),
+                                             ("chaos", unit.chaos_shown, 0)):
                     if value:
                         self._section("end").append(self._status(unit, flag, cleared))
             unit.temp_attack = 0
             unit.jammed = unit.sundered = unit.overloaded = False
+            unit.immobilized = unit.chaosed = unit.chaos_shown = False
             unit.enraged = unit.inhibited = unit.sabotaged = unit.tributed = 0
             unit.step = "none"
         for unit in self.sides[1 - side.index].assaults:   # the other side's wear off
@@ -740,6 +750,11 @@ class Battle:
             target.poisoned += venom
             target.poisoned_by = att
             self._action(att, "venom", [target], venom, [self._status(target, "poison", target.poisoned)]
+                         + self._own_health(att))
+        if (att.has("immobilize") and dealt and on_assault and target.alive and not target.immobilized
+                and self.rng.random() < 0.5):            # Immobilize (War Metal Tyrant): half the time
+            target.immobilized = True
+            self._action(att, "immobilize", [target], 1, [self._status(target, "immobilized", 1)]
                          + self._own_health(att))
         self._after_damage()
         if self.over:
@@ -899,8 +914,13 @@ class Battle:
     # ---- active skills ---------------------------------------------------------------------------
 
     def _candidates(self, unit: Unit, spec, hostile: bool, kind: str = "assaults") -> list[Unit]:
-        side = self.sides[1 - unit.side if hostile else unit.side]
+        """The cards a skill may pick from. A Chaosed card's attack skills (War Metal
+        Tyrant's Chaos) pick from its own side instead, itself left out."""
+        own = not hostile or unit.chaosed
+        side = self.sides[unit.side if own else 1 - unit.side]
         units = side.structures if kind == "structures" else side.assaults
+        if hostile and unit.chaosed:
+            units = [u for u in units if u is not unit]
         if spec.y and not self._no_factions():
             units = [u for u in units if u.card.faction in (spec.y, PROGENITOR)]
         return units
@@ -917,9 +937,10 @@ class Battle:
         return self.turn and unit.side == self.active.index
 
     def _will_act(self, u: Unit, source: Unit) -> bool:
-        """Weaken / Jam / Sunder targets: cards that will act on their next turn
-        (the active side's skills), or still this turn (a skill set off on the other side)."""
-        if self._from_active_side(source):
+        """Weaken / Jam / Sunder targets: cards that will still act this turn (on the side
+        whose turn it is: a skill set off on the other side, or a Chaosed card's on its
+        own), or else on their next turn."""
+        if self._from_active_side(source) and u.side != source.side:
             return u.active_next_turn
         return u.active and u.step == "none"
 
@@ -927,12 +948,12 @@ class Battle:
 
     def _hostile(self, unit: Unit, spec, cands: list[Unit], apply, statuses, damage: bool = False,
                  after_hit=None) -> bool:
-        picked = self._intercepted(spec, self._pick(unit, spec, cands), cands)
+        picked = self._intercepted(unit, spec, self._pick(unit, spec, cands), cands)
         if not picked:
             return False
         hit, evaded = [], []
-        for t in picked:
-            if not unit.overloaded and t.evaded < t.skill("evade"):
+        for t in picked:                          # a Chaosed card's skills can't be evaded (War Metal)
+            if not unit.overloaded and not unit.chaosed and t.evaded < t.skill("evade"):
                 t.evaded += 1
                 evaded.append(t)
             else:
@@ -951,7 +972,7 @@ class Battle:
         if after_hit is not None and hit:
             after_hit()
         result = bool(hit)                                   # all evaded: no cooldown
-        if unit.is_assault:                                  # Payback / Revenge send it back
+        if unit.is_assault and not unit.chaosed:             # Payback / Revenge send it back (not an ally's)
             for t in hit:
                 back = t.skill("payback") + t.skill("revenge")
                 if t.paybacked >= back:
@@ -1033,7 +1054,7 @@ class Battle:
             t.temp_attack -= min(x, before)
             taken[0] = max(taken[0], before - t.attack_power())
         cands = [u for u in self._candidates(unit, spec, True) if u.attack_power() > 0 and self._will_act(u, unit)
-                 and not self._iron_will(u)]
+                 and not self._iron_will(u) and (spec.all or not u.immobilized)]   # single ones skip Immobilized
         return self._hostile(unit, spec, cands, apply,
                              lambda ts: [self._status(t, "attack_boost", t.temp_attack) for t in ts]
                              + self._shown_health(ts), after_hit=lambda: self._turning_tides(unit, spec, taken[0]))
@@ -1080,7 +1101,22 @@ class Battle:
         if not done:
             return False
         self._action(unit, shown_as or spec.id, done, spec.x, statuses(done) + self._own_health(unit))
+        if not unit.chaosed and spec.id not in ("evolve", "rush"):
+            for t in done:                        # Emulate: the card across from one it helped copies it
+                e = self._across(t)
+                if e is not None and e.alive and e.has("emulate") and check(e) and not self._inhibits(unit, e):
+                    apply(e, e, spec.x)
+                    shown = statuses([e])
+                    self._action(e, shown_as or spec.id, [e], spec.x,
+                                 shown + [h for h in self._own_health(e) if h not in shown])
         return True
+
+    def _across(self, unit: Unit) -> Unit | None:
+        """The assault across from an assault, if any."""
+        if not unit.is_assault:
+            return None
+        row, i = self.sides[1 - unit.side].assaults, self.slot(unit)
+        return row[i] if i < len(row) else None
 
     def _skill_heal(self, unit: Unit, spec) -> bool:
         ok = lambda u: u.alive and u.hp < u.max_hp                    # noqa: E731
@@ -1097,7 +1133,7 @@ class Battle:
 
     def _skill_rally(self, unit: Unit, spec) -> bool:
         def ok(u):
-            if u.sundered:
+            if u.sundered or u.immobilized:                       # Immobilized: no Rally (War Metal)
                 return False
             return (u.active and u.step != "attacked") if self._from_active_side(u) else u.active_next_turn
         targets = self._pick(unit, spec, [u for u in self._candidates(unit, spec, False) if ok(u)])
@@ -1280,6 +1316,36 @@ class Battle:
                              lambda ts: [self._status(t, f, 0) for t in ts for f in cleared.get(t, [])]
                              + self._shown_health(ts), ok)
 
+    def _skill_chaos(self, unit: Unit, spec) -> bool:
+        """Chaos: an enemy assault that will still act, not jammed nor Chaosed already,
+        uses its attack skills on its own side until it has used them (all-target ones
+        on all of it). They can't be evaded, paid back or intercepted. A "chaos" status
+        marks it until the end of its turn (the client shows any status flag with the
+        skills_set.xml entry that names it)."""
+        def apply(src, t, x):
+            t.chaosed = t.chaos_shown = True
+        cands = [u for u in self._candidates(unit, spec, True)
+                 if u.alive and self._will_act(u, unit) and not u.jammed and not u.chaosed]
+        return self._hostile(unit, spec, cands, apply,
+                             lambda ts: [self._status(t, "chaos", 1) for t in ts] + self._shown_health(ts))
+
+    def _update_fusion(self) -> None:
+        """Fusion: while 3 or more of a side's Fusion cards are on the field and active
+        (delay 0), each of those has its skill values doubled. Shown when it starts and
+        stops, as a "fusion" action with Enhance statuses (enhance_<skill>: the bonus;
+        the client draws the skill's icon with a plus), cleared at 0."""
+        for side in self.sides:
+            cards = [u for u in side.assaults + side.structures if u.alive and u.has("fusion")]
+            ready = sum(1 for u in cards if u.delay == 0) >= 3
+            for u in cards:
+                now = ready and u.delay == 0
+                if now == u.fused:
+                    continue
+                u.fused = now
+                bonus = [(sk.id, sk.x) for sk in u.card.skills if sk.id != "fusion" and sk.x]
+                self._action(u, "fusion", [u], 1 if now else 0,
+                             [self._status(u, f"enhance_{sid}", x if now else 0) for sid, x in bonus])
+
     def _skill_split(self, unit: Unit, spec) -> bool:
         """Split: a copy of the card joins its side, as if just played: full health, no
         statuses, its whole delay, and Split too. It first acts on its side's next turn
@@ -1294,7 +1360,7 @@ class Battle:
         self._new_copies.add(copy)
         return True
 
-    def _intercepted(self, spec, picked: list[Unit], cands: list[Unit]) -> list[Unit]:
+    def _intercepted(self, unit: Unit, spec, picked: list[Unit], cands: list[Unit]) -> list[Unit]:
         """Intercept: an enemy skill aimed at one card (not one on all) goes to a neighbour
         of it with Intercept instead, if that one is a fair target too and isn't one
         already; the left neighbour first, and a jammed one can't. Shown as the
@@ -1303,7 +1369,7 @@ class Battle:
             return picked
         out = []
         for t in picked:
-            if t.is_assault:
+            if t.is_assault and t.side != unit.side:               # an enemy's skill, not a Chaosed ally's
                 row, i = self.sides[t.side].assaults, self.slot(t)
                 for j in (i - 1, i + 1):
                     g = row[j] if 0 <= j < len(row) else None

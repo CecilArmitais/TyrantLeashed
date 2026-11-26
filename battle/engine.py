@@ -38,7 +38,7 @@ import random
 from collections import Counter
 from dataclasses import dataclass, replace
 
-from .cards import ASSAULT, COMMANDER, STRUCTURE, Card, SkillSpec
+from .cards import ACTION, ASSAULT, COMMANDER, STRUCTURE, Card, SkillSpec
 from .effects import ARRIVAL, FILTERS
 
 # Skill groups, as in the optimizer's tyrant.h
@@ -84,7 +84,7 @@ class Unit:
     def __init__(self, uid: int, card: Card, side: int, summoned: bool = False):
         self.uid, self.card, self.side = uid, card, side
         self.summoned = summoned
-        self.hp = card.health
+        self.hp = max(card.health, 1) if card.type == ACTION else card.health   # an action card has none
         self.delay = card.delay
         self.perm_attack = 0         # Avenge, Berserk, Valor...
         self.perm_health = 0         # Fortify, Avenge, Leech...
@@ -150,6 +150,10 @@ class Unit:
         return self.card.type == ASSAULT
 
     @property
+    def is_action(self) -> bool:
+        return self.card.type == ACTION
+
+    @property
     def can_act(self) -> bool:
         return self.alive and not self.jammed and not self.frozen
 
@@ -209,6 +213,7 @@ class Side:
         self.shown: set[int] = set()                 # already sent as draws
         self.assaults: list[Unit] = []
         self.structures: list[Unit] = []
+        self.actions: list[Unit] = []                # action cards in play, waiting or about to act
         self.played: list[int] = []
         self.next_uid = FIRST_UID[index] + len(deck)  # for summoned cards
         self.stasis_factions: set[int] = set()
@@ -451,6 +456,10 @@ class Battle:
         self._end_action()
         self._heroism_protect(side)
         self._bge_phase(side)
+        for unit in list(side.actions):                      # action cards first (War Metal's order)
+            if self.over:
+                break
+            self._act_action(unit)
         if not self.over:
             self._act(side.commander)
         for unit in list(side.structures):
@@ -516,6 +525,8 @@ class Battle:
         unit = Unit(uid, card, side.index, summoned=not (played or fortress))
         if summoner is not None and summoner.is_structure and unit.delay > 0:
             unit.delay -= 1                                  # reduce_delay_summoned_by_tower
+        if card.type == ACTION:
+            return self._place_action(side, unit, uid, played)
         (side.structures if card.type == STRUCTURE else side.assaults).append(unit)
         self.played.append((uid, card.id))
         if played:
@@ -547,6 +558,50 @@ class Battle:
         self._summon_on(unit, "play")
         self._after_damage()
         return unit
+
+    def _place_action(self, side: Side, unit: Unit, uid: int, played: bool) -> Unit:
+        """An action card (War Metal Tyrant's) enters play: in its side's actions, not a row
+        of the field (the client shows it in the structure row). Nothing arrives with it but
+        its "on play" skills; it acts later in the same turn (_act_action). Action cards
+        have no health and no timer."""
+        side.actions.append(unit)
+        self.played.append((uid, unit.card.id))
+        if played:
+            side.played.append(uid)
+            self._section("plays").append({"card_uid": self._ref(uid, "play"), "status": []})
+        self._note_skills(unit)
+        for spec in unit.card.skills:
+            if spec.trigger == "play" and not self._in_bge:
+                self._triggered(unit, spec)
+        self._summon_on(unit, "play")
+        self._after_damage()
+        return unit
+
+    def _act_action(self, unit: Unit) -> None:
+        """An action card's one use: its activation skills (a Summon too) in card order, before
+        the commander's (War Metal: "Action Cards, Commander Cards, Structure Cards, Assault
+        Cards"), then it's gone: removed, not killed (no death skills, not listed as killed).
+        Its skills have no source unit, so they aren't paid back, Tributed or Emulated (War
+        Metal: "unlike a pure Action Card"); Payback, Tribute and Emulate already answer only
+        assaults. Its other skills do nothing."""
+        self._begin_action()
+        self._update_fusion()
+        self._note_skills(unit)
+        for spec in unit.card.skills:
+            if self.over:
+                break
+            if spec.trigger != "activate":
+                continue
+            if spec.id == "summon":
+                self._summon_on(unit, "activate")
+            elif spec.id in ACTIVATION:
+                self._use(unit, spec)
+            else:
+                self.ignored_skills.add(f"{spec.id} (on an action card)")
+        self._end_action()
+        if unit in self.sides[unit.side].actions:
+            self.sides[unit.side].actions.remove(unit)
+        unit.hp = 0                                          # used up
 
     def _act(self, unit: Unit) -> None:
         """One card's (or commander's) action: its activation skills, then (assaults)

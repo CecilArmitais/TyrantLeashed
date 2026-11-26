@@ -15,6 +15,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 ASSAULT, STRUCTURE, COMMANDER = "assault", "structure", "commander"
+ACTION = "action"           # War Metal Tyrant's one-use cards (ids 3000-3999); the client still knows them
 TRIGGERS = ("activate", "play", "attacked", "death")
 
 
@@ -56,8 +57,9 @@ class Card:
 
 
 def card_type(base_id: int) -> str:
-    """From the id range of the unit, as the optimizer does."""
-    for upper, kind in ((1000, ASSAULT), (2000, COMMANDER), (3000, STRUCTURE), (8000, ASSAULT),
+    """From the id range of the unit, as the optimizer does, and the client's own: 3000-3999
+    are action cards (`Card.IsAction`)."""
+    for upper, kind in ((1000, ASSAULT), (2000, COMMANDER), (3000, STRUCTURE), (4000, ACTION), (8000, ASSAULT),
                         (10000, STRUCTURE), (17000, ASSAULT), (25000, STRUCTURE), (30000, COMMANDER),
                         (50001, ASSAULT), (55001, STRUCTURE)):
         if base_id < upper:

@@ -52,6 +52,7 @@ CARDS = """<root>
   <unit><id>78</id><name>Last Regrower</name><attack>0</attack><health>3</health><skill id="regeneration" x="2"/><skill id="shock" x="3" trigger="death"/></unit>
   <unit><id>79</id><name>Big Regrower</name><attack>0</attack><health>3</health><skill id="regeneration" x="9"/></unit>
   <unit><id>1301</id><name>Jotun</name><health>40</health><skill id="blizzard"/></unit>
+  <unit><id>1302</id><name>Miasma</name><health>40</health><skill id="mist"/></unit>
 </root>"""
 DB = CardDB.from_xml(CARDS)
 
@@ -486,7 +487,7 @@ def test_emulate_copies_a_help_given_across_from_it():
 # ---- Freeze and Blizzard ------------------------------------------------------------------
 
 def test_freeze_stops_an_enemy_until_its_turn_ends():
-    assert {"freeze", "blizzard"} <= BUILT
+    assert {"freeze", "blizzard", "mist"} <= BUILT
     b = battle(att=(70, 23, 23, 23, 23), dfn=(24, 23, 23))
     b.start()
     b.play(1)                                              # turn 2: an enemy Hitter across the Freezer
@@ -598,3 +599,15 @@ def test_blizzard_hides_a_summoned_card_too():
     turns = b.play(1)                                      # turn 2: it summons a Slow card on play
     summon, = actions(turns, 2, "summon")
     assert summon["status"] == [{"card_uid": 104, "status_flag": "blizzard", "value": 1}]
+
+
+def test_mist_hides_as_blizzard_does_under_its_own_name():
+    b = blizzard_battle(att=(23, 23, 23, 23, 23), dfn=(72, 23, 23, 23), dfn_commander=1302)
+    b.start()
+    turns = b.play(1)                                      # turn 2: Miasma's side plays a Slow card
+    assert turns[2]["plays"] == [{"card_uid": 101,
+                                  "status": [{"card_uid": 101, "status_flag": "mist", "value": 1}]}]
+    b.play(2)
+    turns = b.play(3)                                      # turn 6: its timer runs out
+    reveal, = [a for a in turns[6]["upkeep"] if a["skill_id"] == "mist"]
+    assert reveal["status"] == [{"card_uid": 101, "status_flag": "mist", "value": 0}]

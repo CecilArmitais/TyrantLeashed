@@ -47,6 +47,7 @@ HELPFUL = ("heal", "mend", "overload", "protect", "rally", "fortify", "enrage", 
 # War Metal Tyrant's activation skills, brought back (see WAR_METAL below)
 WAR_METAL_HOSTILE = ("shock", "chaos", "freeze")
 WAR_METAL_HELPFUL = ("repair", "supply", "cleanse", "split")
+HIDING = ("blizzard", "mist")       # War Metal's: a side's cards hidden from the player until active
 ACTIVATION = HOSTILE + HELPFUL + WAR_METAL_HOSTILE + WAR_METAL_HELPFUL
 X_ACTIVATION = {"enfeeble", "besiege", "siege", "strike", "sunder", "weaken", "mimic", "shock"}   # Sabotage lowers these
 DEFENSIVE = {"armored", "avenge", "scavenge", "corrosive", "counter", "evade", "subdue", "absorb", "flying",
@@ -56,7 +57,7 @@ TRIGGERED = {"allegiance", "flurry", "valor", "stasis", "summon", "bravery", "en
 # War Metal Tyrant's skills, brought back (Tyrant Unleashed dropped them; the client still has
 # their icons). Regeneration is War Metal's Regenerate, named after its icon (regeneration16).
 WAR_METAL = {"antiair", "fear", "crush", "siphon", "regeneration", "burst", "intercept", "backfire",
-             "immobilize", "fusion", "emulate", "blizzard", *WAR_METAL_HOSTILE, *WAR_METAL_HELPFUL}
+             "immobilize", "fusion", "emulate", *HIDING, *WAR_METAL_HOSTILE, *WAR_METAL_HELPFUL}
 BUILT = set(ACTIVATION) | DEFENSIVE | INSTANT_DEBUFF | TRIGGERED | WAR_METAL | {
     "pierce", "swipe", "hunt", "poison", "legion", "coalition", "rupture", "venom", "leech", "drain",
     "berserk", "mark"}
@@ -117,7 +118,7 @@ class Unit:
         self.immobilized = False     # Immobilize: no attack on its next turn
         self.fused = False           # Fusion: its skill values doubled (3+ active Fusion cards)
         self.frozen = False          # Freeze: no action, and its timer stops, until its next turn ends
-        self.hidden = False          # Blizzard: shown covered to the other player until it's active
+        self.hidden = ""             # Blizzard / Mist (the one): covered to the other player until active
         self.regen_back = 0          # Regeneration: the health it comes back with, once its death is done
 
     @property
@@ -514,7 +515,7 @@ class Battle:
         unit.hidden = self._hides(unit)
         if played or fortress:                               # a hidden card lands covered
             self._section("plays").append({"card_uid": self._ref(uid, "play"),
-                                           "status": [self._status(unit, "blizzard", 1)] if unit.hidden else []})
+                                           "status": [self._status(unit, unit.hidden, 1)] if unit.hidden else []})
         self._note_skills(unit)
         self._arrive(unit)
         if unit.skill("barrier"):
@@ -1071,22 +1072,33 @@ class Battle:
                              lambda ts: [self._status(t, "frozen", 1) for t in ts] + self._shown_health(ts),
                              payback=False)
 
-    def _hides(self, unit: Unit) -> bool:
-        """Blizzard (War Metal Tyrant): a card that arrives with its timer running, on a side
-        with Blizzard in play (on its commander or any of its cards, the arriving one too),
-        is hidden from the player until it's active or destroyed. Only the other side's
-        cards: the player sees their own."""
-        side = self.sides[unit.side]
-        return (unit.delay > 0 and unit.side != self.viewer and not unit.is_commander
-                and any(u.alive and u.has("blizzard") for u in [side.commander] + side.structures + side.assaults))
+    def _hider(self, side: Side) -> str:
+        """The hiding skill a side has in play (Blizzard or Mist, on its commander or any of
+        its cards; the first found), or ""."""
+        for u in [side.commander] + side.structures + side.assaults:
+            if u.alive:
+                for sid in HIDING:
+                    if u.has(sid):
+                        return sid
+        return ""
+
+    def _hides(self, unit: Unit) -> str:
+        """Blizzard and Mist (War Metal Tyrant; the same rule, on different raid bosses): a
+        card that arrives with its timer running, on a side with either in play (the
+        arriving card's own too), is hidden from the player until it's active or destroyed.
+        Only the other side's cards: the player sees their own. Returns the skill that
+        hides it, whose status it gets (each has its own look), or ""."""
+        if unit.delay <= 0 or unit.side == self.viewer or unit.is_commander:
+            return ""
+        return self._hider(self.sides[unit.side])
 
     def _reveal(self, unit: Unit) -> None:
-        """A hidden card shows: a "blizzard" action from it with its "blizzard" status at 0;
-        the client mod plays the cover dissolving."""
+        """A hidden card shows: an action from it named after the skill that hid it, with
+        that status at 0; the client mod plays the cover going."""
         if unit.hidden:
-            unit.hidden = False
+            flag, unit.hidden = unit.hidden, ""
             if unit.alive:
-                self._action(unit, "blizzard", [unit], 0, [self._status(unit, "blizzard", 0)])
+                self._action(unit, flag, [unit], 0, [self._status(unit, flag, 0)])
 
     def _skill_weaken(self, unit: Unit, spec) -> bool:
         return self._weaken(unit, spec, sunder=False)
@@ -1562,8 +1574,8 @@ class Battle:
                   "targets": [self._ref(uid, "target")], "value": here, "status": []}
         self._section(self._section_name).append(action)
         placed = self._place(side, card, uid, summoner=unit)
-        if placed.hidden:                                    # Blizzard: it arrives covered
-            action["status"].append(self._status(placed, "blizzard", 1))
+        if placed.hidden:                                    # Blizzard / Mist: it arrives covered
+            action["status"].append(self._status(placed, placed.hidden, 1))
         return placed
 
     def _after_damage(self) -> None:
@@ -1615,10 +1627,9 @@ class Battle:
             if backfire and not self.over:
                 self._hit_commander(dead, self.sides[dead.side].commander, backfire)
         self._revive()                                       # Regeneration: after the deaths and their chain
-        for side in self.sides:                              # Blizzard gone: what it hid shows
+        for side in self.sides:                              # Blizzard / Mist gone: what they hid shows
             hidden = [u for u in side.structures + side.assaults if u.hidden and u.alive]
-            if hidden and not any(u.alive and u.has("blizzard")
-                                  for u in [side.commander] + side.structures + side.assaults):
+            if hidden and not self._hider(side):
                 for u in hidden:
                     self._reveal(u)
 

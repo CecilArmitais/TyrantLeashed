@@ -58,7 +58,7 @@ TRIGGERED = {"allegiance", "flurry", "valor", "stasis", "summon", "bravery", "en
 # War Metal Tyrant's skills, brought back (Tyrant Unleashed dropped them; the client still has
 # their icons). Regeneration is War Metal's Regenerate, named after its icon (regeneration16).
 WAR_METAL = {"antiair", "fear", "crush", "siphon", "regeneration", "burst", "intercept", "backfire",
-             "immobilize", "fusion", "emulate", *HIDING, *WAR_METAL_HOSTILE, *WAR_METAL_HELPFUL,
+             "immobilize", "fusion", "emulate", "recharge", *HIDING, *WAR_METAL_HOSTILE, *WAR_METAL_HELPFUL,
              *WAR_METAL_NEUTRAL}
 BUILT = set(ACTIVATION) | DEFENSIVE | INSTANT_DEBUFF | TRIGGERED | WAR_METAL | {
     "pierce", "swipe", "hunt", "poison", "legion", "coalition", "rupture", "venom", "leech", "drain",
@@ -583,7 +583,8 @@ class Battle:
         Cards"), then it's gone: removed, not killed (no death skills, not listed as killed).
         Its skills have no source unit, so they aren't paid back, Tributed or Emulated (War
         Metal: "unlike a pure Action Card"); Payback, Tribute and Emulate already answer only
-        assaults. Its other skills do nothing."""
+        assaults. With Recharge it may go back to its deck (_recharge). Its other skills do
+        nothing."""
         self._begin_action()
         self._update_fusion()
         self._note_skills(unit)
@@ -596,12 +597,29 @@ class Battle:
                 self._summon_on(unit, "activate")
             elif spec.id in ACTIVATION:
                 self._use(unit, spec)
-            else:
+            elif spec.id != "recharge":
                 self.ignored_skills.add(f"{spec.id} (on an action card)")
+        if unit.has("recharge") and not self.over and self.rng.random() < 0.5:
+            self._recharge(unit)
         self._end_action()
         if unit in self.sides[unit.side].actions:
             self.sides[unit.side].actions.remove(unit)
         unit.hp = 0                                          # used up
+
+    def _recharge(self, unit: Unit) -> None:
+        """Recharge (War Metal Tyrant; only on action cards): after its use, a 50% chance the
+        card goes back to the bottom of its side's deck, to be drawn and played again. It
+        comes back as a new card: a new uid (the client won't play a uid twice), in the
+        side's deck (sent as attack_deck), so the client can draw it. Shown as the card's
+        own "recharge" action, with a "recharged" status on its commander, 1 then 0: the
+        client mod adds a card to that side's deck count."""
+        side = self.sides[unit.side]
+        uid = side.next_uid
+        side.next_uid += 1
+        side.cards[uid] = unit.card
+        side.remaining.append(uid)
+        self._action(unit, "recharge", [unit], 1, [self._status(side.commander, "recharged", 1),
+                                                   self._status(side.commander, "recharged", 0)])
 
     def _act(self, unit: Unit) -> None:
         """One card's (or commander's) action: its activation skills, then (assaults)

@@ -2,6 +2,8 @@
 timer), on small made-up cards: each acts once, before its commander, then is gone. Random
 picks take the first candidate."""
 
+import random
+
 from battle.cards import ACTION, CardDB
 from battle.engine import Battle, Setup
 
@@ -16,18 +18,32 @@ CARDS = """<root>
   <unit><id>3103</id><name>Orders</name><skill id="summon" card_id="24"/><skill id="rally" x="2" all="1"/></unit>
   <unit><id>3104</id><name>Dud</name><skill id="heal" x="2"/></unit>
   <unit><id>3107</id><name>Flashbang</name><skill id="strike" x="1" trigger="play"/><skill id="strike" x="4"/></unit>
+  <unit><id>3108</id><name>Fireball</name><skill id="strike" x="2"/><skill id="recharge"/></unit>
 </root>"""
 DB = CardDB.from_xml(CARDS)
 
 
+class Rolls(random.Random):
+    """random() always gives `roll` (Recharge's chance)."""
+    def __init__(self, roll: float):
+        super().__init__(1)
+        self.roll = roll
+
+    def random(self) -> float:
+        return self.roll
+
+
 class First:
+    def __init__(self, roll: float = 0.0):
+        self.rng = Rolls(roll)
+
     def __call__(self, battle, actor, skill_id, candidates, n):
         return candidates[:n]
 
 
-def battle(att, dfn):
+def battle(att, dfn, roll=0.0):
     return Battle(Setup(DB[1300], [(i + 1, DB[c]) for i, c in enumerate(att)],
-                        DB[1300], [(101 + i, DB[c]) for i, c in enumerate(dfn)]), chooser=First(), cards=DB)
+                        DB[1300], [(101 + i, DB[c]) for i, c in enumerate(dfn)]), chooser=First(roll), cards=DB)
 
 
 def by(turn, uid):
@@ -95,3 +111,37 @@ def test_an_on_play_skill_goes_off_as_it_lands_then_the_rest_as_it_acts():
     first, second = by(turn, 2)
     assert first["value"] == 1 and second["value"] == 4
     assert turn["actions"].index(first) < turn["actions"].index(second)
+
+
+# ---- Recharge ------------------------------------------------------------------------------
+
+def test_recharge_puts_it_back_at_the_bottom_of_the_deck_as_a_new_card():
+    b = battle(att=(3108, 24, 24, 24, 24), dfn=(23, 23, 23), roll=0.0)
+    b.start()
+    turns = b.play(1)                                      # turn 1: used (nothing to Strike yet)
+    side = b.sides[0]
+    back, = [a for a in turns[1]["actions"] if a["skill_id"] == "recharge"]
+    assert back["card_uid"] == 1 and back["targets"] == ["1"]
+    assert back["status"] == [{"card_uid": -1, "status_flag": "recharged", "value": 1},
+                              {"card_uid": -1, "status_flag": "recharged", "value": 0}]
+    new_uid = max(side.cards)
+    assert new_uid == 6 and side.cards[new_uid].id == 3108 and side.remaining[-1] == new_uid
+
+
+def test_a_recharged_card_is_drawn_and_played_again():
+    b = battle(att=(3108, 24), dfn=(23, 23, 23, 23, 23), roll=0.0)
+    turns = b.start()
+    turns.update(b.play(1))                                # the Fireball goes back: Hitter, Fireball left
+    while not b.over and b.turn < 12:
+        turns.update(b.play(b.sides[0].hand[0] if len(b.sides[0].hand) > 1 else None))
+    plays = [p["card_uid"] for t in sorted(turns) for p in turns[t].get("plays", []) if int(p["card_uid"]) < 101]
+    assert plays[:3] == ["1", "2", "3"]                    # the Fireball, the Hitter, the Fireball again
+    assert b.sides[0].cards[3].id == 3108
+
+
+def test_recharge_can_fail():
+    b = battle(att=(3108, 24, 24, 24, 24), dfn=(23, 23, 23), roll=0.9)
+    turns = b.start()
+    turns.update(b.play(1))
+    assert not [a for t in turns.values() for a in t.get("actions", []) if a["skill_id"] == "recharge"]
+    assert len(b.sides[0].cards) == 5

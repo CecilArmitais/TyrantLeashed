@@ -49,10 +49,25 @@ WAR_METAL_HOSTILE = ("shock", "chaos", "freeze")
 WAR_METAL_HELPFUL = ("repair", "supply", "cleanse", "split")
 HIDING = ("blizzard", "mist")       # War Metal's: a side's cards hidden from the player until active
 WAR_METAL_NEUTRAL = ("infuse",)     # on cards of either side, neither hostile nor helpful
-ACTIVATION = HOSTILE + HELPFUL + WAR_METAL_HOSTILE + WAR_METAL_HELPFUL + WAR_METAL_NEUTRAL
+# War Metal's own versions of skills Tyrant Unleashed kept but changed (Jam, Evade...): their own
+# ids, "wm" + the Unleashed id (no "_": the client finds an Enhance status's skill after the last
+# one). skills_set.xml shows them under the Unleashed name and icon, and battles send them as
+# the Unleashed skill, which the client already knows how to show (see _action).
+OLD_VERSIONS = {"wmjam": "jam", "wmevade": "evade", "wmpayback": "payback", "wmtribute": "tribute",
+                "wmflurry": "flurry", "wmmimic": "mimic", "wmsummon": "summon", "wmrush": "rush",
+                "wmrefresh": "refresh", "wmcounter": "counter", "wmleech": "leech", "wmvalor": "valor",
+                "wmpoison": "poison", "wmswipe": "swipe", "wmdisease": "disease"}
+OLD_HOSTILE = ("wmjam", "wmmimic")
+OLD_HELPFUL = ("wmrush",)
+OLD_NEUTRAL = ("wmsummon",)
+WM_PAID_BACK = ("strike", "weaken", "enfeeble", "chaos", "jam", "wmjam")    # War Metal's Payback: only these
+WM_TRIBUTED = ("heal", "supply", "protect", "cleanse", "rally")              # War Metal's Tribute: only these
+ACTIVATION = (HOSTILE + HELPFUL + WAR_METAL_HOSTILE + WAR_METAL_HELPFUL + WAR_METAL_NEUTRAL
+              + OLD_HOSTILE + OLD_HELPFUL + OLD_NEUTRAL)
 X_ACTIVATION = {"enfeeble", "besiege", "siege", "strike", "sunder", "weaken", "mimic", "shock"}   # Sabotage lowers these
 DEFENSIVE = {"armored", "avenge", "scavenge", "corrosive", "counter", "evade", "subdue", "absorb", "flying",
-             "payback", "revenge", "tribute", "refresh", "wall", "barrier"}
+             "payback", "revenge", "tribute", "refresh", "wall", "barrier",
+             "wmevade", "wmpayback", "wmtribute", "wmrefresh", "wmcounter"}
 INSTANT_DEBUFF = {"inhibit", "sabotage", "disease"}
 TRIGGERED = {"allegiance", "flurry", "valor", "stasis", "summon", "bravery", "enhance"}
 # War Metal Tyrant's skills, brought back (Tyrant Unleashed dropped them; the client still has
@@ -60,7 +75,7 @@ TRIGGERED = {"allegiance", "flurry", "valor", "stasis", "summon", "bravery", "en
 WAR_METAL = {"antiair", "fear", "crush", "siphon", "regeneration", "burst", "intercept", "backfire",
              "immobilize", "fusion", "emulate", "recharge", *HIDING, *WAR_METAL_HOSTILE, *WAR_METAL_HELPFUL,
              *WAR_METAL_NEUTRAL}
-BUILT = set(ACTIVATION) | DEFENSIVE | INSTANT_DEBUFF | TRIGGERED | WAR_METAL | {
+BUILT = set(ACTIVATION) | DEFENSIVE | INSTANT_DEBUFF | TRIGGERED | WAR_METAL | set(OLD_VERSIONS) | {
     "pierce", "swipe", "hunt", "poison", "legion", "coalition", "rupture", "venom", "leech", "drain",
     "berserk", "mark"}
 
@@ -123,6 +138,9 @@ class Unit:
         self.hidden = ""             # Blizzard / Mist (the one): covered to the other player until active
         self.regen_back = 0          # Regeneration: the health it comes back with, once its death is done
         self.infused = 0             # Infuse: the faction it was made, for good (0: its own)
+        self.wm_poison = 0           # War Metal's Poison: damage at the start of each of its turns, for good
+        self.wm_poisoned_by: "Unit | None" = None
+        self.wm_diseased = False     # War Metal's Disease: it can't get health back, for good
 
     @property
     def alive(self) -> bool:
@@ -136,6 +154,12 @@ class Unit:
     @property
     def max_hp(self) -> int:
         return self.card.health + max(0, self.perm_health - self.subdued)
+
+    @property
+    def hurt(self) -> bool:
+        """Alive, below its max health, and able to get health back (War Metal's Disease
+        stops that): what Heal, Supply, Mend and Repair look for."""
+        return self.alive and self.hp < self.max_hp and not self.wm_diseased
 
     @property
     def is_commander(self) -> bool:
@@ -412,6 +436,7 @@ class Battle:
                 unit.protected = 0
                 self._section("begin").append(self._status(unit, "protect", 0))
         self._begin_action("upkeep")
+        self._old_poison(side)
         self._cool_down(side.commander)
         self._enhance(side.commander)
         for unit in list(side.structures) + list(side.assaults):
@@ -643,10 +668,8 @@ class Battle:
             unit.chaosed = False                                    # Chaos fades once its skills are used
             if not self.over and unit.is_assault:
                 if unit.can_act and not unit.immobilized and self._attack(unit):
-                    if unit.corroded_rate:                          # Corrosion bites each time it attacks
-                        bite = min(unit.corroded_rate, unit.attack_power(),
-                                   unit.card.attack + unit.perm_attack - unit.corroded_weakened)
-                        unit.corroded_weakened += max(0, bite)
+                    self._corrode(unit)
+                    self._old_flurry(unit)
                 elif unit.corroded_rate:
                     unit.corroded_rate = unit.corroded_weakened = 0  # and it wears off when it can't attack
             self._end_action()
@@ -658,6 +681,28 @@ class Battle:
                 self._action(unit, "flurry", [unit], unit.skill("flurry"), self._own_health(unit))
         if unit.is_assault:
             unit.step = "attacked"
+
+    def _corrode(self, unit: Unit) -> None:
+        """Corrosion bites each time it attacks."""
+        if unit.corroded_rate:
+            bite = min(unit.corroded_rate, unit.attack_power(),
+                       unit.card.attack + unit.perm_attack - unit.corroded_weakened)
+            unit.corroded_weakened += max(0, bite)
+
+    def _old_flurry(self, unit: Unit) -> None:
+        """War Metal's Flurry X: after its attack, a 50% chance of X more attacks (all of them or
+        none), each a full attack, with its combat modifiers, Counter... at the card across, or
+        once that's dead, the commander or a Wall. It stops when the card dies (Regeneration
+        brings it back into the chain) or can't attack any more. No skills again and no
+        cooldown, unlike Unleashed's. Shown as Unleashed's "flurry" before the attacks."""
+        x = unit.skill("wmflurry")
+        if not x or self.over or self.rng.random() >= 0.5:
+            return
+        self._action(unit, "flurry", [unit], x, self._own_health(unit))
+        for _ in range(x):
+            if self.over or not unit.can_act or unit.immobilized or not self._attack(unit):
+                break
+            self._corrode(unit)
 
     def _use(self, unit: Unit, spec) -> bool:
         """An active skill at its current value. True if it did something. An Infused card's
@@ -691,7 +736,7 @@ class Battle:
         if not self.over:
             for unit in side.assaults:                     # Refresh heals, then poison ticks
                 refresh = unit.skill("refresh")
-                if refresh and unit.alive and unit.hp < unit.max_hp:
+                if refresh and unit.alive and unit.hp < unit.max_hp and not unit.wm_diseased:
                     self._heal_hp(unit, refresh)
                     self._action(unit, "refresh", [unit], refresh, [self._health(unit)] + self._own_health(unit))
                 if unit.alive and unit.poisoned > 0:
@@ -700,8 +745,10 @@ class Battle:
                     unit.poisoned -= (dealt + 1) // 2
                     source = unit.poisoned_by or unit
                     self._action(source, "poison", [unit], dealt,
-                                 [self._status(unit, "poison", unit.poisoned), self._health(unit)]
-                                 + self._own_health(source))
+                                 [self._poison_status(unit), self._health(unit)] + self._own_health(source))
+                self._old_refresh(unit)                    # War Metal's Refresh: after the poison
+            for unit in side.structures:
+                self._old_refresh(unit)
             self._after_damage()
         if self._killed[ATTACKER]:
             self._section("attack_kill").extend(self._killed[ATTACKER])
@@ -744,7 +791,7 @@ class Battle:
         disease = unit.skill("disease")
         if disease and unit.is_assault:
             across.diseased += disease
-            self._action(unit, "disease", [across], disease, [self._status(across, "disease", across.diseased)]
+            self._action(unit, "disease", [across], disease, [self._disease_status(across)]
                          + self._shown_health([across]) + self._own_health(unit))
 
     # ---- attacks ---------------------------------------------------------------------------------
@@ -760,6 +807,25 @@ class Battle:
             target = across
         else:                       # nothing across, or Fear: a Wall if there is one, else the commander
             target = next((s for s in foe.structures if s.alive and s.has("wall")), None) or foe.commander
+        if target is across and att.has("wmswipe"):
+            self._old_swipe(att, foe, slot)
+        else:
+            self._attack_card(att, target, foe)
+        return True
+
+    def _old_swipe(self, att: Unit, foe: Side, slot: int) -> None:
+        """War Metal's Swipe: attacking the assault across, it attacks the ones beside it too,
+        left to right (the left one first): each a full attack, with its combat modifiers, and
+        each attacked card's own Counter. It stops once the attacker dies or can't attack."""
+        row = foe.assaults
+        for j in (slot - 1, slot, slot + 1):
+            if self.over or not att.can_act or att.immobilized or att.attack_power() <= 0:
+                break
+            if 0 <= j < len(row) and row[j].alive:
+                self._attack_card(att, row[j], foe)
+
+    def _attack_card(self, att: Unit, target: Unit, foe: Side) -> None:
+        """An attack on one card or commander: Flying, Subdue, the damage, and what follows it."""
         if (target.has("flying") and not att.has("antiair") and not att.has("flying")
                 and self.rng.random() < 0.5):
             # flies away: the attack misses (never against Anti-Air, nor another Flying
@@ -769,7 +835,7 @@ class Battle:
                 self._action(att, 0, [target], 0, self._own_health(att))
             else:
                 self._action(att, 0, [target], 0, [self._health(target)] + self._own_health(att), block=[])
-            return True
+            return
         if target.has("subdue"):                                       # before the damage is worked out
             target_subdue = target.skill("subdue")
             att.subdued += target_subdue
@@ -779,7 +845,7 @@ class Battle:
             self._action(target, "subdue", [att], target_subdue,
                          self._shown_health([att]) + self._own_health(target))
             if att.attack_power() == 0:
-                return True
+                return
         damage = att.attack_power()
         on_assault = target.is_assault
         brigade = 0
@@ -802,6 +868,8 @@ class Battle:
             damage += att.skill("rupture")
             if att.skill("venom") and target.poisoned > 0:
                 damage += att.skill("venom")
+            if att.has("wmvalor") and self._outnumbered(att):        # War Metal's Valor, each attack
+                damage += att.skill("wmvalor")
             damage += target.enfeebled
         rule = self._passive("brigade")
         if rule and brigade and att.alive and att.hp < att.max_hp:    # Legion's bonus heals it too
@@ -831,7 +899,7 @@ class Battle:
             self._action(att, 0, [target], dealt, self._own_health(att))
             if not target.alive:
                 self.winner = 1 if target.side == DEFENDER else 0
-                return True
+                return
         else:
             block = []
             if target.has("wall") and target.is_structure:
@@ -846,8 +914,14 @@ class Battle:
         if venom and dealt and on_assault and target.alive:      # Venom poisons what it hits (stacking)
             target.poisoned += venom
             target.poisoned_by = att
-            self._action(att, "venom", [target], venom, [self._status(target, "poison", target.poisoned)]
-                         + self._own_health(att))
+            self._action(att, "venom", [target], venom, [self._poison_status(target)] + self._own_health(att))
+        old_poison = att.skill("wmpoison")                  # War Metal's Poison: the stronger one stays
+        if old_poison > target.wm_poison and dealt and on_assault and target.alive:
+            target.wm_poison, target.wm_poisoned_by = old_poison, att
+            self._action(att, "venom", [target], old_poison, [self._poison_status(target)] + self._own_health(att))
+        if att.has("wmdisease") and dealt and on_assault and target.alive and not target.wm_diseased:
+            target.wm_diseased = True                       # War Metal's Disease: no health back, for good
+            self._action(att, "disease", [target], 1, [self._disease_status(target)] + self._own_health(att))
         if (att.has("immobilize") and dealt and on_assault and target.alive and not target.immobilized
                 and self.rng.random() < 0.5):            # Immobilize (War Metal Tyrant): half the time
             target.immobilized = True
@@ -855,13 +929,15 @@ class Battle:
                          + self._own_health(att))
         self._after_damage()
         if self.over:
-            return True
+            return
         for spec in target.card.skills:                    # the target's "when attacked" skills
             if spec.trigger == "attacked" and not self.over:
                 self._triggered(target, spec)
         if self.over:
-            return True
+            return
         counter = target.skill("counter")                   # Counter, even if the attack was blocked
+        if dealt:                                           # War Metal's Counter: only if it did damage
+            counter += target.skill("wmcounter")
         if counter and att.alive:
             back = max(0, self._absorb(att, counter + att.enfeebled) - att.protection)
             self._damage(att, back)
@@ -884,15 +960,19 @@ class Battle:
         if crush and felled and on_assault and not self.over:
             self._crush(att, crush)
             if self.over:
-                return True
+                return
         siphon = min(dealt, att.skill("siphon"))
         if siphon and on_assault:
             self._siphon(att, siphon)
         leech = min(dealt, att.skill("leech"))
-        if leech and att.alive and on_assault:                              # raises max health too (leech_increase_max_hp)
+        if leech and att.alive and on_assault and not att.wm_diseased:    # raises max health too (leech_increase_max_hp)
             gain = self._ext_hp(att, leech)
             self._action(att, "leech", [att], leech, [self._status(att, "perm_max_health", att.perm_health),
                                                       self._health(att)] + self._own_health(att))
+        old_leech = min(dealt, att.skill("wmleech"))        # War Metal's Leech: a heal, up to its max
+        if old_leech and att.alive and on_assault and att.hurt:
+            healed = self._heal_hp(att, old_leech)
+            self._action(att, "leech", [att], healed, [self._health(att)] + self._own_health(att))
         swipe, drain = att.skill("swipe"), att.skill("drain")
         if (swipe or drain) and on_assault:
             i, reach = self.slot(target), self._reach()
@@ -957,7 +1037,7 @@ class Battle:
                 # recorded as "swipe": the server shows Hunt with Swipe's animation
                 self._action(att, "swipe", [prey], hunt, [self._health(prey)] + self._own_health(att), block=[])
                 self._after_damage()
-        return True
+        return
 
     def _crush(self, att: Unit, amount: int) -> None:
         """Crush (War Metal Tyrant): a kill by attack damage also hits the enemy commander for
@@ -1002,7 +1082,7 @@ class Battle:
         it die. The client has no way to bring a card back (BattleUIController.ResurrectCard
         is empty)."""
         x = unit.skill("regeneration")
-        if not x or unit.diseased > 0 or self.rng.random() >= 0.5:
+        if not x or unit.diseased > 0 or unit.wm_diseased or self.rng.random() >= 0.5:
             return False
         unit.regen_back = x
         self._reviving.append(unit)
@@ -1052,17 +1132,17 @@ class Battle:
     # hostile: evaded (Evade) and paid back (Payback / Revenge)
 
     def _hostile(self, unit: Unit, spec, cands: list[Unit], apply, statuses, damage: bool = False,
-                 after_hit=None, payback: bool = True) -> bool:
+                 after_hit=None, payback: bool = True, lands=None) -> bool:
+        """`lands(t)`: whether it works on t at all (War Metal's Jam: half the time); where it
+        doesn't, nothing happens, not even Evade or Payback, and nothing is shown."""
         picked = self._intercepted(unit, spec, self._pick(unit, spec, cands), cands)
+        if lands is not None:
+            picked = [t for t in picked if lands(t)]
         if not picked:
             return False
         hit, evaded = [], []
-        for t in picked:                          # a Chaosed card's skills can't be evaded (War Metal)
-            if not unit.overloaded and not unit.chaosed and t.evaded < t.skill("evade"):
-                t.evaded += 1
-                evaded.append(t)
-            else:
-                hit.append(t)
+        for t in picked:
+            (evaded if self._evades(t, unit) else hit).append(t)
         block = [] if damage else None
         for t in hit:
             entry = apply(unit, t, spec.x)
@@ -1081,6 +1161,8 @@ class Battle:
             for t in hit:
                 back = t.skill("payback") + t.skill("revenge")
                 if t.paybacked >= back:
+                    if t.has("wmpayback") and spec.id in WM_PAID_BACK and self.rng.random() < 0.5:
+                        self._old_payback(t, unit, spec, apply, statuses, damage)
                     continue
                 victims = [unit]
                 if t.skill("revenge"):
@@ -1096,6 +1178,40 @@ class Battle:
                                  block=[] if damage else None)
                     self._after_damage()
         return result
+
+    def _evades(self, t: Unit, source: Unit) -> bool:
+        """Evade: an enemy skill on t comes to nothing. Unleashed's Evade X, the first X a turn;
+        War Metal's, half the time. Never an Overloaded card's skills, nor a Chaosed card's
+        (War Metal)."""
+        if source.overloaded or source.chaosed:
+            return False
+        if t.evaded < t.skill("evade"):
+            t.evaded += 1
+            return True
+        return t.has("wmevade") and self.rng.random() < 0.5
+
+    def _old_payback(self, t: Unit, unit: Unit, spec, apply, statuses, damage: bool) -> None:
+        """War Metal's Payback, its 50% already rolled: the skill goes back at the enemy assault
+        that used it, as a single-target skill with no faction limit, at the value it came
+        with, if that assault is a fair target for it (Jam: not Jammed already; Weaken: some
+        attack, not Jammed or Immobilized; Chaos: not Jammed or Chaosed). War Metal's Jam rolls
+        its own chance again, and the user's Evade can stop it ("affected by protect, enfeeble,
+        evade"). It isn't paid back again."""
+        if not unit.alive or (spec.id in ("jam", "wmjam") and not unit.can_act):
+            return
+        if spec.id == "weaken" and (unit.attack_power() <= 0 or unit.jammed or unit.immobilized):
+            return
+        if spec.id == "chaos" and (unit.jammed or unit.chaosed):
+            return
+        if spec.id == "wmjam" and self.rng.random() >= 0.5:
+            return
+        if self._evades(unit, t):
+            self._action(unit, "evade", [unit], 1, [])
+            return
+        apply(t, unit, spec.x)
+        self._action(t, spec.id, [unit], spec.x, statuses([unit]) + self._own_health(t),
+                     block=[] if damage else None)
+        self._after_damage()
 
     def _skill_damage(self, unit: Unit, spec, cands: list[Unit], halve_on_assaults: bool = False) -> bool:
         def apply(src, t, x):
@@ -1236,7 +1352,7 @@ class Battle:
         Enhance of it), for any faction. It can't be evaded or paid back."""
         def copyable(t: Unit) -> list:
             return [s for s in t.card.skills if s.trigger in ("activate", "attacked") and s.id in ACTIVATION
-                    and s.id not in ("mimic", "split") and (unit.is_assault or s.id not in ("mend", "fortify"))]
+                    and s.id not in ("mimic", "wmmimic", "split") and (unit.is_assault or s.id not in ("mend", "fortify"))]
         picked = self._pick(unit, spec, [u for u in self._candidates(unit, spec, True) if u.alive and copyable(u)])
         if not picked:
             return False
@@ -1264,14 +1380,18 @@ class Battle:
             apply(unit, t, spec.x)
             done.append(t)
             if (unit.is_assault and t is not unit and t.tributed < t.skill("tribute") and unit.alive
-                    and check(unit) and spec.id not in ("evolve", "rush")):
+                    and check(unit) and spec.id not in ("evolve", "rush", "wmrush")):
                 t.tributed += 1
                 apply(unit, unit, spec.x)
+                done.append(unit)
+            elif (unit.is_assault and t is not unit and t.has("wmtribute") and spec.id in WM_TRIBUTED
+                    and unit.alive and check(unit) and self.rng.random() < 0.5):
+                apply(unit, unit, spec.x)                # War Metal's Tribute: half the time, five skills
                 done.append(unit)
         if not done:
             return False
         self._action(unit, shown_as or spec.id, done, spec.x, statuses(done) + self._own_health(unit))
-        if not unit.chaosed and spec.id not in ("evolve", "rush"):
+        if not unit.chaosed and spec.id not in ("evolve", "rush", "wmrush"):
             for t in done:                        # Emulate: the card across from one it helped copies it
                 e = self._across(t)
                 if e is not None and e.alive and e.has("emulate") and check(e) and not self._inhibits(unit, e):
@@ -1289,7 +1409,7 @@ class Battle:
         return row[i] if i < len(row) else None
 
     def _skill_heal(self, unit: Unit, spec) -> bool:
-        ok = lambda u: u.alive and u.hp < u.max_hp                    # noqa: E731
+        ok = lambda u: u.hurt                                          # noqa: E731
         targets = self._pick(unit, spec, [u for u in self._candidates(unit, spec, False) if ok(u)])
         zeal = self._passive("zealots_preservation") if unit.is_assault else None
 
@@ -1341,7 +1461,7 @@ class Battle:
 
     def _skill_mend(self, unit: Unit, spec) -> bool:
         """Adjacent damaged allies: +x health, no random pick."""
-        ok = lambda u: u.alive and u.hp < u.max_hp                    # noqa: E731
+        ok = lambda u: u.hurt                                          # noqa: E731
         return self._helpful(unit, spec, self._adjacent_allies(unit, spec, ok),
                              lambda s, t, x: self._heal_hp(t, x), lambda ts: [self._health(t) for t in ts], ok)
 
@@ -1452,7 +1572,7 @@ class Battle:
     def _skill_repair(self, unit: Unit, spec) -> bool:
         """Repair X: heals a random damaged allied structure by X (to its max at most).
         Shown as a Heal on it."""
-        ok = lambda u: u.alive and u.hp < u.max_hp                    # noqa: E731
+        ok = lambda u: u.hurt                                          # noqa: E731
         targets = self._pick(unit, spec, [u for u in self._candidates(unit, spec, False, "structures") if ok(u)])
         return self._helpful(unit, spec, targets, lambda s, t, x: self._heal_hp(t, x),
                              lambda ts: [self._health(t) for t in ts], ok, shown_as="heal")
@@ -1463,7 +1583,7 @@ class Battle:
         one Heal on the hurt ones."""
         if not unit.is_assault:
             return False
-        ok = lambda u: u.alive and u.hp < u.max_hp                    # noqa: E731
+        ok = lambda u: u.hurt                                          # noqa: E731
         targets = [u for u in [unit] + self._adjacent_allies(unit, spec, ok) if ok(u)]
         return self._helpful(unit, spec, targets, lambda s, t, x: self._heal_hp(t, x),
                              lambda ts: [self._health(t) for t in ts], ok, shown_as="heal")
@@ -1476,18 +1596,21 @@ class Battle:
             return u.frozen and u.delay == 0
 
         def ok(u):
-            return u.alive and (u.poisoned > 0 or u.diseased > 0 or u.jammed or u.enfeebled > 0 or thaws(u))
+            return u.alive and (u.poisoned > 0 or u.diseased > 0 or u.jammed or u.enfeebled > 0 or thaws(u)
+                                or u.wm_poison > 0 or u.wm_diseased)
         targets = self._pick(unit, spec, [u for u in self._candidates(unit, spec, False) if ok(u)])
         cleared: dict = {}
 
         def apply(s, t, x):
-            cleared[t] = [flag for flag, on in (("poison", t.poisoned > 0), ("disease", t.diseased > 0),
+            cleared[t] = [flag for flag, on in (("poison", t.poisoned > 0 or t.wm_poison > 0),
+                                                ("disease", t.diseased > 0 or t.wm_diseased),
                                                 ("jammed", t.jammed), ("enfeeble", t.enfeebled > 0),
                                                 ("frozen", thaws(t))) if on]
             if thaws(t):
                 t.frozen = False
-            t.poisoned = t.diseased = t.enfeebled = 0
-            t.poisoned_by = None
+            t.poisoned = t.diseased = t.enfeebled = t.wm_poison = 0
+            t.poisoned_by = t.wm_poisoned_by = None
+            t.wm_diseased = False
             t.jammed = False
         return self._helpful(unit, spec, targets, apply,
                              lambda ts: [self._status(t, f, 0) for t in ts for f in cleared.get(t, [])]
@@ -1569,6 +1692,112 @@ class Battle:
             self._action(actor, "heal", [commander], -amount, self._own_health(actor))
         else:
             self._action(actor, "strike", [commander], amount, self._own_health(actor))
+
+    # ---- War Metal's versions of skills Unleashed changed (OLD_VERSIONS) ---------------------------
+
+    def _skill_wmjam(self, unit: Unit, spec) -> bool:
+        """War Metal's Jam: a random enemy assault that is active (its timer out) and not Jammed
+        is Jammed half the time (each one, with All): no action on its next turn. One it misses
+        sets off nothing, no Evade or Payback, and shows nothing. No cooldown, unless the card
+        gives it one."""
+        def apply(src, t, x):
+            t.jammed = True
+        cands = [u for u in self._candidates(unit, spec, True) if u.active and not self._iron_will(u)]
+        return self._hostile(unit, spec, cands, apply,
+                             lambda ts: [self._status(t, "jammed", 1) for t in ts] + self._shown_health(ts),
+                             lands=lambda t: self.rng.random() < 0.5)
+
+    def _skill_wmmimic(self, unit: Unit, spec) -> bool:
+        """War Metal's Mimic: a random enemy assault (timers running too) is picked and all of
+        its activation skills are used as the mimic's own, in order, each at its own value,
+        with no faction limit (helpful ones on the mimic's side). Not Mimic or Split, nor its
+        "on play", "on death" or "on attacked" skills; a card with none: nothing happens. The
+        pick can be Evaded, not paid back; the skills it uses are ordinary uses."""
+        picked = self._pick(unit, spec, [u for u in self._candidates(unit, spec, True) if u.alive])
+        if not picked:
+            return False
+        for t in picked:
+            if self.over or not unit.alive:
+                break
+            if self._evades(t, unit):
+                self._action(t, "evade", [t], 1, [])
+                continue
+            self._action(unit, "mimic", [t], 0, self._shown_health([t]) + self._own_health(unit))
+            for s in t.card.skills:
+                if self.over or not unit.alive:
+                    break
+                if s.trigger == "activate" and s.id in ACTIVATION and s.id not in ("mimic", "wmmimic", "split"):
+                    self._use(unit, replace(s, y=0, c=0))
+        return True
+
+    def _skill_wmsummon(self, unit: Unit, spec) -> bool:
+        """War Metal's Summon: an activation skill. With no trigger, the card plays a copy of the
+        named card at the right end of its side each turn it acts (and Mimic can copy it);
+        with one, when the trigger says. Shown as Unleashed's "summon" (_bring_in)."""
+        card = self.cards.get(spec.card_id) if self.cards is not None and spec.card_id else None
+        if card is None:
+            self.ignored_skills.add("wmsummon (no card data)")
+            return False
+        return self._bring_in(unit, card) is not None
+
+    def _skill_wmrush(self, unit: Unit, spec) -> bool:
+        """War Metal's Rush X: a random allied assault with its timer running (not Frozen) has
+        it lowered by X (to 0 at most), each time the card acts. Shown as Unleashed's "rush"
+        for each card, with what came off: the client takes the value off the timer, past 0."""
+        ok = lambda u: u.alive and u.delay > 0 and not u.frozen           # noqa: E731
+        done = False
+        for t in self._pick(unit, spec, [u for u in self._candidates(unit, spec, False) if ok(u)]):
+            if self._inhibits(unit, t):
+                continue
+            down = min(spec.x, t.delay)
+            if not down:
+                continue
+            t.delay -= down
+            done = True
+            self._action(unit, "rush", [t], down, self._shown_health([t]) + self._own_health(unit))
+            if t.delay == 0:
+                self._reveal(t)
+                self._valor(t)
+                self._summon_on(t, "activate")
+        return done
+
+    def _old_poison(self, side: Side) -> None:
+        """War Metal's Poison ticks at the start of its card's side's turn, before a card is
+        played: X damage, past Protect and Enfeeble. It never wears off; only Cleanse takes it
+        off. Shown as Unleashed's "poison" (the client takes the damage off)."""
+        for unit in list(side.assaults):
+            if self.over:
+                return
+            if unit.alive and unit.wm_poison:
+                dealt = unit.wm_poison
+                self._damage(unit, dealt, counts_for_barrier=False)
+                by = unit.wm_poisoned_by
+                source = by if by is not None and by.alive else unit
+                self._action(source, "poison", [unit], dealt, [self._poison_status(unit), self._health(unit)]
+                             + self._own_health(source))
+                self._after_damage()
+
+    def _old_refresh(self, unit: Unit) -> None:
+        """War Metal's Refresh: at the end of its side's turn, back to full health (after the
+        poison; timers running too, and Jam doesn't stop it). War Metal's Disease does. Shown
+        as Unleashed's "refresh" with the health it got back."""
+        if unit.has("wmrefresh") and unit.hurt:
+            healed = self._heal_hp(unit, unit.max_hp - unit.hp)
+            if healed:
+                self._action(unit, "refresh", [unit], healed, [self._health(unit)] + self._own_health(unit))
+
+    def _outnumbered(self, unit: Unit) -> bool:
+        """War Metal's Valor: the enemy has more assaults in play than the card's side."""
+        own, foe = self.sides[unit.side], self.sides[1 - unit.side]
+        return sum(u.alive for u in foe.assaults) > sum(u.alive for u in own.assaults)
+
+    def _poison_status(self, unit: Unit) -> dict:
+        """The client's one poison marker, for both Poisons (Unleashed's and War Metal's)."""
+        return self._status(unit, "poison", unit.poisoned + unit.wm_poison)
+
+    def _disease_status(self, unit: Unit) -> dict:
+        """The client's one disease marker, for both Diseases."""
+        return self._status(unit, "disease", unit.diseased + (1 if unit.wm_diseased else 0))
 
     # ---- triggered skills ------------------------------------------------------------------------
 
@@ -1764,7 +1993,7 @@ class Battle:
 
     def _spread_poison(self, caster: Unit, unit: Unit, amount: int) -> None:
         unit.poisoned += amount
-        self._action(caster, "venom", [unit], amount, [self._status(unit, "poison", unit.poisoned)])
+        self._action(caster, "venom", [unit], amount, [self._poison_status(unit)])
 
     def _arrive(self, unit: Unit) -> None:
         """Ballroom Blitz: the cards its filter takes gain attack and max health for good
@@ -1912,6 +2141,9 @@ class Battle:
         return amount - soaked
 
     def _heal_hp(self, unit: Unit, amount: int) -> int:
+        """Health back, up to its max; none with War Metal's Disease."""
+        if unit.wm_diseased:
+            return 0
         amount = self._cure(unit, amount)
         before = unit.hp
         unit.hp = min(unit.max_hp, unit.hp + amount)
@@ -1940,6 +2172,8 @@ class Battle:
 
     def _action(self, actor: Unit, skill_id, targets: list[Unit], value: int, status: list,
                 block: list | None = None) -> None:
+        if isinstance(skill_id, str):                    # War Metal's versions: as the Unleashed skill
+            skill_id = OLD_VERSIONS.get(skill_id, skill_id)
         action = {"card_uid": self._ref(actor.uid, "actor"), "skill_id": skill_id,
                   "targets": [self._ref(t.uid, "target") for t in targets], "value": value}
         if block is not None:

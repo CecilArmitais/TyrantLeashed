@@ -45,7 +45,7 @@ from .effects import ARRIVAL, FILTERS
 HOSTILE = ("enfeeble", "jam", "besiege", "siege", "strike", "sunder", "weaken", "mimic")
 HELPFUL = ("heal", "mend", "overload", "protect", "rally", "fortify", "enrage", "entrap", "rush", "evolve")
 # War Metal Tyrant's activation skills, brought back (see WAR_METAL below)
-WAR_METAL_HOSTILE = ("shock", "chaos")
+WAR_METAL_HOSTILE = ("shock", "chaos", "freeze")
 WAR_METAL_HELPFUL = ("repair", "supply", "cleanse", "split")
 ACTIVATION = HOSTILE + HELPFUL + WAR_METAL_HOSTILE + WAR_METAL_HELPFUL
 X_ACTIVATION = {"enfeeble", "besiege", "siege", "strike", "sunder", "weaken", "mimic", "shock"}   # Sabotage lowers these
@@ -56,7 +56,7 @@ TRIGGERED = {"allegiance", "flurry", "valor", "stasis", "summon", "bravery", "en
 # War Metal Tyrant's skills, brought back (Tyrant Unleashed dropped them; the client still has
 # their icons). Regeneration is War Metal's Regenerate, named after its icon (regeneration16).
 WAR_METAL = {"antiair", "fear", "crush", "siphon", "regeneration", "burst", "intercept", "backfire",
-             "immobilize", "fusion", "emulate", *WAR_METAL_HOSTILE, *WAR_METAL_HELPFUL}
+             "immobilize", "fusion", "emulate", "blizzard", *WAR_METAL_HOSTILE, *WAR_METAL_HELPFUL}
 BUILT = set(ACTIVATION) | DEFENSIVE | INSTANT_DEBUFF | TRIGGERED | WAR_METAL | {
     "pierce", "swipe", "hunt", "poison", "legion", "coalition", "rupture", "venom", "leech", "drain",
     "berserk", "mark"}
@@ -116,6 +116,9 @@ class Unit:
         self.chaos_shown = False     # the Chaos marker on it in the client, until the end of its turn
         self.immobilized = False     # Immobilize: no attack on its next turn
         self.fused = False           # Fusion: its skill values doubled (3+ active Fusion cards)
+        self.frozen = False          # Freeze: no action, and its timer stops, until its next turn ends
+        self.hidden = False          # Blizzard: shown covered to the other player until it's active
+        self.regen_back = 0          # Regeneration: the health it comes back with, once its death is done
 
     @property
     def alive(self) -> bool:
@@ -139,7 +142,7 @@ class Unit:
 
     @property
     def can_act(self) -> bool:
-        return self.alive and not self.jammed
+        return self.alive and not self.jammed and not self.frozen
 
     @property
     def active(self) -> bool:
@@ -266,6 +269,7 @@ class Battle:
         self._killed: tuple[list[int], list[int]] = ([], [])
         self._hits: Counter = Counter()             # Barrier: hits taken during the current action
         self._pending_deaths: list[Unit] = []
+        self._reviving: list[Unit] = []             # Regeneration: back once the deaths are done
         self._new_copies: set = set()               # Split's copies made this turn: they first act next turn
         self._shown: set = set()                    # cards whose health this reply has reported (see _own_health)
         self._section_name = "actions"
@@ -288,6 +292,9 @@ class Battle:
             if dominion is not None:
                 side.structures.append(Unit(FIRST_UID[side.index] - 1, dominion, side.index))
         self.attacker_wins_stall = setup.attacker_wins_stall
+        # the side the player watches (a surge fight sends the enemy as the attacker): Blizzard
+        # hides the other side's cards from them
+        self.viewer = DEFENDER if setup.attacker_wins_stall else ATTACKER
         self._fortresses: dict[int, list] = {}
         for side, forts in zip(self.sides, (setup.attacker_fortresses, setup.defender_fortresses)):
             self._fortresses[side.index] = [(side.next_uid + i, card) for i, card in enumerate(forts)]
@@ -401,10 +408,12 @@ class Battle:
                 self._barrier(unit, unit.skill("barrier"))
             self._bravery(unit)
             if unit.delay > 0:
-                unit.delay -= 1
-                if unit.delay == 0:
-                    self._valor(unit)
-                    self._summon_on(unit, "activate")
+                if not unit.frozen:                         # Freeze: its timer doesn't count down
+                    unit.delay -= 1
+                    if unit.delay == 0:
+                        self._reveal(unit)
+                        self._valor(unit)
+                        self._summon_on(unit, "activate")
             else:
                 self._cool_down(unit)
         self._end_action()
@@ -502,8 +511,10 @@ class Battle:
         self.played.append((uid, card.id))
         if played:
             side.played.append(uid)
-        if played or fortress:
-            self._section("plays").append({"card_uid": self._ref(uid, "play"), "status": []})
+        unit.hidden = self._hides(unit)
+        if played or fortress:                               # a hidden card lands covered
+            self._section("plays").append({"card_uid": self._ref(uid, "play"),
+                                           "status": [self._status(unit, "blizzard", 1)] if unit.hidden else []})
         self._note_skills(unit)
         self._arrive(unit)
         if unit.skill("barrier"):
@@ -616,12 +627,12 @@ class Battle:
                 for flag, value, cleared in (("attack_boost", unit.temp_attack, 0), ("jammed", unit.jammed, 0),
                                              ("inhibited", unit.inhibited, 0), ("sabotaged", unit.sabotaged, 0),
                                              ("overloaded", unit.overloaded, 0), ("immobilized", unit.immobilized, 0),
-                                             ("chaos", unit.chaos_shown, 0)):
+                                             ("chaos", unit.chaos_shown, 0), ("frozen", unit.frozen, 0)):
                     if value:
                         self._section("end").append(self._status(unit, flag, cleared))
             unit.temp_attack = 0
             unit.jammed = unit.sundered = unit.overloaded = False
-            unit.immobilized = unit.chaosed = unit.chaos_shown = False
+            unit.immobilized = unit.chaosed = unit.chaos_shown = unit.frozen = False
             unit.enraged = unit.inhibited = unit.sabotaged = unit.tributed = 0
             unit.step = "none"
         for unit in self.sides[1 - side.index].assaults:   # the other side's wear off
@@ -629,6 +640,7 @@ class Battle:
             unit.enhanced, unit.evolved = {}, {}
         for unit in self.sides[1 - side.index].structures:
             unit.evaded = 0
+        self._revive()
         for s in self.sides:                                # the dead go, the rest slide left
             s.assaults = [u for u in s.assaults if u.alive]
             s.structures = [u for u in s.structures if u.alive]
@@ -890,26 +902,34 @@ class Battle:
             self._action(att, "heal", [commander], healed, self._own_health(att))
 
     def _regenerates(self, unit: Unit, hit: int) -> bool:
-        """Regeneration X (War Metal Tyrant's Regenerate): at 0 health, a 50% chance to be
-        back with X (no more than its max health). Disease soaks it, as healing: War
-        Metal's Disease stopped Regenerate. It can happen again later, the same turn too.
+        """Regeneration X (War Metal Tyrant's Regenerate), as War Metal had it: at 0 health,
+        a 50% chance to come back with X health (X is its health after, even above its
+        max). It dies first: its death goes on as any other (its On Death skills and what
+        they set off, Backfire, its allies' Avenge...), and then it's back (_revive), with
+        its statuses (Poison...). A Diseased card can't: Disease stops it outright. It can
+        happen again later, the same turn too. It isn't listed as killed.
 
         Shown before the hit that felled it, as the card's own "regeneration" (the Heal
         effect, through skills_set.xml's generic entry) raising its health by the hit's
         damage: the client takes a hit's damage off the card itself and kills it at 0,
         whatever health status comes after (CombatSkillAttack, CombatSkillStrike...; tested
-        2026-11-25), so the hit then leaves it at its new health. The client has no way to
-        bring a card back (BattleUIController.ResurrectCard is empty)."""
+        2026-11-25), so the hit then leaves it at its new health, and the client never sees
+        it die. The client has no way to bring a card back (BattleUIController.ResurrectCard
+        is empty)."""
         x = unit.skill("regeneration")
-        if not x or self.rng.random() >= 0.5:
+        if not x or unit.diseased > 0 or self.rng.random() >= 0.5:
             return False
-        back = self._cure(unit, x)
-        if back <= 0:
-            return False
-        unit.hp = min(back, unit.max_hp)
+        unit.regen_back = x
+        self._reviving.append(unit)
         self._shown.add(unit)
-        self._action(unit, "regeneration", [unit], unit.hp, [self._status(unit, "h", unit.hp + hit)])
+        self._action(unit, "regeneration", [unit], x, [self._status(unit, "h", x + hit)])
         return True
+
+    def _revive(self) -> None:
+        """Regeneration's cards come back, now that their deaths are done."""
+        for unit in self._reviving:
+            unit.hp, unit.regen_back = unit.regen_back, 0
+        self._reviving = []
 
     # ---- active skills ---------------------------------------------------------------------------
 
@@ -947,7 +967,7 @@ class Battle:
     # hostile: evaded (Evade) and paid back (Payback / Revenge)
 
     def _hostile(self, unit: Unit, spec, cands: list[Unit], apply, statuses, damage: bool = False,
-                 after_hit=None) -> bool:
+                 after_hit=None, payback: bool = True) -> bool:
         picked = self._intercepted(unit, spec, self._pick(unit, spec, cands), cands)
         if not picked:
             return False
@@ -972,7 +992,7 @@ class Battle:
         if after_hit is not None and hit:
             after_hit()
         result = bool(hit)                                   # all evaded: no cooldown
-        if unit.is_assault and not unit.chaosed:             # Payback / Revenge send it back (not an ally's)
+        if payback and unit.is_assault and not unit.chaosed:  # Payback / Revenge send it back (not an ally's)
             for t in hit:
                 back = t.skill("payback") + t.skill("revenge")
                 if t.paybacked >= back:
@@ -1035,6 +1055,38 @@ class Battle:
         cands = [u for u in self._candidates(unit, spec, True) if self._will_act(u, unit) and not self._iron_will(u)]
         return self._hostile(unit, spec, cands, apply,
                              lambda ts: [self._status(t, "jammed", 1) for t in ts] + self._shown_health(ts))
+
+    def _skill_freeze(self, unit: Unit, spec) -> bool:
+        """Freeze (War Metal Tyrant): an enemy assault (each, with All) that isn't frozen
+        already takes no action, and its timer doesn't count down, until the end of its
+        next turn, as Jam lasts (to the end of this one, if it's on the side whose turn it
+        is: a Chaosed card's). Timers still running count: Freeze stops them. It can be
+        evaded and Mimicked, not paid back. Shown as "freeze" (the Freeze effect, through
+        skills_set.xml) with a "frozen" status: the client mod loops its frozen look and
+        stops the card's timer while it's on, and plays the ice coming off when it ends."""
+        def apply(src, t, x):
+            t.frozen = True
+        cands = [u for u in self._candidates(unit, spec, True) if u.alive and not u.frozen]
+        return self._hostile(unit, spec, cands, apply,
+                             lambda ts: [self._status(t, "frozen", 1) for t in ts] + self._shown_health(ts),
+                             payback=False)
+
+    def _hides(self, unit: Unit) -> bool:
+        """Blizzard (War Metal Tyrant): a card that arrives with its timer running, on a side
+        with Blizzard in play (on its commander or any of its cards, the arriving one too),
+        is hidden from the player until it's active or destroyed. Only the other side's
+        cards: the player sees their own."""
+        side = self.sides[unit.side]
+        return (unit.delay > 0 and unit.side != self.viewer and not unit.is_commander
+                and any(u.alive and u.has("blizzard") for u in [side.commander] + side.structures + side.assaults))
+
+    def _reveal(self, unit: Unit) -> None:
+        """A hidden card shows: a "blizzard" action from it with its "blizzard" status at 0;
+        the client mod plays the cover dissolving."""
+        if unit.hidden:
+            unit.hidden = False
+            if unit.alive:
+                self._action(unit, "blizzard", [unit], 0, [self._status(unit, "blizzard", 0)])
 
     def _skill_weaken(self, unit: Unit, spec) -> bool:
         return self._weaken(unit, spec, sunder=False)
@@ -1299,16 +1351,23 @@ class Battle:
                              lambda ts: [self._health(t) for t in ts], ok, shown_as="heal")
 
     def _skill_cleanse(self, unit: Unit, spec) -> bool:
-        """Cleanse: takes Poison, Disease, Jam and Enfeeble off a random ally that has any
-        (Weaken stays, as in War Metal). Each cleared status is sent at 0."""
+        """Cleanse: takes Poison, Disease, Jam, Enfeeble and Freeze off a random ally that
+        has any (Weaken stays, as in War Metal; Freeze only off a card whose timer has run
+        out, as in War Metal). Each cleared status is sent at 0."""
+        def thaws(u):
+            return u.frozen and u.delay == 0
+
         def ok(u):
-            return u.alive and (u.poisoned > 0 or u.diseased > 0 or u.jammed or u.enfeebled > 0)
+            return u.alive and (u.poisoned > 0 or u.diseased > 0 or u.jammed or u.enfeebled > 0 or thaws(u))
         targets = self._pick(unit, spec, [u for u in self._candidates(unit, spec, False) if ok(u)])
         cleared: dict = {}
 
         def apply(s, t, x):
             cleared[t] = [flag for flag, on in (("poison", t.poisoned > 0), ("disease", t.diseased > 0),
-                                                ("jammed", t.jammed), ("enfeeble", t.enfeebled > 0)) if on]
+                                                ("jammed", t.jammed), ("enfeeble", t.enfeebled > 0),
+                                                ("frozen", thaws(t))) if on]
+            if thaws(t):
+                t.frozen = False
             t.poisoned = t.diseased = t.enfeebled = 0
             t.poisoned_by = None
             t.jammed = False
@@ -1499,10 +1558,13 @@ class Battle:
         uid = side.next_uid
         side.next_uid += 1
         here = 1 if self.turn and unit.side == self.active.index else 0
-        self._section(self._section_name).append({"card_uid": self._ref(unit.uid, "actor"), "skill_id": "summon",
-                                                  "targets": [self._ref(uid, "target")], "value": here,
-                                                  "status": []})
-        return self._place(side, card, uid, summoner=unit)
+        action = {"card_uid": self._ref(unit.uid, "actor"), "skill_id": "summon",
+                  "targets": [self._ref(uid, "target")], "value": here, "status": []}
+        self._section(self._section_name).append(action)
+        placed = self._place(side, card, uid, summoner=unit)
+        if placed.hidden:                                    # Blizzard: it arrives covered
+            action["status"].append(self._status(placed, "blizzard", 1))
+        return placed
 
     def _after_damage(self) -> None:
         """Deaths from the last hit: Scavenge, Avenge, Virulence, and the dead card's own
@@ -1540,7 +1602,8 @@ class Battle:
                                  [self._status(ally, "avenge_attack", ally.perm_attack),
                                   self._status(ally, "perm_max_health", ally.perm_health),
                                   self._health(ally)] + self._own_health(ally), block=[])
-            self._virulence(dead, spread)
+            if not dead.regen_back:                          # a regenerating card keeps its poison
+                self._virulence(dead, spread)
             self._revenge(dead)
             for spec in dead.card.skills:
                 if spec.trigger == "death" and not self.over:
@@ -1551,6 +1614,13 @@ class Battle:
             backfire = dead.skill("backfire")            # Backfire X (War Metal Tyrant): X to its own commander
             if backfire and not self.over:
                 self._hit_commander(dead, self.sides[dead.side].commander, backfire)
+        self._revive()                                       # Regeneration: after the deaths and their chain
+        for side in self.sides:                              # Blizzard gone: what it hid shows
+            hidden = [u for u in side.structures + side.assaults if u.hidden and u.alive]
+            if hidden and not any(u.alive and u.has("blizzard")
+                                  for u in [side.commander] + side.structures + side.assaults):
+                for u in hidden:
+                    self._reveal(u)
 
     # ---- battleground rule effects (the optimizer's passive BGEs; Ballroom Blitz) ----------------
 
@@ -1693,9 +1763,9 @@ class Battle:
         self._section_name = "actions"
 
     def _damage(self, unit: Unit, amount: int, counts_for_barrier: bool = True) -> bool:
-        """True if it brought the unit to 0 health, even if Regeneration brought it back
-        (Crush counts that as a kill, as in War Metal Tyrant). A card that regenerates
-        isn't dead: no death skills."""
+        """True if it brought the unit to 0 health, even if Regeneration brings it back
+        (Crush counts that as a kill, as in War Metal Tyrant). A card that regenerates dies
+        first (its death skills go off), but isn't listed as killed."""
         if amount <= 0:
             return False
         was_alive = unit.alive
@@ -1706,8 +1776,9 @@ class Battle:
             return False
         if unit.is_commander:
             self.winner = 1 if unit.side == DEFENDER else 0
-        elif not self._regenerates(unit, amount):
-            self._killed[unit.side].append(unit.uid)
+        else:
+            if not self._regenerates(unit, amount):
+                self._killed[unit.side].append(unit.uid)
             self._pending_deaths.append(unit)
         return True
 
@@ -1772,9 +1843,11 @@ class Battle:
         return {"card_uid": self._ref(unit.uid, "status"), "status_flag": flag, "value": value}
 
     def _health(self, unit: Unit) -> dict:
+        """Its health; a regenerating card's is the health it comes back with, which the
+        client has been shown (see _regenerates)."""
         if not unit.is_commander:
             self._shown.add(unit)
-        return self._status(unit, "h", unit.hp)
+        return self._status(unit, "h", unit.regen_back or unit.hp)
 
     def _shown_health(self, units: list[Unit]) -> list:
         """Health of these cards, for those this reply has already shown."""

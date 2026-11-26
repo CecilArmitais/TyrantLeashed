@@ -42,6 +42,16 @@ CARDS = """<root>
   <unit><id>63</id><name>Fuser</name><attack>0</attack><health>10</health><skill id="fusion"/><skill id="strike" x="2"/></unit>
   <unit><id>64</id><name>Emulator</name><attack>0</attack><health>20</health><skill id="emulate"/></unit>
   <unit><id>65</id><name>Healer</name><attack>0</attack><health>9</health><skill id="heal" x="4"/></unit>
+  <unit><id>70</id><name>Freezer</name><attack>0</attack><health>10</health><skill id="freeze"/></unit>
+  <unit><id>71</id><name>Mass Freezer</name><attack>0</attack><health>10</health><skill id="freeze" all="1"/></unit>
+  <unit><id>72</id><name>Slow</name><attack>2</attack><health>10</health><cost>2</cost></unit>
+  <unit><id>73</id><name>Paybacker</name><attack>0</attack><health>10</health><skill id="payback"/></unit>
+  <unit><id>74</id><name>Evader</name><attack>0</attack><health>10</health><skill id="evade" x="1"/></unit>
+  <unit><id>76</id><name>Snowcaller</name><attack>0</attack><health>3</health><skill id="blizzard"/></unit>
+  <unit><id>77</id><name>Slow Summoner</name><attack>0</attack><health>10</health><skill id="summon" card_id="72" trigger="play"/></unit>
+  <unit><id>78</id><name>Last Regrower</name><attack>0</attack><health>3</health><skill id="regeneration" x="2"/><skill id="shock" x="3" trigger="death"/></unit>
+  <unit><id>79</id><name>Big Regrower</name><attack>0</attack><health>3</health><skill id="regeneration" x="9"/></unit>
+  <unit><id>1301</id><name>Jotun</name><health>40</health><skill id="blizzard"/></unit>
 </root>"""
 DB = CardDB.from_xml(CARDS)
 
@@ -198,10 +208,10 @@ def test_siphon_needs_a_hurt_commander():
     assert not actions(turns, 3, "heal") and b.sides[0].commander.hp == 40
 
 
-def regrower_hit(roll, disease=0):
+def regrower_hit(roll, disease=0, regrower=35):
     """Turn 2: an Avenger; turn 4: the Regrower beside it; turn 5: the Hard Hitter, played
     on turn 3, hits the Regrower for 5 (3 health)."""
-    b = battle(att=(23, 36, 23, 23, 23), dfn=(20, 35, 23), roll=roll)
+    b = battle(att=(23, 36, 23, 23, 23), dfn=(20, regrower, 23), roll=roll)
     b.start()
     b.play(1)
     b.play(2)
@@ -224,8 +234,8 @@ def test_regeneration_brings_a_card_back():
                     "status": [{"card_uid": 102, "status_flag": "h", "value": 2 + 5}]}
     assert hit["targets"] == [102] and hit["value"] == 5
     assert hit["status"] == [{"card_uid": 102, "status_flag": "h", "value": 2}]
-    assert "defend_kill" not in turn                       # not dead: no Avenge for its neighbour either
-    assert not named(turn, "avenge")
+    assert "defend_kill" not in turn                       # never listed as killed: the client keeps it
+    assert named(turn, "avenge")                           # but it died first: its neighbour Avenges
 
 
 def test_regeneration_can_fail():
@@ -234,14 +244,27 @@ def test_regeneration_can_fail():
     assert turn["defend_kill"] == [102] and named(turn, "avenge")
 
 
-def test_disease_stops_regeneration():
-    b, turn = regrower_hit(roll=0.0, disease=2)            # Disease soaks all 2 of it
+def test_any_disease_stops_regeneration():
+    b, turn = regrower_hit(roll=0.0, disease=1)            # War Metal: Disease stops it outright
     assert not named(turn, "regeneration") and turn["defend_kill"] == [102]
 
 
-def test_regeneration_after_disease_soaks_some():
-    b, turn = regrower_hit(roll=0.0, disease=1)
-    assert b.sides[1].assaults[1].hp == 1 and "defend_kill" not in turn
+def test_regeneration_comes_after_its_death_skills():
+    b, turn = regrower_hit(roll=0.0, regrower=78)
+    back, hit = turn["actions"][:2]
+    assert back["skill_id"] == "regeneration" and hit["targets"] == [102]
+    # its On Death Shock goes off (shown as a negative Heal on the active side's commander)
+    shock, = [a for a in turn["actions"][2:] if a["card_uid"] == 102 and a["skill_id"] in ("heal", "strike")]
+    assert b.sides[0].commander.hp == 40 - 3
+    assert b.sides[1].assaults[1].hp == 2 and "defend_kill" not in turn
+
+
+def test_regeneration_brings_it_back_with_x_even_above_its_max():
+    b, turn = regrower_hit(roll=0.0, regrower=79)
+    back, hit = turn["actions"][:2]
+    assert back["value"] == 9 and back["status"] == [{"card_uid": 102, "status_flag": "h", "value": 9 + 5}]
+    assert hit["status"] == [{"card_uid": 102, "status_flag": "h", "value": 9}]
+    assert b.sides[1].assaults[1].hp == 9 > b.sides[1].assaults[1].max_hp
 
 
 def test_crush_counts_a_kill_that_regenerates():
@@ -458,3 +481,120 @@ def test_emulate_copies_a_help_given_across_from_it():
     assert copy["card_uid"] == 1 and copy["targets"] == ["1"] and copy["value"] == 4
     assert copy["status"] == [{"card_uid": "1", "status_flag": "h", "value": 14}]   # once
     assert b.sides[0].assaults[0].hp == 14
+
+
+# ---- Freeze and Blizzard ------------------------------------------------------------------
+
+def test_freeze_stops_an_enemy_until_its_turn_ends():
+    assert {"freeze", "blizzard"} <= BUILT
+    b = battle(att=(70, 23, 23, 23, 23), dfn=(24, 23, 23))
+    b.start()
+    b.play(1)                                              # turn 2: an enemy Hitter across the Freezer
+    turns = b.play(2)
+    freeze, = actions(turns, 3, "freeze")
+    assert freeze["card_uid"] == 1 and freeze["targets"] == [101]
+    assert {"card_uid": 101, "status_flag": "frozen", "value": 1} in freeze["status"]
+    assert not [a for a in attacks(turns, 4) if a["card_uid"] == 101]        # turn 4: no attack
+    assert {"card_uid": 101, "status_flag": "frozen", "value": 0} in turns[4]["end"]
+    assert not b.sides[1].assaults[0].frozen
+
+
+def test_freeze_stops_a_timer():
+    def delay_after_turn_4(freezer):
+        b = battle(att=(freezer, 23, 23, 23, 23), dfn=(72, 23, 23))
+        b.start()
+        b.play(1)                                          # turn 2: a Slow card (delay 2)
+        b.play(2)                                          # turn 3: frozen (or not); turn 4 counts down
+        return b.sides[1].assaults[0].delay
+    assert delay_after_turn_4(23) == 1 and delay_after_turn_4(70) == 2
+
+
+def test_freeze_all_and_no_payback():
+    b = battle(att=(71, 23, 23, 23, 23), dfn=(73, 24, 23))
+    b.start()
+    b.play(1)
+    b.play(2)                                              # turns 2 and 4: a Paybacker, a Hitter
+    turns = b.play(3)
+    freeze, = actions(turns, 5, "freeze")                  # one action, both frozen, nothing back
+    assert freeze["card_uid"] == 1 and freeze["targets"] == [101, 102]
+    assert not b.sides[0].assaults[0].frozen
+
+
+def test_freeze_can_be_evaded():
+    b = battle(att=(70, 23, 23, 23, 23), dfn=(74, 23, 23))
+    b.start()
+    b.play(1)
+    turns = b.play(2)
+    assert not actions(turns, 3, "freeze") and actions(turns, 3, "evade")
+    assert not b.sides[1].assaults[0].frozen
+
+
+def test_cleanse_thaws_only_an_active_card():
+    b = battle(att=(23, 43, 72, 23, 23), dfn=(23, 23, 23))
+    b.start()
+    b.play(1)
+    dummy = b.sides[0].assaults[0]
+    dummy.frozen = True                                    # frozen, its timer out: thawed
+    turns = b.play(2)
+    cleanse, = actions(turns, 3, "cleanse")
+    assert cleanse["status"] == [{"card_uid": "1", "status_flag": "frozen", "value": 0}]
+    assert not dummy.frozen
+
+
+def test_cleanse_leaves_a_frozen_timer():
+    b = battle(att=(72, 43, 23, 23, 23), dfn=(23, 23, 23))
+    b.start()
+    b.play(1)
+    slow = b.sides[0].assaults[0]
+    slow.frozen = True                                     # frozen with its timer running (1): left
+    turns = b.play(2)
+    assert not actions(turns, 3, "cleanse")
+
+
+def blizzard_battle(att, dfn, att_commander=1300, dfn_commander=1301):
+    return Battle(Setup(DB[att_commander], [(i + 1, DB[c]) for i, c in enumerate(att)],
+                        DB[dfn_commander], [(101 + i, DB[c]) for i, c in enumerate(dfn)]),
+                  chooser=First(0.0), cards=DB)
+
+
+def test_blizzard_hides_the_enemys_cards_until_active():
+    b = blizzard_battle(att=(23, 23, 23, 23, 23), dfn=(72, 23, 23, 23))
+    b.start()
+    turns = b.play(1)                                      # turn 2: Jotun's side plays a Slow card
+    assert turns[2]["plays"] == [{"card_uid": 101,
+                                  "status": [{"card_uid": 101, "status_flag": "blizzard", "value": 1}]}]
+    turns = b.play(2)                                      # turn 4: a card with no timer isn't
+    assert turns[4]["plays"] == [{"card_uid": 102, "status": []}]
+    assert not [a for t in turns.values() for a in t.get("upkeep", []) if a["skill_id"] == "blizzard"]
+    turns = b.play(3)                                      # turn 6: the Slow card's timer runs out
+    reveal, = [a for a in turns[6]["upkeep"] if a["skill_id"] == "blizzard"]
+    assert reveal == {"card_uid": 101, "skill_id": "blizzard", "targets": [101], "value": 0,
+                      "status": [{"card_uid": 101, "status_flag": "blizzard", "value": 0}]}
+    assert not b.sides[1].assaults[0].hidden
+
+
+def test_blizzard_never_hides_the_players_own_cards():
+    b = blizzard_battle(att=(72, 23, 23, 23), dfn=(23, 23, 23), att_commander=1301, dfn_commander=1300)
+    turns = b.start()
+    turns = b.play(1)
+    assert turns[1]["plays"] == [{"card_uid": "1", "status": []}] and not b.sides[0].assaults[0].hidden
+
+
+def test_blizzard_gone_shows_what_it_hid():
+    b = blizzard_battle(att=(24, 23, 23, 23, 23), dfn=(76, 72, 23, 23), dfn_commander=1300)
+    b.start()
+    b.play(1)                                              # turn 2: the Snowcaller (3 health)
+    turns = b.play(2)                                      # turn 3: hit for 2; turn 4: a hidden Slow card
+    assert turns[4]["plays"][0]["status"] == [{"card_uid": 102, "status_flag": "blizzard", "value": 1}]
+    turns = b.play(3)                                      # turn 5: the Snowcaller dies
+    assert turns[5]["defend_kill"] == [101]
+    reveal, = actions(turns, 5, "blizzard")
+    assert reveal["targets"] == [102] and not b.sides[1].assaults[0].hidden
+
+
+def test_blizzard_hides_a_summoned_card_too():
+    b = blizzard_battle(att=(23, 23, 23, 23, 23), dfn=(77, 23, 23))
+    b.start()
+    turns = b.play(1)                                      # turn 2: it summons a Slow card on play
+    summon, = actions(turns, 2, "summon")
+    assert summon["status"] == [{"card_uid": 104, "status_flag": "blizzard", "value": 1}]

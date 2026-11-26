@@ -53,6 +53,12 @@ CARDS = """<root>
   <unit><id>79</id><name>Big Regrower</name><attack>0</attack><health>3</health><skill id="regeneration" x="9"/></unit>
   <unit><id>1301</id><name>Jotun</name><health>40</health><skill id="blizzard"/></unit>
   <unit><id>1302</id><name>Miasma</name><health>40</health><skill id="mist"/></unit>
+  <unit><id>80</id><name>Infuser</name><type>3</type><attack>0</attack><health>10</health><skill id="infuse"/></unit>
+  <unit><id>81</id><name>Raider Infuser</name><type>1</type><attack>0</attack><health>10</health><skill id="infuse" y="2"/></unit>
+  <unit><id>82</id><name>Imperial</name><type>1</type><attack>0</attack><health>10</health></unit>
+  <unit><id>83</id><name>Raider Healer</name><type>2</type><attack>0</attack><health>10</health><skill id="heal" x="3" y="2"/></unit>
+  <unit><id>84</id><name>Progenitor</name><type>6</type><attack>0</attack><health>10</health></unit>
+  <unit><id>85</id><name>Bloody</name><type>3</type><attack>0</attack><health>10</health></unit>
 </root>"""
 DB = CardDB.from_xml(CARDS)
 
@@ -611,3 +617,42 @@ def test_mist_hides_as_blizzard_does_under_its_own_name():
     turns = b.play(3)                                      # turn 6: its timer runs out
     reveal, = [a for a in turns[6]["upkeep"] if a["skill_id"] == "mist"]
     assert reveal["status"] == [{"card_uid": 101, "status_flag": "mist", "value": 0}]
+
+
+# ---- Infuse --------------------------------------------------------------------------------
+
+def test_infuse_makes_a_card_the_casters_faction():
+    assert "infuse" in BUILT
+    b = battle(att=(80, 85, 85, 85, 85), dfn=(82, 85, 85))
+    b.start()
+    b.play(1)                                              # turn 2: an Imperial across
+    turns = b.play(2)
+    infuse, = actions(turns, 3, "infuse")                  # the Infuser's own faction: Bloodthirsty
+    assert infuse["card_uid"] == 1 and infuse["targets"] == [101] and infuse["value"] == 3
+    assert infuse["status"] == [{"card_uid": 101, "status_flag": "infused", "value": 3}]
+    imperial = b.sides[1].assaults[0]
+    assert imperial.faction == 3 and imperial.card.faction == 1
+    assert not actions(b.play(3), 5, "infuse")             # nothing left that isn't Bloodthirsty
+
+
+def test_infuse_takes_its_own_faction_and_picks_either_side():
+    b = battle(att=(81, 85, 82, 82, 82), dfn=(84, 82, 82))
+    b.start()
+    b.play(1)                                              # turn 2: a Progenitor (every faction already)
+    turns = b.play(2)                                      # turn 3: the attacker's own Bloody
+    infuse, = actions(turns, 3, "infuse")
+    assert infuse["targets"] == ["2"] and infuse["value"] == 2
+    assert b.sides[0].assaults[1].faction == 2 and b.sides[1].assaults[0].faction == 6
+
+
+def test_an_infused_cards_helpful_skills_follow_it():
+    def heals(infused):
+        b = battle(att=(83, 85, 23, 23, 23), dfn=(23, 23, 23))
+        b.start()
+        b.play(1)
+        b.play(2)                                          # turn 3: a Bloody beside the Raider Healer
+        healer, bloody = b.sides[0].assaults[:2]
+        healer.infused = 3 if infused else 0
+        bloody.hp = 5
+        return [a["targets"] for a in actions(b.play(3), 5, "heal")]
+    assert heals(False) == [] and heals(True) == [["2"]]   # "Heal Raider" is now "Heal Bloodthirsty"

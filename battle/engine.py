@@ -48,7 +48,8 @@ HELPFUL = ("heal", "mend", "overload", "protect", "rally", "fortify", "enrage", 
 WAR_METAL_HOSTILE = ("shock", "chaos", "freeze")
 WAR_METAL_HELPFUL = ("repair", "supply", "cleanse", "split")
 HIDING = ("blizzard", "mist")       # War Metal's: a side's cards hidden from the player until active
-ACTIVATION = HOSTILE + HELPFUL + WAR_METAL_HOSTILE + WAR_METAL_HELPFUL
+WAR_METAL_NEUTRAL = ("infuse",)     # on cards of either side, neither hostile nor helpful
+ACTIVATION = HOSTILE + HELPFUL + WAR_METAL_HOSTILE + WAR_METAL_HELPFUL + WAR_METAL_NEUTRAL
 X_ACTIVATION = {"enfeeble", "besiege", "siege", "strike", "sunder", "weaken", "mimic", "shock"}   # Sabotage lowers these
 DEFENSIVE = {"armored", "avenge", "scavenge", "corrosive", "counter", "evade", "subdue", "absorb", "flying",
              "payback", "revenge", "tribute", "refresh", "wall", "barrier"}
@@ -57,7 +58,8 @@ TRIGGERED = {"allegiance", "flurry", "valor", "stasis", "summon", "bravery", "en
 # War Metal Tyrant's skills, brought back (Tyrant Unleashed dropped them; the client still has
 # their icons). Regeneration is War Metal's Regenerate, named after its icon (regeneration16).
 WAR_METAL = {"antiair", "fear", "crush", "siphon", "regeneration", "burst", "intercept", "backfire",
-             "immobilize", "fusion", "emulate", *HIDING, *WAR_METAL_HOSTILE, *WAR_METAL_HELPFUL}
+             "immobilize", "fusion", "emulate", *HIDING, *WAR_METAL_HOSTILE, *WAR_METAL_HELPFUL,
+             *WAR_METAL_NEUTRAL}
 BUILT = set(ACTIVATION) | DEFENSIVE | INSTANT_DEBUFF | TRIGGERED | WAR_METAL | {
     "pierce", "swipe", "hunt", "poison", "legion", "coalition", "rupture", "venom", "leech", "drain",
     "berserk", "mark"}
@@ -120,10 +122,16 @@ class Unit:
         self.frozen = False          # Freeze: no action, and its timer stops, until its next turn ends
         self.hidden = ""             # Blizzard / Mist (the one): covered to the other player until active
         self.regen_back = 0          # Regeneration: the health it comes back with, once its death is done
+        self.infused = 0             # Infuse: the faction it was made, for good (0: its own)
 
     @property
     def alive(self) -> bool:
         return self.hp > 0
+
+    @property
+    def faction(self) -> int:
+        """Its faction now: Infuse's, or its card's."""
+        return self.infused or self.card.faction
 
     @property
     def max_hp(self) -> int:
@@ -579,7 +587,10 @@ class Battle:
             unit.step = "attacked"
 
     def _use(self, unit: Unit, spec) -> bool:
-        """An active skill at its current value. True if it did something."""
+        """An active skill at its current value. True if it did something. An Infused card's
+        faction-limited helpful skills ("Heal Raider") are for its new faction."""
+        if unit.infused and spec.y and spec.id in HELPFUL + WAR_METAL_HELPFUL:
+            spec = replace(spec, y=unit.infused)
         x = spec.x * (2 if unit.fused and spec.id != "fusion" else 1)
         if spec.id in X_ACTIVATION:
             x = max(0, x - unit.sabotaged)
@@ -705,7 +716,7 @@ class Battle:
             if legion:
                 side = self.sides[att.side]
                 brigade = legion * sum(1 for u in side.assaults if u is not att and u.alive
-                                       and u.card.faction == att.card.faction)
+                                       and u.faction == att.faction)
                 damage += brigade
             damage += self._bloodlust
             if target.has("flying"):
@@ -714,7 +725,7 @@ class Battle:
                 damage += att.skill("burst")
             coalition = att.skill("coalition")
             if coalition:
-                damage += coalition * len({u.card.faction for u in self.sides[att.side].assaults if u.alive})
+                damage += coalition * len({u.faction for u in self.sides[att.side].assaults if u.alive})
             damage += att.skill("rupture")
             if att.skill("venom") and target.poisoned > 0:
                 damage += att.skill("venom")
@@ -943,7 +954,7 @@ class Battle:
         if hostile and unit.chaosed:
             units = [u for u in units if u is not unit]
         if spec.y and not self._no_factions():
-            units = [u for u in units if u.card.faction in (spec.y, PROGENITOR)]
+            units = [u for u in units if u.faction in (spec.y, PROGENITOR)]
         return units
 
     def _pick(self, unit: Unit, spec, candidates: list[Unit]) -> list[Unit]:
@@ -1100,6 +1111,28 @@ class Battle:
             if unit.alive:
                 self._action(unit, flag, [unit], 0, [self._status(unit, flag, 0)])
 
+    def _skill_infuse(self, unit: Unit, spec) -> bool:
+        """Infuse (War Metal Tyrant): an assault on either side (each, with All) that isn't of
+        the skill's faction (its y; with none, the caster's own) becomes that faction for good:
+        faction limits, Legion, Coalition... count it as one, and its own faction-limited
+        helpful skills ("Heal Raider") switch to it (see _use); skills for any faction stay.
+        Progenitor cards (every faction already) are left. It can't be Cleansed. Neither
+        hostile nor helpful: no Evade, Payback, Intercept, Tribute or Emulate, and Chaos
+        doesn't turn it (War Metal: no assault owned it; only the raid boss Gore Typhon).
+        Shown as an "infuse" action whose "infused" status is the faction: the client mod
+        draws the card in that faction's frame and type icon."""
+        faction = spec.y or unit.faction
+        cands = [u for side in self.sides for u in side.assaults if u.alive and u.faction not in (faction, PROGENITOR)]
+        picked = self._pick(unit, spec, cands)
+        if not picked:
+            return False
+        for t in picked:
+            t.infused = faction
+        self._action(unit, "infuse", picked, faction,
+                     [self._status(t, "infused", faction) for t in picked] + self._shown_health(picked)
+                     + self._own_health(unit))
+        return True
+
     def _skill_weaken(self, unit: Unit, spec) -> bool:
         return self._weaken(unit, spec, sunder=False)
 
@@ -1223,7 +1256,7 @@ class Battle:
             return []
         side, i, reach = self.sides[unit.side], self.slot(unit), self._reach()
         return [u for j, u in enumerate(side.assaults) if j != i and abs(j - i) <= reach and ok(u)
-                and (not spec.y or self._no_factions() or u.card.faction in (spec.y, PROGENITOR))]
+                and (not spec.y or self._no_factions() or u.faction in (spec.y, PROGENITOR))]
 
     def _skill_fortify(self, unit: Unit, spec) -> bool:
         """Adjacent allies: +x max health (and health), no random pick."""
@@ -1501,7 +1534,7 @@ class Battle:
         mega = self._passive("megamorphosis", side.index)
         for ally in side.assaults if not played.summoned else ():
             value = ally.skill("allegiance")
-            if ally is played or not ally.alive or not value or not (mega or ally.card.faction == played.card.faction):
+            if ally is played or not ally.alive or not value or not (mega or ally.faction == played.faction):
                 continue
             if not ally.sundered:
                 ally.perm_attack += value
@@ -1513,9 +1546,9 @@ class Battle:
         oath = self._passive("oath_of_loyalty", side.index)        # the played card's side
         value = played.skill("allegiance")
         if oath and value and played.alive:
-            faction = played.card.faction
-            same = sum(1 for u in side.assaults if u is not played and u.alive and (mega or u.card.faction == faction))
-            same += sum(1 for u in side.structures if u.alive and (mega or u.card.faction == faction)
+            faction = played.faction
+            same = sum(1 for u in side.assaults if u is not played and u.alive and (mega or u.faction == faction))
+            same += sum(1 for u in side.structures if u.alive and (mega or u.faction == faction)
                         and u.uid != FIRST_UID[side.index] - 1 and u.uid not in self._fortress_uids)
             if same:                                       # not the dominion or fortresses
                 gain = value * same
@@ -1529,14 +1562,14 @@ class Battle:
     def _stasis(self, side: Side, played: Unit) -> None:
         """A delayed assault of a faction with Stasis in play is protected until it acts.
         Temporal Backlash: Counter X counts as Stasis X/2. Megamorphosis: every faction's."""
-        faction = played.card.faction
+        faction = played.faction
         backlash = self._passive("temporal_backlash", side.index)
         mega = self._passive("megamorphosis", side.index)
         if played.skill("stasis") or (backlash and played.skill("counter")):
             side.stasis_factions.add(faction)
         if played.delay <= 0 or not played.is_assault or not (mega or faction in side.stasis_factions):
             return
-        same = lambda u: mega or u.card.faction == faction           # noqa: E731
+        same = lambda u: mega or u.faction == faction           # noqa: E731
         total = side.commander.skill("stasis") if same(side.commander) else 0
         total += sum(u.skill("stasis") for u in side.structures + side.assaults if u.alive and same(u))
         if backlash:
@@ -1747,7 +1780,7 @@ class Battle:
         """Devotion: a card played of its commander's faction gains a quarter of its
         health as max health (rounded up)."""
         rule = self._passive("devotion", side.index)
-        if not rule or played.card.faction != side.commander.card.faction or not played.alive:
+        if not rule or played.faction != side.commander.faction or not played.alive:
             return
         value = -(-played.card.health // rule[0])
         self._ext_hp(played, value)

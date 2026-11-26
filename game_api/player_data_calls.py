@@ -161,7 +161,7 @@ class PlayerDataCalls:
             cards = {str(int(k)): int(v) for k, v in counts.items() if int(v) > 0}
             dominion = int(params.get("dominion_id") or 0)
         except (TypeError, ValueError, AttributeError):
-            return self._refuse(params, "Invalid deck."), "refused setDeckCards: couldn't read the deck"
+            return self._refuse_deck(params, "Invalid deck."), "refused setDeckCards: couldn't read the deck"
         saved = self.player()
         max_decks = (saved.max_decks if saved is not None and saved.max_decks else None) or int(self._start.get("max_decks") or 1)
         need = defaultdict(int)
@@ -175,7 +175,7 @@ class PlayerDataCalls:
                    else f"a deck holds at most {DECK_SIZE} cards" if sum(cards.values()) > DECK_SIZE
                    else f"you don't own enough of card {', '.join(short)}" if short else None)
         if problem:
-            return self._refuse(params, f"Can't save that deck: {problem}."), f"refused setDeckCards: {problem}"
+            return self._refuse_deck(params, f"Can't save that deck: {problem}."), f"refused setDeckCards: {problem}"
         old = (player.decks or {}).get(deck_id) or {}
         player.decks = player.decks or {}
         player.decks[deck_id] = {"name": old.get("name"), "commander_id": commander, "cards": cards,
@@ -189,6 +189,15 @@ class PlayerDataCalls:
             reply = self._ok(params)
             reply.update(self._start_parts(params, keys))
         return reply, f"saved deck {deck_id}: commander {commander}, {sum(cards.values())} cards"
+
+    def _refuse_deck(self, params: dict, message: str) -> dict:
+        """A refused setDeckCards, with the player's cards and decks as they are: the client
+        reads both from any setDeckCards reply (SetDeckResponse), and without them it threw
+        and the game stopped (2026-11-25). With them it shows the message and puts the saved
+        deck back."""
+        reply = self._refuse(params, message)
+        reply.update(self._player_parts(params, ("user_cards", "user_decks")))
+        return reply
 
     def _set_flag(self, params: dict) -> tuple[dict, str]:
         """setUserFlag flag=<name> value=<value>: keeps the flag in the save. The reply is

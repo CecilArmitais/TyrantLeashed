@@ -87,6 +87,16 @@ def test_deck_slots_and_the_active_deck(tmp_path):
     assert r["store_upgrades"]["2"] == []
 
 
+def test_a_refused_deck_brings_the_saved_cards_and_decks(tmp_path):
+    """The client reads user_cards and user_decks from any setDeckCards reply: a refusal
+    without them stopped the game (2026-11-25)."""
+    api, _ = game(tmp_path)
+    r, how = ask(api, "setDeckCards", deck_id="1", commander_id="1000", dominion_id="0",
+                 cards=json.dumps({"99999": 1}))
+    assert r["result"] is False and how.startswith("refused setDeckCards: you don't own enough")
+    assert "1" in r["user_decks"] and set(r["user_cards"]) == set(api.player().cards)
+
+
 # ---- name and refreshes --------------------------------------------------------------------------
 
 def test_the_name(tmp_path):

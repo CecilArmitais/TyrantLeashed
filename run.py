@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from common.paths import ARCHIVE_DIR, CLIENT_DIR  # noqa: E402
 from game_api import GameApi  # noqa: E402
 from rules.mod_bundles import ModBundleError  # noqa: E402
+from web.mod_client import ModClientError  # noqa: E402
 from web.offline_server import OfflineServer  # noqa: E402
 
 
@@ -55,13 +56,18 @@ def main() -> None:
         api = GameApi(battle_engine=args.engine, single_player=args.single_player)
     except ModBundleError as e:                         # game/mods/bundles.json
         sys.exit(f"Mods: {e}")
-    server = OfflineServer((args.host, args.port), quiet_static=args.quiet, api=api)
+    try:
+        server = OfflineServer((args.host, args.port), quiet_static=args.quiet, api=api)
+    except ModClientError as e:                         # game/mods/client/built_from.json
+        sys.exit(f"Mods: {e}")
     print(f"Tyrant Unleashed offline server: {server.url}")
     if args.host in ("0.0.0.0", "::", ""):
         print(f"  other machines: http://<this machine's address>:{args.port}/ (players sign in on the server's page)")
     if api.mod_bundles:
         sprites = sum(len(b.sprites) for b in api.mod_bundles)
         print(f"  mods: {len(api.mod_bundles)} bundle(s) with {sprites} sprite(s), from {api.mods_dir}")
+    if server.client_files:
+        print(f"  mods: the modded client ({', '.join(sorted(server.client_files))}), from {api.mods_dir}")
     if server.api.missing_fixtures:
         print(f"  NOTE: no fixtures for {', '.join(server.api.missing_fixtures)}; those calls will be unsupported.")
         print("        Build them from a recorded session with: python server/tools/make_fixtures.py")

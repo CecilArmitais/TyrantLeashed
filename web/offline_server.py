@@ -21,7 +21,10 @@ URL layout:
                                          what the sign-in page asks and sends (JSON); signing
                                          in sets the session cookie, tu_session
   /account/save                          the signed-in player's save, to download
-  /Release/...                           client files (game/client/tyu-web-2.30.80)
+  /Release/...                           client files (game/client/tyu-web-2.30.80), or a host's
+                                         modded ones (game/mods/client; web/mod_client.py);
+                                         browsers check back each time, so a rebuilt or removed
+                                         set is never mixed with what they kept
   /tu-offline/...                        files from server/web/static (the shim, the sign-in page)
   /tu/<host>/<path>                      archived game files (game/assets/<host>/<path>)
   /tu/cdn.synapsegames.com/unleashed/asset_bundles/mods/<file>
@@ -49,6 +52,7 @@ from common.paths import ARCHIVE_DIR, CLIENT_DIR, WEB_DIR
 from game_api import GameApi
 from game_api import encode as encode_reply
 from rules import mod_bundles
+from web import mod_client
 from web.archive_layout import safe_rel_path   # the capture tools' archive layout
 
 MOD_HOST = "cdn.synapsegames.com"                    # where the game asks for asset bundles
@@ -105,13 +109,16 @@ class OfflineServer(ThreadingHTTPServer):
 
     def __init__(self, address, client_dir: Path = CLIENT_DIR, archive_dir: Path = ARCHIVE_DIR,
                  web_dir: Path = WEB_DIR, log=print, quiet_static: bool = False, api: GameApi | None = None):
+        api = api if api is not None else GameApi()
+        client_files = mod_client.load(api.mods_dir, client_dir)   # before taking the port: it may refuse
         super().__init__(address, Handler)
         self.client_dir = Path(client_dir)
+        self.client_files = client_files       # "Release/<file>" -> a host's replacement for it
         self.archive_dir = Path(archive_dir)
         self.web_dir = Path(web_dir)
         self.log = log
         self.quiet_static = quiet_static
-        self.api = api if api is not None else GameApi()
+        self.api = api
         self._lock = threading.Lock()
         self.started = time.time()
         self.requests = 0
@@ -218,7 +225,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/favicon.ico" and not (self.server.client_dir / "favicon.ico").is_file():
             return self._send(204, b"", "image/x-icon", head)  # browsers always ask; there is none
         if path.startswith("/Release/") or path == "/favicon.ico":
-            return self._file(_inside(self.server.client_dir, path.lstrip("/")), head, "client")
+            rel = path.lstrip("/")
+            modded = self.server.client_files.get(rel)
+            return self._file(modded or _inside(self.server.client_dir, rel), head,
+                              "mod client" if modded else "client", cache="no-cache", etag=True)
         if path.startswith("/tu/"):
             host, _, rest = path[len("/tu/"):].partition("/")
             if host == MOD_HOST and rest.startswith(MOD_BUNDLES):           # the host's own bundles
@@ -233,16 +243,30 @@ class Handler(BaseHTTPRequestHandler):
     # ---- handlers --------------------------------------------------------------------------------
 
     def _file(self, target: Path | None, head: bool, kind: str, label: str | None = None,
-              cache: str = "max-age=3600"):
+              cache: str = "max-age=3600", etag: bool = False):
+        """Send a file. With etag, it's tagged by size and time, and a browser that already
+        has that one (If-None-Match) is told so (304) instead of being sent it again."""
         label = label or self.path
         if target is None or not target.is_file():
             return self._not_found(label, kind)
-        size = target.stat().st_size
+        st = target.stat()
+        size = st.st_size
+        tag = f'"{size:x}-{st.st_mtime_ns:x}"' if etag else None
+        has = [t.strip().removeprefix("W/") for t in (self.headers.get("If-None-Match") or "").split(",")]
+        if tag and tag in has:
+            self.send_response(304)
+            self.send_header("ETag", tag)
+            self.send_header("Cache-Control", cache)
+            self.end_headers()
+            self.server.note(f"304 {kind} {label} (the browser has it)", static=True)
+            return
         ctype = CONTENT_TYPES.get(target.suffix.lower(), "application/octet-stream")
         self.send_response(200)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(size))
         self.send_header("Cache-Control", cache)
+        if tag:
+            self.send_header("ETag", tag)
         self.end_headers()
         if not head:
             with target.open("rb") as f:

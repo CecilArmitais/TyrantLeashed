@@ -121,8 +121,18 @@ skills the game has none for: a skill's icon is its id plus `16` (small cards) o
 ```
 
 A bundle must be built for Unity 5.4.2 (WebGL), with its sprites in a 2D Toolkit sprite
-collection. Restart the server after changing mods; a broken list stops the start and
-says why. The details are in `rules/mod_bundles.py`.
+collection. The details are in `rules/mod_bundles.py`.
+
+A host can also replace some of the web client's own files, such as its data package with
+new skill effects in it. They go in `game/mods/client/`, laid out as the client is
+(`Release/<file>`), with a `built_from.json` that names them and the client files they
+were made from (size and SHA-256). The server serves them in place of the client's own,
+and only as that whole set, for that client: a set with a file missing, or one made from
+other client files, stops the start. Browsers check back for client files each time they
+load the game, so a rebuilt or removed set is never mixed with one they kept. The details
+are in `web/mod_client.py`.
+
+Restart the server after changing mods; a broken list or set stops the start and says why.
 
 ## State
 
@@ -175,7 +185,7 @@ test; it needs the optimizer's source in `reference/tuo/` beside the server.
 | Path | What |
 |---|---|
 | `run.py` | Starts the server. |
-| `web/` | The HTTP server (`offline_server.py`) and the files it serves of its own (`static/`: the script the game page loads first, the sign-in page). |
+| `web/` | The HTTP server (`offline_server.py`), a host's modded client files (`mod_client.py`) and the files it serves of its own (`static/`: the script the game page loads first, the sign-in page). |
 | `game_api/` | Answers the game's API calls: `core.py` hands each message to the part for its feature (`store_calls.py`, `raid_calls.py`...). |
 | `rules/` | The game's rules, one module per feature (`store.py`, `raids.py`...), and the player's save (`player_state.py`). |
 | `battle/` | The battle engine. |
